@@ -12,17 +12,21 @@ export async function createBrowser(options: BrowserOptions): Promise<BrowserRes
   let browser: Browser;
   
   if (options.provider === 'browserbase') {
-    if (!options.sessionId) {
-      throw new Error('sessionId is required for browserbase provider');
-    }
+    let wsUrl: string;
     
-    const apiKey = process.env.BROWSERBASE_API_KEY;
-    if (!apiKey) {
-      throw new Error('BROWSERBASE_API_KEY environment variable is required');
+    if (options.connectUrl) {
+      // Use the provided connect URL from Browserbase session response
+      wsUrl = options.connectUrl;
+    } else if (options.sessionId) {
+      // Legacy: construct URL from sessionId (deprecated)
+      const apiKey = process.env.BROWSERBASE_API_KEY;
+      if (!apiKey) {
+        throw new Error('BROWSERBASE_API_KEY environment variable is required');
+      }
+      wsUrl = `wss://ws.browserbase.com?apiKey=${apiKey}&sessionId=${options.sessionId}`;
+    } else {
+      throw new Error('Either connectUrl or sessionId is required for browserbase provider');
     }
-
-    // Construct WebSocket URL for Browserbase
-    const wsUrl = `wss://ws.browserbase.com?apiKey=${apiKey}&sessionId=${options.sessionId}`;
     
     // Connect to Browserbase via CDP
     browser = await chromium.connectOverCDP(wsUrl);

@@ -11,7 +11,8 @@
     "test:proxy": "vitest tests/proxy.test.ts",
     "test:cache": "vitest tests/cache.test.ts",
     "test:integration": "vitest tests/integration.test.ts",
-    "example": "tsx examples/basic-usage.js"
+    "example": "tsx examples/basic-usage.js",
+    "example:browserbase": "tsx --env-file=.env examples/test-browserbase.js"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -25,7 +26,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.844.0",
     "@aws-sdk/lib-storage": "^3.844.0",
-    "@browserbasehq/sdk": "^1.4.2",
+    "@browserbasehq/sdk": "^2.6.0",
     "playwright": "^1.54.1",
     "zod": "^4.0.5"
   }
