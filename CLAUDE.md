@@ -4,6 +4,11 @@
 - We use `bun` instead of `npm` and `node`.
 - USE `rules/use-bun-instead-of-node-vite-npm-pnpm.md` to see how
 
+## Rules to Follow
+- `rules/use-bun-instead-of-node-vite-npm-pnpm.md`: how to use bun instead of node, vite, npm, pnpm
+- `rules/types.md`: how to use and create
+- `rules/plans.md`: how to create plans
+
 ## Testing
 - DO NOT use cos.com for testing - has non-standard behavior
 - Use amgbrand.com or blackseatribe.com for verify commands
@@ -39,7 +44,6 @@
 ## Documentation
 - Keep concise - avoid duplication
 - Update docs when changing functionality
-- Check rules/ for patterns
 
 ## Common Fixes
 - CLI flags: Initialize `options || {}` before custom flags
