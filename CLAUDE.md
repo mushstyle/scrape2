@@ -1,7 +1,8 @@
 # Claude Development Rules
 
 ## use bun
-We use `bun` instead of `npm` and `node`.
+- We use `bun` instead of `npm` and `node`.
+- USE `rules/use-bun-instead-of-node-vite-npm-pnpm.md` to see how
 
 ## Testing
 - DO NOT use cos.com for testing - has non-standard behavior
@@ -21,6 +22,7 @@ We use `bun` instead of `npm` and `node`.
 ## Git Workflow
 - NEVER commit to main - always create branch
 - NEVER commit without explicit permission
+- Create the PR yourself using current branch, if no PR exists for current branch
 - PR merge = `gh pr create` → `gh pr merge --squash` → `git pull`
 
 ## Browser/Proxy
