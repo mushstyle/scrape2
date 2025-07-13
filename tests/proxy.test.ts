@@ -1,4 +1,4 @@
-import { test, expect } from 'bun:test';
+import { test, expect } from 'vitest';
 import { loadProxies, getProxyById, getDefaultProxy, formatProxyForPlaywright } from '../src/lib/proxy.js';
 import type { ProxyStore } from '../src/types/proxy.js';
 

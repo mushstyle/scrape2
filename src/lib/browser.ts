@@ -1,4 +1,5 @@
-import { chromium, Browser, BrowserContext } from 'playwright';
+import { chromium } from 'playwright';
+import type { Browser } from 'playwright';
 import type { BrowserOptions, BrowserResult } from '../types/browser.js';
 
 /**

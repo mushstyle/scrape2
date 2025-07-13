@@ -1,37 +1,26 @@
 # Key Insights and Discoveries
 
-## The Bun + Playwright + Proxy Issue
+**Note**: While the Bun-related insights below are valid and were discovered during development, this project now uses Node.js v20+ for better compatibility with Browserbase and other tools.
+
+## Playwright + Proxy Caching Solution
 
 ### Discovery
-When using Playwright's `route.fetch()` with authenticated proxies in Bun, the proxy authentication fails with 407 errors. The same code works perfectly in Node.js.
-
-### Root Cause
-Bun has a compatibility issue with Playwright's `route.fetch()` method when proxies require authentication. The proxy credentials are not properly passed through when `route.fetch()` creates a new request.
+When using proxies with Playwright, the browser's native HTTP cache is disabled. This leads to 0% bandwidth savings and every resource being re-downloaded on every request.
 
 ### Solution
-We implemented automatic runtime detection and use different strategies:
+We implemented caching at the Playwright API level using `route.fetch()` to intercept and cache responses:
 
-**Node.js**: Use `route.fetch()` normally
 ```javascript
 const response = await route.fetch();
 await route.fulfill({ response });
 ```
 
-**Bun**: Use `route.continue()` + response event listener
-```javascript
-// Set up response listener
-page.on('response', async (response) => {
-  // Capture and cache response
-});
-
-// In route handler
-await route.continue();
-```
+This approach works perfectly with Node.js and provides full caching functionality even when using authenticated proxies.
 
 ### Impact
-- The cache module automatically detects the runtime
-- Full functionality maintained in both environments
-- No user intervention required
+- Full caching functionality with proxies
+- 40-98% bandwidth savings
+- Works with all proxy configurations
 
 ## Cache Implementation Insights
 
@@ -107,11 +96,11 @@ Some tests require external network access. When tests fail with ECONNREFUSED or
 - Proxy authentication issues
 - Site availability
 
-### 2. Runtime Differences
-Always test with both Bun and Node.js when dealing with:
-- Network operations
-- Proxy authentication
-- Native Node.js APIs
+### 2. Node.js Version Requirements
+This project requires Node.js v20 or later for:
+- Native .env file support (--env-file flag)
+- Modern ES modules
+- Stable async/await performance
 
 ## Credits
 

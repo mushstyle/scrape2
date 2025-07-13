@@ -1,4 +1,4 @@
-import { test, expect } from 'bun:test';
+import { test, expect } from 'vitest';
 import { createBrowser } from '../src/lib/browser.js';
 
 test('createBrowser - local browser', async () => {

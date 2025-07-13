@@ -1,11 +1,11 @@
 # Claude Development Rules
 
-## use bun
-- We use `bun` instead of `npm` and `node`.
-- USE `rules/use-bun-instead-of-node-vite-npm-pnpm.md` to see how
+## use node
+- We use Node.js v20+ with native `.env` support
+- Use `npm` for package management
+- Use `vitest` for testing instead of Bun test
 
 ## Rules to Follow
-- `rules/use-bun-instead-of-node-vite-npm-pnpm.md`: how to use bun instead of node, vite, npm, pnpm
 - `rules/types.md`: how to use and create
 - `rules/plans.md`: how to create plans
 
@@ -20,8 +20,8 @@
 - Follow existing patterns in neighboring files
 
 ## Commands
-- Scripts via `bun run <name>` (see package.json)
-- Verify commands: `bun run scrape verify [paginate|item]`
+- Scripts via `npm run <name>` (see package.json)
+- Verify commands: `npm run scrape verify [paginate|item]`
 - All browser options after `--` (e.g., `-- --browser-type local`)
 
 ## Git Workflow

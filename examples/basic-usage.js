@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node --env-file=.env
 
 /**
  * Basic usage example of browser, proxy, and cache modules
@@ -9,12 +9,12 @@
  * - Enabling cache on a page
  * - Making cached requests
  * 
- * Run with: bun run examples/basic-usage.ts
+ * Run with: npm run example
  */
 
-import { createBrowser } from '../src/lib/browser.js';
-import { loadProxies, getProxyById, formatProxyForPlaywright } from '../src/lib/proxy.js';
-import { RequestCache } from '../src/lib/cache.js';
+import { createBrowser } from '../src/lib/browser.ts';
+import { loadProxies, getProxyById, formatProxyForPlaywright } from '../src/lib/proxy.ts';
+import { RequestCache } from '../src/lib/cache.ts';
 
 async function main() {
   console.log('📦 Loading proxies...');

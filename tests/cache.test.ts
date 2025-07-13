@@ -1,4 +1,4 @@
-import { test, expect } from 'bun:test';
+import { test, expect } from 'vitest';
 import { chromium } from 'playwright';
 import { RequestCache } from '../src/lib/cache.js';
 

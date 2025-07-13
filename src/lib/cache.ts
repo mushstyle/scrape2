@@ -20,107 +20,6 @@ export class RequestCache {
    * Enable caching for a page
    */
   async enableForPage(page: Page): Promise<void> {
-    // Detect if we're running in Bun
-    const isBun = typeof Bun !== 'undefined';
-    
-    if (isBun) {
-      // Bun workaround: Use route.continue() + response event
-      await this.enableForPageBun(page);
-    } else {
-      // Node.js: Use route.fetch() normally
-      await this.enableForPageNode(page);
-    }
-  }
-
-  /**
-   * Bun-specific implementation using route.continue()
-   */
-  private async enableForPageBun(page: Page): Promise<void> {
-    const pendingRequests = new Map<string, (entry: CacheEntry | null) => void>();
-    
-    // Listen to response events to capture them
-    page.on('response', async (response) => {
-      const url = response.url();
-      const resolve = pendingRequests.get(url);
-      
-      if (resolve && response.status() >= 200 && response.status() < 300) {
-        try {
-          const body = await response.body();
-          const headers: Record<string, string> = {};
-          
-          // Convert headers to plain object
-          const responseHeaders = response.headers();
-          for (const [key, value] of Object.entries(responseHeaders)) {
-            headers[key] = value;
-          }
-          
-          const cacheEntry: CacheEntry = {
-            url,
-            response: body,
-            headers,
-            status: response.status(),
-            timestamp: Date.now(),
-            size: body.length
-          };
-          
-          this.set(url, cacheEntry);
-          resolve(cacheEntry);
-        } catch (e) {
-          resolve(null);
-        }
-      }
-      
-      pendingRequests.delete(url);
-    });
-    
-    await page.route('**/*', async (route: Route) => {
-      const request = route.request();
-      const method = request.method();
-      const url = request.url();
-
-      // Only cache GET requests
-      if (method !== 'GET') {
-        return route.continue();
-      }
-
-      // Skip requests with auth headers
-      const headers = await request.allHeaders();
-      if (headers.authorization || headers.cookie) {
-        return route.continue();
-      }
-
-      // Check cache
-      const cached = this.get(url);
-      if (cached) {
-        this.stats.hits++;
-        return route.fulfill({
-          status: cached.status,
-          headers: cached.headers,
-          body: cached.response
-        });
-      }
-
-      // Cache miss - continue the request and capture response
-      this.stats.misses++;
-      
-      // Create a promise to wait for the response
-      new Promise<CacheEntry | null>((resolve) => {
-        pendingRequests.set(url, resolve);
-        // Timeout after 5 seconds
-        setTimeout(() => {
-          pendingRequests.delete(url);
-          resolve(null);
-        }, 5000);
-      });
-      
-      return route.continue();
-    });
-  }
-
-  /**
-   * Node.js implementation using route.fetch()
-   */
-  private async enableForPageNode(page: Page): Promise<void> {
     await page.route('**/*', async (route: Route) => {
       const request = route.request();
       const method = request.method();
@@ -178,6 +77,7 @@ export class RequestCache {
       });
     });
   }
+
 
   /**
    * Get cached entry

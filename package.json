@@ -4,15 +4,20 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "test": "bun test",
-    "test:browser": "bun test tests/browser.test.ts",
-    "test:proxy": "bun test tests/proxy.test.ts",
-    "test:cache": "bun test tests/cache.test.ts",
-    "test:integration": "bun test tests/integration.test.ts",
-    "example": "bun run examples/basic-usage.ts"
+    "build": "tsc",
+    "test": "vitest",
+    "test:watch": "vitest watch",
+    "test:browser": "vitest tests/browser.test.ts",
+    "test:proxy": "vitest tests/proxy.test.ts",
+    "test:cache": "vitest tests/cache.test.ts",
+    "test:integration": "vitest tests/integration.test.ts",
+    "example": "tsx examples/basic-usage.js"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/node": "^20.0.0",
+    "tsx": "^4.20.1",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -20,6 +25,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.844.0",
     "@aws-sdk/lib-storage": "^3.844.0",
+    "@browserbasehq/sdk": "^1.4.2",
     "playwright": "^1.54.1",
     "zod": "^4.0.5"
   }
