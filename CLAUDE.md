@@ -22,6 +22,7 @@
 ## Git Workflow
 - NEVER commit to main - always create branch
 - NEVER commit without explicit permission
+- Create the PR yourself using current branch, if no PR exists for current branch
 - PR merge = `gh pr create` → `gh pr merge --squash` → `git pull`
 
 ## Browser/Proxy
