@@ -9,7 +9,7 @@
    - [ ] Implement createBrowser function for Browserbase connection
    - [ ] Implement createBrowser function for local Chrome (always headed)
    - [ ] Add cleanup function that properly closes browser instances
-   - [ ] Create type definitions in `src/lib/types/browser.ts`
+   - [ ] Create type definitions in `src/types/browser.ts`
 
 [ ] 2. Create Proxy Module (`src/lib/proxy.ts`)
    - [ ] Define TypeScript interfaces for Proxy and ProxyStore
@@ -17,7 +17,7 @@
    - [ ] Implement getProxyById function for specific proxy retrieval
    - [ ] Implement getDefaultProxy function
    - [ ] Implement formatProxyForPlaywright converter function
-   - [ ] Create type definitions in `src/lib/types/proxy.ts`
+   - [ ] Create type definitions in `src/types/proxy.ts`
 
 [ ] 3. Create Cache Module (`src/lib/cache.ts`)
    - [ ] Define CacheOptions interface with maxSizeBytes (default 100MB)
@@ -26,7 +26,7 @@
    - [ ] Implement LRU eviction when size limit exceeded
    - [ ] Implement getStats method for cache metrics
    - [ ] Implement clear method with optional domain filtering
-   - [ ] Create type definitions in `src/lib/types/cache.ts`
+   - [ ] Create type definitions in `src/types/cache.ts`
 
 [ ] 4. Create Integration Tests
    - [ ] Test browser creation with Browserbase
@@ -154,6 +154,9 @@ class RequestCache {
 import { createBrowser } from './lib/browser.js';
 import { loadProxies, getProxyById, formatProxyForPlaywright } from './lib/proxy.js';
 import { RequestCache } from './lib/cache.js';
+// Types are imported from src/types/
+import type { BrowserOptions } from './types/browser.js';
+import type { Proxy } from './types/proxy.js';
 
 // 1. Load proxies
 const proxyStore = await loadProxies();
@@ -189,10 +192,10 @@ src/
     browser.ts      # Browser creation interface
     proxy.ts        # Proxy loading and selection
     cache.ts        # Request caching
-    types/
-      browser.ts    # Browser-related types
-      proxy.ts      # Proxy-related types
-      cache.ts      # Cache-related types
+  types/
+    browser.ts      # Browser-related types
+    proxy.ts        # Proxy-related types
+    cache.ts        # Cache-related types
 ```
 
 ## Implementation Notes
