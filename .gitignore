@@ -1,0 +1,15 @@
+node_modules
+.env
+.env-old
+dist/
+logs/
+.tmp.txt
+pending-items/
+tmp.md
+.env.*
+smoke_output_*.json
+
+.DS_Store
+db/proxies.json
+db/proxy-strategies.json
+db/proxy-cooldowns.json
