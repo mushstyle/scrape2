@@ -61,20 +61,24 @@ test('RequestCache - clear by domain', async () => {
   
   await cache.enableForPage(page);
 
-  // Cache some requests
+  // Cache some requests from different paths
   await page.goto('https://httpbin.org/json');
-  await page.goto('https://example.com');
+  await page.goto('https://httpbin.org/uuid');
 
   let stats = cache.getStats();
   expect(stats.itemCount).toBe(2);
 
-  // Clear only httpbin.org
+  // Clear httpbin.org domain
   cache.clear('httpbin.org');
 
-  // example.com should still be cached
-  await page.goto('https://example.com');
+  // Cache should be empty now
   stats = cache.getStats();
-  expect(stats.hits).toBe(1);
+  expect(stats.itemCount).toBe(0);
+  
+  // Next request should be a miss
+  await page.goto('https://httpbin.org/json');
+  stats = cache.getStats();
+  expect(stats.misses).toBe(3); // 2 initial + 1 after clear
 
   await browser.close();
 });

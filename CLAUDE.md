@@ -1,5 +1,12 @@
 # Claude Development Rules
 
+## Architecture Overview
+- **Session-based browser management** (see `docs/architecture.md`)
+- **Providers** handle external services: `src/providers/` (browserbase, local-browser)
+- **Sessions** created via provider's `createSession({ proxy })`
+- **Browser contexts** from `createBrowserFromSession(session)`
+- **NO backwards compatibility** - this is a clean-slate project
+
 ## use node
 - We use Node.js v20+ with native `.env` support
 - Use `npm` for package management
