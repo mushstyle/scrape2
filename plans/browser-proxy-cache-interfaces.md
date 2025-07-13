@@ -1,14 +1,44 @@
 # Browser, Proxy, and Cache Interfaces Plan
 
-## Overview
-Create INSANELY clean, robust, and simple interfaces for managing browsers, proxies, and caching. Focus on single-responsibility modules with clear contracts.
+**Goal:** Create INSANELY clean, robust, and simple interfaces for managing browsers, proxies, and caching with single-responsibility modules and clear contracts.
 
-## Core Principles
-1. **Single Responsibility** - Each module does ONE thing well
-2. **Simple Interfaces** - Minimal API surface, obvious usage
-3. **No Magic** - Explicit over implicit, predictable behavior
-4. **Pure Functions** - Where possible, avoid side effects
-5. **Type Safety** - Full TypeScript types for all interfaces
+## Implementation Steps
+
+[ ] 1. Create Browser Module (`src/lib/browser.ts`)
+   - [ ] Define TypeScript interfaces for BrowserOptions and BrowserResult
+   - [ ] Implement createBrowser function for Browserbase connection
+   - [ ] Implement createBrowser function for local Chrome (always headed)
+   - [ ] Add cleanup function that properly closes browser instances
+   - [ ] Create type definitions in `src/lib/types/browser.ts`
+
+[ ] 2. Create Proxy Module (`src/lib/proxy.ts`)
+   - [ ] Define TypeScript interfaces for Proxy and ProxyStore
+   - [ ] Implement loadProxies function to read from db/proxies.json
+   - [ ] Implement getProxyById function for specific proxy retrieval
+   - [ ] Implement getDefaultProxy function
+   - [ ] Implement formatProxyForPlaywright converter function
+   - [ ] Create type definitions in `src/lib/types/proxy.ts`
+
+[ ] 3. Create Cache Module (`src/lib/cache.ts`)
+   - [ ] Define CacheOptions interface with maxSizeBytes (default 100MB)
+   - [ ] Implement RequestCache class constructor
+   - [ ] Implement enableForPage method with Playwright route interception
+   - [ ] Implement LRU eviction when size limit exceeded
+   - [ ] Implement getStats method for cache metrics
+   - [ ] Implement clear method with optional domain filtering
+   - [ ] Create type definitions in `src/lib/types/cache.ts`
+
+[ ] 4. Create Integration Tests
+   - [ ] Test browser creation with Browserbase
+   - [ ] Test browser creation with local Chrome
+   - [ ] Test proxy loading and selection
+   - [ ] Test cache functionality with real Playwright pages
+   - [ ] Create example usage scripts
+
+[ ] 5. Documentation
+   - [ ] Add JSDoc comments to all public interfaces
+   - [ ] Create usage examples in comments
+   - [ ] Document any Playwright version requirements
 
 ## Module Architecture
 
@@ -212,3 +242,13 @@ These are intentionally NOT included but designed to be added later:
 3. **Cleanliness**: Is the code self-documenting with minimal comments needed?
 4. **Performance**: Is overhead negligible compared to raw Playwright?
 5. **Composability**: Can modules be used independently or together?
+
+**Key Considerations:**
+- [ ] Browser module must handle Browserbase WebSocket URL construction correctly
+- [ ] Local browsers must ALWAYS be headed (headless: false)
+- [ ] Cache size limits must be enforced to prevent memory issues
+- [ ] Proxy credentials must be handled securely (no logging)
+- [ ] All async operations must have proper error propagation
+- [ ] Module interfaces must be designed for future extension without breaking changes
+- [ ] No external dependencies beyond Playwright and Node.js built-ins
+- [ ] Type definitions must be comprehensive for full TypeScript support
