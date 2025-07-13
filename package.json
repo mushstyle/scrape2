@@ -12,7 +12,8 @@
     "test:cache": "vitest tests/cache.test.ts",
     "test:integration": "vitest tests/integration.test.ts",
     "example": "tsx examples/basic-usage.js",
-    "example:browserbase": "tsx --env-file=.env examples/test-browserbase.js"
+    "example:browserbase": "tsx --env-file=.env examples/test-browserbase.js",
+    "example:session": "tsx --env-file=.env examples/session-based-usage.js"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
