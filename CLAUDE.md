@@ -1,7 +1,8 @@
 # Claude Development Rules
 
 ## use bun
-We use `bun` instead of `npm` and `node`.
+- We use `bun` instead of `npm` and `node`.
+- USE `rules/use-bun-instead-of-node-vite-npm-pnpm.md` to see how
 
 ## Testing
 - DO NOT use cos.com for testing - has non-standard behavior
