@@ -1,0 +1,29 @@
+{
+  "proxies": [
+    {
+      "id": "example-datacenter",
+      "type": "datacenter",
+      "geo": "US",
+      "url": "http://proxy.example.com:8000",
+      "username": "your-username-here",
+      "password": "your-password-here"
+    },
+    {
+      "id": "example-residential",
+      "type": "residential",
+      "geo": "GB",
+      "url": "http://proxy.example.com:8000",
+      "username": "your-username-here",
+      "password": "your-password-here"
+    },
+    {
+      "id": "example-provider-dc",
+      "type": "datacenter",
+      "geo": "US",
+      "url": "http://proxy-provider.example.com:8000",
+      "username": "your-username-here",
+      "password": "your-password-here"
+    }
+  ],
+  "default": "example-datacenter"
+}
