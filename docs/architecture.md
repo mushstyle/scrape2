@@ -122,6 +122,47 @@ The proxy system is designed to be transparent:
    - Browserbase: Proxy configured at session level
    - Local: Proxy applied via `formatProxyForPlaywright()` when creating contexts
 
+## Request Caching
+
+The caching layer is **opt-in** and must be explicitly enabled for each page:
+
+### When to Enable Cache
+
+1. **Create page first**:
+   ```typescript
+   const context = await createContext();
+   const page = await context.newPage();
+   ```
+
+2. **Enable caching**:
+   ```typescript
+   const cache = new RequestCache({ 
+     maxSizeBytes: 100 * 1024 * 1024, // 100MB
+     ttlSeconds: 300 // 5 minutes
+   });
+   await cache.enableForPage(page);
+   ```
+
+3. **Navigate** - requests will now be cached:
+   ```typescript
+   await page.goto('https://example.com');
+   ```
+
+### How Caching Works
+
+- **Interception**: Uses Playwright's `page.route('**/*')` to intercept all requests
+- **GET only**: Only caches GET requests
+- **No auth**: Skips requests with authorization/cookie headers
+- **In-memory**: Cache is not persisted between runs
+- **Per-page**: Each page needs its own cache enablement
+
+### Cache Stats
+
+```typescript
+const stats = cache.getStats();
+// { hits: 5, misses: 10, sizeBytes: 1048576, itemCount: 15 }
+```
+
 ## Complete Example
 
 See `examples/session-based-usage.js` for a working example. Run it with:
