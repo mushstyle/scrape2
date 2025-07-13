@@ -1,0 +1,62 @@
+import type { SiteConfig } from '../../lib/types/site-config.js';
+import { getSiteById } from '../../services/siteConfigApiService.js';
+import type { ApiSiteMetadata } from '../../types/siteScrapingConfig.js';
+import { extractDomain } from '../utils/url-utils.js';
+
+/**
+ * Fetches site configuration for a given domain from the remote API.
+ * @param domainOrUrl The domain or a URL containing the domain.
+ * @returns A Promise resolving to the SiteConfig object.
+ */
+export async function getSiteConfig(domainOrUrl: string): Promise<SiteConfig> {
+    const cleanDomain = extractDomain(domainOrUrl);
+
+    try {
+        const apiData: ApiSiteMetadata = await getSiteById(cleanDomain);
+
+        if (!apiData.scrapeConfig) {
+            throw new Error(`API response for ${cleanDomain} is missing 'scrapeConfig'.`);
+        }
+        if (!apiData.scrapeConfig.browser) {
+            // If browser config is entirely missing from API, we might provide a default empty one
+            // or let it be undefined if SiteConfig allows scraping.browser to be optional.
+            // For now, assuming API should provide at least an empty browser object if scrapeConfig exists.
+            apiData.scrapeConfig.browser = {} as any; // Or handle more gracefully
+            console.error(`API response for ${cleanDomain} is missing 'scrapeConfig.browser'. Using defaults.`);
+        }
+
+        const siteConfig: SiteConfig = {
+            domain: apiData._id,
+            scraper: apiData.scrapeConfig.scraperFile || `${apiData._id}.ts`,
+            startPages: apiData.scrapeConfig.startPages || [],
+            scraping: {
+                browser: {
+                    ignoreHttpsErrors: apiData.scrapeConfig.browser?.ignoreHttpsErrors ?? false,
+                    userAgent: apiData.scrapeConfig.browser?.userAgent ?? undefined,
+                    headless: apiData.scrapeConfig.browser?.headless ?? undefined,
+                    headers: apiData.scrapeConfig.browser?.headers ?? {},
+                    args: apiData.scrapeConfig.browser?.args ?? undefined, // Map args
+                    viewport: apiData.scrapeConfig.browser?.viewport ?? undefined, // Map viewport
+                },
+            },
+        };
+
+        return siteConfig;
+
+    } catch (error) {
+        console.error(`Error fetching site config for ${cleanDomain} from API:`, error);
+        // Re-throw or handle error as appropriate for callers
+        throw new Error(`Failed to get configuration for domain: ${cleanDomain}. Reason: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+/**
+ * Extracts the first start page URL from the SiteConfig.
+ */
+export function getFirstStartPageUrl(config: SiteConfig): string {
+    if (!config.startPages || config.startPages.length === 0) {
+        throw new Error(`No start pages configured for domain: ${config.domain}`);
+    }
+    // Now correctly accesses the first element which is a string URL
+    return config.startPages[0];
+}
