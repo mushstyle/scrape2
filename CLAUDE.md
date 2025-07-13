@@ -8,6 +8,7 @@
 ## Rules to Follow
 - `rules/types.md`: how to use and create
 - `rules/plans.md`: how to create plans
+- `rules/scrapers.md`: how to create scrapers
 
 ## Testing
 - DO NOT use cos.com for testing - has non-standard behavior
