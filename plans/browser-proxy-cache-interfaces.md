@@ -29,10 +29,15 @@
    - [ ] Create type definitions in `src/types/cache.ts`
 
 [ ] 4. Create Integration Tests
-   - [ ] Test browser creation with Browserbase
+   - [ ] Test browser creation with Browserbase (using .env for API keys)
    - [ ] Test browser creation with local Chrome
    - [ ] Test proxy loading and selection
    - [ ] Test cache functionality with real Playwright pages
+   - [ ] Create integration test that combines all three modules:
+     - [ ] Load proxy from proxies.json
+     - [ ] Create Browserbase browser with proxy
+     - [ ] Enable caching on the page
+     - [ ] Navigate to test site and verify cache hits
    - [ ] Create example usage scripts
 
 [ ] 5. Documentation
@@ -205,6 +210,7 @@ src/
 - Use `chromium.launch({ headless: false })` for local
 - Include proper WebSocket URL construction for Browserbase
 - Handle connection timeouts gracefully
+- Read Browserbase API key from .env file (no dotenv, use Node.js native)
 
 ### Proxy Module
 - Use native fs.promises for JSON reading
@@ -255,3 +261,5 @@ These are intentionally NOT included but designed to be added later:
 - [ ] Module interfaces must be designed for future extension without breaking changes
 - [ ] No external dependencies beyond Playwright and Node.js built-ins
 - [ ] Type definitions must be comprehensive for full TypeScript support
+- [ ] Use .env file for API keys (Browserbase, etc.) with Node.js native support
+- [ ] Integration tests must demonstrate all three modules working together
