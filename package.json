@@ -3,6 +3,14 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "test": "bun test",
+    "test:browser": "bun test tests/browser.test.ts",
+    "test:proxy": "bun test tests/proxy.test.ts",
+    "test:cache": "bun test tests/cache.test.ts",
+    "test:integration": "bun test tests/integration.test.ts",
+    "example": "bun run examples/basic-usage.ts"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
