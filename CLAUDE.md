@@ -21,8 +21,8 @@
 ## Testing
 - DO NOT use cos.com for testing - has non-standard behavior
 - Use amgbrand.com or blackseatribe.com for verify commands
-- Run tests without watch mode: `npm test -- --run` (prevents hanging)
-- For watch mode: `npm test` or `npm run test:watch`
+- `npm test` - runs tests once and exits
+- `npm test:watch` - runs tests in watch mode
 
 ## Code Style
 - NEVER use `dotenv` - use Node.js 20+ native `.env` support
