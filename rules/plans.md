@@ -1,6 +1,6 @@
 # How to Create and Execute Plans
 
-This rule outlines the standard process for creating structured plans (often in `.mdc` files) and executing them effectively using checkboxes for progress tracking.
+This rule outlines the standard process for creating structured plans (in `.md` files) and executing them effectively using checkboxes for progress tracking.
 
 ## Creating a Plan
 
@@ -14,10 +14,10 @@ When asked to create a plan, follow this structure:
 
 ## Executing a Plan
 
-When executing a plan documented in an `.mdc` file:
+When executing a plan documented in an `.md` file:
 
 - Read the plan carefully before starting.
 - As each numbered step or bullet point task is completed successfully, mark its checkbox as done by changing `[ ]` to `[x]`.
 - If a step needs to be skipped or becomes irrelevant, mark it as done (`[x]`) and add a brief inline note explaining why (e.g., `[x] Step xyz (Skipped because...)`).
-- If the plan needs modification during execution (e.g., adding or changing steps), update the `.mdc` file accordingly, ensuring new steps also have checkboxes.
+- If the plan needs modification during execution (e.g., adding or changing steps), update the `.md` file accordingly, ensuring new steps also have checkboxes.
 
