@@ -58,10 +58,8 @@ const handleApiResponse = async (response: Response) => {
 };
 
 export const getSiteScrapingConfig = async (siteId: string): Promise<SiteScrapingConfigData> => {
-  const baseUrl = getApiBaseUrl();
   const token = getApiBearerToken();
-
-  const url = `${baseUrl}/api/sites/${siteId}/scraping-config`;
+  const url = buildApiUrl(API_ENDPOINTS.scrapingConfig(siteId));
 
   const response = await fetch(url, {
     method: 'GET',
@@ -78,10 +76,8 @@ export const updateSiteScrapingConfig = async (
   siteId: string,
   payload: SiteScrapingConfigData,
 ): Promise<SiteScrapingConfigData> => {
-  const baseUrl = getApiBaseUrl();
   const token = getApiBearerToken();
-
-  const url = `${baseUrl}/api/sites/${siteId}/scraping-config`;
+  const url = buildApiUrl(API_ENDPOINTS.scrapingConfig(siteId));
 
   const response = await fetch(url, {
     method: 'PATCH',
@@ -96,10 +92,8 @@ export const updateSiteScrapingConfig = async (
 };
 
 export const getSites = async (): Promise<ApiSitesResponse> => {
-  const baseUrl = getApiBaseUrl();
   const token = getApiBearerToken();
-
-  const url = `${baseUrl}/api/sites`;
+  const url = buildApiUrl(API_ENDPOINTS.sites);
 
   const response = await fetch(url, {
     method: 'GET',
@@ -111,10 +105,8 @@ export const getSites = async (): Promise<ApiSitesResponse> => {
 };
 
 export const getSiteById = async (siteId: string): Promise<ApiSiteMetadata> => {
-  const baseUrl = getApiBaseUrl();
   const token = getApiBearerToken();
-
-  const url = `${baseUrl}/api/sites/${siteId}`;
+  const url = buildApiUrl(API_ENDPOINTS.site(siteId));
 
   const response = await fetch(url, {
     method: 'GET',
@@ -138,6 +130,17 @@ function buildApiUrl(path: string): string {
 }
 
 /**
+ * Central API endpoint definitions
+ */
+const API_ENDPOINTS = {
+  scrapeRuns: '/api/scrape-runs',
+  scrapeRun: (runId: string) => `/api/scrape-runs/${runId}`,
+  sites: '/api/sites',
+  site: (siteId: string) => `/api/sites/${siteId}`,
+  scrapingConfig: (siteId: string) => `/api/sites/${siteId}/scraping-config`
+} as const;
+
+/**
  * Helper to normalize response field names (handles _id/id, created_at/createdAt variations)
  */
 function normalizeRunResponse(run: any): ScrapeRun {
@@ -159,7 +162,7 @@ function normalizeRunResponse(run: any): ScrapeRun {
  * Create a new scrape run
  */
 export async function createScrapeRun(request: CreateScrapeRunRequest): Promise<ScrapeRun> {
-  const url = buildApiUrl('/api/v1/scrape-runs');
+  const url = buildApiUrl(API_ENDPOINTS.scrapeRuns);
   const token = getApiBearerToken();
   
   try {
@@ -190,7 +193,7 @@ export async function createScrapeRun(request: CreateScrapeRunRequest): Promise<
  * Fetch a specific scrape run by ID
  */
 export async function fetchScrapeRun(runId: string): Promise<ScrapeRun> {
-  const url = buildApiUrl(`/api/v1/scrape-runs/${runId}`);
+  const url = buildApiUrl(API_ENDPOINTS.scrapeRun(runId));
   const token = getApiBearerToken();
   
   try {
@@ -220,11 +223,15 @@ export async function listScrapeRuns(query?: ListScrapeRunsQuery): Promise<ListS
   const params = new URLSearchParams();
   if (query?.domain) params.append('domain', query.domain);
   if (query?.status) params.append('status', query.status);
+  if (query?.since) params.append('since', query.since.toISOString());
+  if (query?.until) params.append('until', query.until.toISOString());
   if (query?.limit) params.append('limit', query.limit.toString());
   if (query?.offset) params.append('offset', query.offset.toString());
   
-  const url = buildApiUrl(`/api/v1/scrape-runs?${params.toString()}`);
+  const url = buildApiUrl(`${API_ENDPOINTS.scrapeRuns}?${params.toString()}`);
   const token = getApiBearerToken();
+  
+  log.debug(`Fetching scrape runs from: ${url}`);
   
   try {
     const response = await fetch(url, {
@@ -239,9 +246,13 @@ export async function listScrapeRuns(query?: ListScrapeRunsQuery): Promise<ListS
     }
 
     const data = await response.json();
+    log.debug('API response:', { data });
+    
+    // The API might return the runs directly as an array
+    const runs = Array.isArray(data) ? data : (data.runs || []);
     return {
-      runs: data.runs.map(normalizeRunResponse),
-      total: data.total || data.runs.length
+      runs: runs.map(normalizeRunResponse),
+      total: data.total || runs.length
     };
   } catch (error) {
     log.error('Error listing scrape runs', { error });
@@ -253,7 +264,7 @@ export async function listScrapeRuns(query?: ListScrapeRunsQuery): Promise<ListS
  * Update a scrape run item's status
  */
 export async function updateScrapeRunItem(runId: string, request: UpdateScrapeRunItemRequest): Promise<void> {
-  const url = buildApiUrl(`/api/v1/scrape-runs/${runId}`);
+  const url = buildApiUrl(API_ENDPOINTS.scrapeRun(runId));
   const token = getApiBearerToken();
   
   try {
@@ -281,7 +292,7 @@ export async function updateScrapeRunItem(runId: string, request: UpdateScrapeRu
  * Finalize a scrape run (mark as completed)
  */
 export async function finalizeScrapeRun(runId: string): Promise<void> {
-  const url = buildApiUrl(`/api/v1/scrape-runs/${runId}`);
+  const url = buildApiUrl(API_ENDPOINTS.scrapeRun(runId));
   const token = getApiBearerToken();
   const request: FinalizeRunRequest = { finalize: true };
   
