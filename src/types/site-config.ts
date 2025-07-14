@@ -1,5 +1,5 @@
 import type { SiteConfig } from './site-config-types.js';
-import { getSiteById } from '../services/siteConfigApiService.js';
+import { getSiteById } from '../providers/etl-api.js';
 import type { ApiSiteMetadata } from './siteScrapingConfig.js';
 import { extractDomain } from '../utils/url-utils.js';
 
