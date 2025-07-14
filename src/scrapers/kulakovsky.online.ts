@@ -2,7 +2,7 @@ import type { Page } from 'playwright';
 // import { chromium, Browser } from 'playwright'; // Removed Browser, chromium
 import { Item, Image, Size } from "../db/types.js";
 import * as Utils from "../db/db-utils.js";
-import { getSiteConfig } from "../core/domain/site-config.js";
+import { getSiteConfig } from "../types/site-config.js";
 import type { Scraper } from './types.js';
 import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js';
 import { logger } from '../lib/logger.js';
