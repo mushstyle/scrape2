@@ -1,8 +1,8 @@
 import type { Page, Browser } from 'playwright';
 import { chromium } from 'playwright';
-import { Item, Image, Size, ItemSchema, ImageSchema, SizeSchema } from '../types/item.js";
+import { Item, Image, Size, ItemSchema, ImageSchema, SizeSchema } from '../types/item.js';
 import * as Utils from "../db/db-utils.js";
-import { getSiteConfig } from "../types/site-config.js";
+import { getSiteConfig } from "../providers/site-config.js";
 import { uploadImageUrlToS3 } from '../providers/s3.js';
 import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js';
 import type { Scraper } from './types.js';

@@ -4,7 +4,7 @@ import { logger } from '../src/lib/logger.js';
 import { SessionManager } from '../src/lib/session-manager.js';
 import { ScrapeRunManager } from '../src/lib/scrape-run-manager.js';
 import { itemsToSessions, type SessionInfo, type SiteConfigWithBlockedProxies } from '../src/lib/distributor.js';
-import { getSiteConfig } from '../src/types/site-config.js';
+import { getSiteConfig } from '../src/providers/site-config.js';
 
 const log = logger.createContext('orchestration-demo');
 

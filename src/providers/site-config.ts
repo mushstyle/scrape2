@@ -1,7 +1,7 @@
-import type { SiteConfig } from './site-config-types.js';
-import { getSiteById } from '../providers/etl-api.js';
-import { loadProxyStrategies } from '../providers/local-db.js';
-import type { ApiSiteMetadata } from './siteScrapingConfig.js';
+import type { SiteConfig } from '../types/site-config-types.js';
+import { getSiteById } from './etl-api.js';
+import { loadProxyStrategies } from './local-db.js';
+import type { ApiSiteMetadata } from '../types/siteScrapingConfig.js';
 import { extractDomain } from '../utils/url-utils.js';
 import { logger } from '../lib/logger.js';
 
