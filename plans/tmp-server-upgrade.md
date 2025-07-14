@@ -5,25 +5,21 @@ The ETL API currently requires API keys to be passed as query parameters (`?api_
 
 ## Required Changes
 
-### 1. Add Bearer Token Support
-Modify the authentication middleware to accept API keys via the standard `Authorization: Bearer <token>` header:
+### 1. Replace Query Parameter Auth with Bearer Token
+Modify the authentication middleware to ONLY accept API keys via the standard `Authorization: Bearer <token>` header:
 
 ```javascript
 // Example middleware update
 function authenticate(req, res, next) {
-  let apiKey;
-  
-  // Check Authorization header first (preferred)
   const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    apiKey = authHeader.substring(7);
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      error: 'Missing or invalid Authorization header. Use: Authorization: Bearer <api_key>' 
+    });
   }
   
-  // Fall back to query parameter for backwards compatibility
-  if (!apiKey && req.query.api_key) {
-    apiKey = req.query.api_key;
-    console.warn('Deprecated: API key in query parameter. Please use Authorization header.');
-  }
+  const apiKey = authHeader.substring(7);
   
   if (!apiKey) {
     return res.status(401).json({ error: 'No API key provided' });
@@ -33,6 +29,8 @@ function authenticate(req, res, next) {
 }
 ```
 
+**Remove all `req.query.api_key` checks immediately.**
+
 ### 2. Update All Endpoints
 Ensure all API endpoints use this authentication method:
 - `/api/scrape-runs`
@@ -41,20 +39,13 @@ Ensure all API endpoints use this authentication method:
 - `/api/sites/:id`
 - `/api/sites/:id/scraping-config`
 
-### 3. Migration Plan
+### 3. Implementation Steps
 
-#### Phase 1: Dual Support (Immediate)
-- Accept both Bearer tokens and query parameters
-- Log deprecation warnings when query parameters are used
-- Update API documentation to show Bearer token as preferred method
-
-#### Phase 2: Deprecation Notice (2 weeks)
-- Add deprecation warnings to API responses when query parameter auth is used
-- Email API consumers about the upcoming change
-
-#### Phase 3: Remove Query Parameter Support (4 weeks)
-- Remove support for `?api_key=xxx`
-- Only accept `Authorization: Bearer <token>`
+1. **Update authentication middleware** to only accept Bearer tokens
+2. **Remove all query parameter parsing** for api_key
+3. **Update error messages** to guide users to the correct format
+4. **Test all endpoints** to ensure they reject query parameter auth
+5. **Deploy immediately** - no backwards compatibility needed
 
 ### 4. Response Format Consistency
 While making auth changes, consider standardizing response formats:
@@ -80,11 +71,16 @@ res.set({
 4. **Maintainability**: Easier to manage API keys in headers vs URLs
 
 ## Testing
-Ensure backwards compatibility during migration:
+Verify that ONLY Bearer token authentication works:
 ```bash
-# Old way (should work temporarily with deprecation warning)
+# This should FAIL with 401 error
 curl "https://api.example.com/api/scrape-runs?api_key=xxx"
+# Expected: {"error": "Missing or invalid Authorization header. Use: Authorization: Bearer <api_key>"}
 
-# New way (preferred)
+# This should SUCCEED
 curl -H "Authorization: Bearer xxx" "https://api.example.com/api/scrape-runs"
+# Expected: Normal API response
 ```
+
+## Client Updates Required
+All API clients must update immediately to use Bearer token authentication. The query parameter method will stop working as soon as this change is deployed.
