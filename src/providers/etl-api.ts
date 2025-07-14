@@ -6,7 +6,7 @@
  * with additional ETL API functionality in the future.
  */
 
-import { SiteScrapingConfigData, ApiSitesResponse, ApiSiteMetadata } from '../types/siteScrapingConfig.js';
+import type { SiteScrapingConfigData, ApiSitesResponse, ApiSiteMetadata } from '../types/siteScrapingConfig.js';
 import { logger } from '../lib/logger.js';
 import type {
   ScrapeRun,
