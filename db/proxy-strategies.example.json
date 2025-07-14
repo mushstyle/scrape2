@@ -1,32 +1,37 @@
 {
   "example.com": {
-    "proxyStrategy": "datacenter-to-residential",
-    "proxyGeo": "US",
+    "strategy": "datacenter-to-residential",
+    "geo": "US",
     "cooldownMinutes": 30,
-    "failureThreshold": 2
+    "failureThreshold": 2,
+    "sessionLimit": 3
   },
   "strict-datacenter.com": {
-    "proxyStrategy": "datacenter",
-    "proxyGeo": "US",
+    "strategy": "datacenter",
+    "geo": "US",
     "cooldownMinutes": 30,
-    "failureThreshold": 2
+    "failureThreshold": 2,
+    "sessionLimit": 3
   },
   "sensitive-site.com": {
-    "proxyStrategy": "residential-rotating",
-    "proxyGeo": "UK",
+    "strategy": "residential-rotating",
+    "geo": "UK",
     "cooldownMinutes": 60,
-    "failureThreshold": 2
+    "failureThreshold": 2,
+    "sessionLimit": 3
   },
   "stable-site.com": {
-    "proxyStrategy": "residential-stable",
-    "proxyGeo": "US",
+    "strategy": "residential-stable",
+    "geo": "US",
     "cooldownMinutes": 30,
-    "failureThreshold": 3
+    "failureThreshold": 3,
+    "sessionLimit": 3
   },
   "no-proxy-site.com": {
-    "proxyStrategy": "none",
-    "proxyGeo": "US",
+    "strategy": "none",
+    "geo": "US",
     "cooldownMinutes": 0,
-    "failureThreshold": 0
+    "failureThreshold": 0,
+    "sessionLimit": 3
   }
 }

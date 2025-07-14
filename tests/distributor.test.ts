@@ -64,14 +64,14 @@ describe('distributor', () => {
           scraper: 'example.ts',
           startPages: [],
           scraping: { browser: { ignoreHttpsErrors: false, headers: {} } },
-          proxy: { strategy: 'datacenter', geo: 'US', cooldownMinutes: 30, failureThreshold: 2 }
+          proxy: { strategy: 'datacenter', geo: 'US', cooldownMinutes: 30, failureThreshold: 2, sessionLimit: 3 }
         },
         {
           domain: 'test.com',
           scraper: 'test.ts',
           startPages: [],
           scraping: { browser: { ignoreHttpsErrors: false, headers: {} } },
-          proxy: { strategy: 'residential-stable', geo: 'US', cooldownMinutes: 30, failureThreshold: 2 }
+          proxy: { strategy: 'residential-stable', geo: 'US', cooldownMinutes: 30, failureThreshold: 2, sessionLimit: 3 }
         }
       ];
       
@@ -99,7 +99,7 @@ describe('distributor', () => {
           scraper: 'example.ts',
           startPages: [],
           scraping: { browser: { ignoreHttpsErrors: false, headers: {} } },
-          proxy: { strategy: 'datacenter', geo: 'US', cooldownMinutes: 30, failureThreshold: 2 },
+          proxy: { strategy: 'datacenter', geo: 'US', cooldownMinutes: 30, failureThreshold: 2, sessionLimit: 3 },
           blockedProxyIds: ['proxy-dc-1'] // Block the first datacenter proxy
         }
       ];
@@ -122,7 +122,7 @@ describe('distributor', () => {
           scraper: 'uk.ts',
           startPages: [],
           scraping: { browser: { ignoreHttpsErrors: false, headers: {} } },
-          proxy: { strategy: 'datacenter', geo: 'UK', cooldownMinutes: 30, failureThreshold: 2 }
+          proxy: { strategy: 'datacenter', geo: 'UK', cooldownMinutes: 30, failureThreshold: 2, sessionLimit: 3 }
         }
       ];
       
@@ -146,7 +146,7 @@ describe('distributor', () => {
           scraper: 'noproxy.ts',
           startPages: [],
           scraping: { browser: { ignoreHttpsErrors: false, headers: {} } },
-          proxy: { strategy: 'none', geo: 'US', cooldownMinutes: 30, failureThreshold: 2 }
+          proxy: { strategy: 'none', geo: 'US', cooldownMinutes: 30, failureThreshold: 2, sessionLimit: 3 }
         }
       ];
       
@@ -167,7 +167,7 @@ describe('distributor', () => {
           scraper: 'flexible.ts',
           startPages: [],
           scraping: { browser: { ignoreHttpsErrors: false, headers: {} } },
-          proxy: { strategy: 'datacenter-to-residential', geo: 'US', cooldownMinutes: 30, failureThreshold: 2 }
+          proxy: { strategy: 'datacenter-to-residential', geo: 'US', cooldownMinutes: 30, failureThreshold: 2, sessionLimit: 3 }
         }
       ];
       
@@ -187,7 +187,7 @@ describe('distributor', () => {
           scraper: 'impossible.ts',
           startPages: [],
           scraping: { browser: { ignoreHttpsErrors: false, headers: {} } },
-          proxy: { strategy: 'datacenter', geo: 'FR', cooldownMinutes: 30, failureThreshold: 2 }
+          proxy: { strategy: 'datacenter', geo: 'FR', cooldownMinutes: 30, failureThreshold: 2, sessionLimit: 3 }
         }
       ];
       
@@ -207,7 +207,7 @@ describe('distributor', () => {
           scraper: 'other.ts',
           startPages: [],
           scraping: { browser: { ignoreHttpsErrors: false, headers: {} } },
-          proxy: { strategy: 'datacenter', geo: 'US', cooldownMinutes: 30, failureThreshold: 2 }
+          proxy: { strategy: 'datacenter', geo: 'US', cooldownMinutes: 30, failureThreshold: 2, sessionLimit: 3 }
         }
       ];
       
@@ -231,7 +231,7 @@ describe('distributor', () => {
           scraper: 'example.ts',
           startPages: [],
           scraping: { browser: { ignoreHttpsErrors: false, headers: {} } },
-          proxy: { strategy: 'residential-stable', geo: 'UK', cooldownMinutes: 30, failureThreshold: 2 }
+          proxy: { strategy: 'residential-stable', geo: 'UK', cooldownMinutes: 30, failureThreshold: 2, sessionLimit: 3 }
         }
       ];
       
