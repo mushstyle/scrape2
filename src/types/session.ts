@@ -3,6 +3,7 @@ import type { Proxy } from './proxy.js';
 
 export interface SessionOptions {
   proxy?: Proxy;
+  headless?: boolean;  // For local browser only, defaults to false
   // Future options: timeout, region, etc.
 }
 

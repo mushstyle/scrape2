@@ -4,7 +4,7 @@ import { createSession as createBrowserbaseSession } from '../src/providers/brow
 import { createBrowserFromSession } from '../src/lib/browser.js';
 
 test('Local browser session', async () => {
-  const session = await createLocalSession();
+  const session = await createLocalSession({ headless: true });
   
   expect(session.provider).toBe('local');
   expect(session.local).toBeDefined();
@@ -39,7 +39,7 @@ test('Local browser session with proxy', async () => {
     password: 'testpass'
   };
   
-  const session = await createLocalSession({ proxy: mockProxy });
+  const session = await createLocalSession({ proxy: mockProxy, headless: true });
   
   expect(session.local?.proxy).toEqual(mockProxy);
   
@@ -47,7 +47,7 @@ test('Local browser session with proxy', async () => {
 });
 
 test('createBrowserFromSession with image blocking', async () => {
-  const session = await createLocalSession();
+  const session = await createLocalSession({ headless: true });
   const { createContext, cleanup } = await createBrowserFromSession(session, {
     blockImages: true
   });
