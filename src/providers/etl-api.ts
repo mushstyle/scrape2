@@ -1,3 +1,11 @@
+/**
+ * ETL API Provider
+ * 
+ * This module provides functions to interact with our ETL API.
+ * It handles site configuration, metadata, and will be extended
+ * with additional ETL API functionality in the future.
+ */
+
 import { SiteScrapingConfigData, ApiSitesResponse, ApiSiteMetadata } from '../types/siteScrapingConfig.js';
 
 const getApiBaseUrl = (): string => {
