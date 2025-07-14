@@ -4,7 +4,8 @@ import type { Proxy } from './proxy.js';
 export interface SessionOptions {
   proxy?: Proxy;
   headless?: boolean;  // For local browser only, defaults to false
-  // Future options: timeout, region, etc.
+  timeout?: number;    // Session timeout in seconds (browserbase only, defaults to 60)
+  // Future options: region, etc.
 }
 
 export interface BrowserbaseSession {

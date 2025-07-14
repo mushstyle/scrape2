@@ -3,6 +3,8 @@
 ## Architecture Overview
 - **Session-based browser management** (see `docs/architecture.md`)
 - **Providers** handle external services: `src/providers/` (browserbase, local-browser)
+- **CRITICAL: ALWAYS use providers for external services** - never make direct API calls
+- **Tell users when we need a new provider** - don't implement direct API calls in examples or scripts
 - **Sessions** created via provider's `createSession({ proxy })`
 - **Browser contexts** from `createBrowserFromSession(session)`
 - **NO backwards compatibility** - this is a clean-slate project
