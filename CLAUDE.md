@@ -22,7 +22,7 @@
 - DO NOT use cos.com for testing - has non-standard behavior
 - Use amgbrand.com or blackseatribe.com for verify commands
 - `npm test` - runs tests once and exits
-- `npm test:watch` - runs tests in watch mode
+- `npm run test:watch` - runs tests in watch mode
 
 ## Code Style
 - NEVER use `dotenv` - use Node.js 20+ native `.env` support
