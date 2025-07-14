@@ -7,6 +7,15 @@
  */
 
 import { SiteScrapingConfigData, ApiSitesResponse, ApiSiteMetadata } from '../types/siteScrapingConfig.js';
+import { logger } from '../lib/logger.js';
+import type {
+  ScrapeRun,
+  CreateScrapeRunRequest,
+  UpdateScrapeRunItemRequest,
+  FinalizeRunRequest,
+  ListScrapeRunsQuery,
+  ListScrapeRunsResponse
+} from '../types/scrape-run.js';
 
 const getApiBaseUrl = (): string => {
   const baseUrl = process.env.ETL_API_ENDPOINT;
@@ -116,4 +125,200 @@ export const getSiteById = async (siteId: string): Promise<ApiSiteMetadata> => {
   // Assuming the response for a single site is directly the ApiSiteMetadata object
   // If it's nested like { site: ApiSiteMetadata }, this will need adjustment
   return handleApiResponse(response);
-}; 
+};
+
+const log = logger.createContext('etl-api');
+
+/**
+ * Helper to build API URLs consistently
+ */
+function buildApiUrl(path: string): string {
+  const base = getApiBaseUrl();
+  return `${base}${path}`;
+}
+
+/**
+ * Helper to normalize response field names (handles _id/id, created_at/createdAt variations)
+ */
+function normalizeRunResponse(run: any): ScrapeRun {
+  return {
+    id: run.id || run._id,
+    _id: run._id,
+    domain: run.domain,
+    items: run.items || [],
+    status: run.status || 'pending',
+    created_at: run.created_at || run.createdAt,
+    createdAt: run.createdAt,
+    updated_at: run.updated_at || run.updatedAt,
+    updatedAt: run.updatedAt,
+    metadata: run.metadata
+  };
+}
+
+/**
+ * Create a new scrape run
+ */
+export async function createScrapeRun(request: CreateScrapeRunRequest): Promise<ScrapeRun> {
+  const url = buildApiUrl('/api/v1/scrape-runs');
+  const token = getApiBearerToken();
+  
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(request)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to create scrape run: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    log.normal(`Created scrape run ${data.id || data._id} for domain ${request.domain}`);
+    
+    return normalizeRunResponse(data);
+  } catch (error) {
+    log.error('Error creating scrape run', { error });
+    throw error;
+  }
+}
+
+/**
+ * Fetch a specific scrape run by ID
+ */
+export async function fetchScrapeRun(runId: string): Promise<ScrapeRun> {
+  const url = buildApiUrl(`/api/v1/scrape-runs/${runId}`);
+  const token = getApiBearerToken();
+  
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch scrape run: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return normalizeRunResponse(data);
+  } catch (error) {
+    log.error(`Error fetching scrape run ${runId}`, { error });
+    throw error;
+  }
+}
+
+/**
+ * List scrape runs with optional filters
+ */
+export async function listScrapeRuns(query?: ListScrapeRunsQuery): Promise<ListScrapeRunsResponse> {
+  const params = new URLSearchParams();
+  if (query?.domain) params.append('domain', query.domain);
+  if (query?.status) params.append('status', query.status);
+  if (query?.limit) params.append('limit', query.limit.toString());
+  if (query?.offset) params.append('offset', query.offset.toString());
+  
+  const url = buildApiUrl(`/api/v1/scrape-runs?${params.toString()}`);
+  const token = getApiBearerToken();
+  
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to list scrape runs: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return {
+      runs: data.runs.map(normalizeRunResponse),
+      total: data.total || data.runs.length
+    };
+  } catch (error) {
+    log.error('Error listing scrape runs', { error });
+    throw error;
+  }
+}
+
+/**
+ * Update a scrape run item's status
+ */
+export async function updateScrapeRunItem(runId: string, request: UpdateScrapeRunItemRequest): Promise<void> {
+  const url = buildApiUrl(`/api/v1/scrape-runs/${runId}`);
+  const token = getApiBearerToken();
+  
+  try {
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(request)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to update scrape run item: ${response.statusText}`);
+    }
+
+    log.debug(`Updated item ${request.updateItem.url} in run ${runId}`);
+  } catch (error) {
+    log.error(`Error updating scrape run item in run ${runId}`, { error });
+    throw error;
+  }
+}
+
+/**
+ * Finalize a scrape run (mark as completed)
+ */
+export async function finalizeScrapeRun(runId: string): Promise<void> {
+  const url = buildApiUrl(`/api/v1/scrape-runs/${runId}`);
+  const token = getApiBearerToken();
+  const request: FinalizeRunRequest = { finalize: true };
+  
+  try {
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(request)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to finalize scrape run: ${response.statusText}`);
+    }
+
+    log.normal(`Finalized scrape run ${runId}`);
+  } catch (error) {
+    log.error(`Error finalizing scrape run ${runId}`, { error });
+    throw error;
+  }
+}
+
+/**
+ * Get the latest run for a domain (convenience function)
+ */
+export async function getLatestRunForDomain(domain: string): Promise<ScrapeRun | null> {
+  try {
+    const response = await listScrapeRuns({
+      domain,
+      limit: 1
+    });
+    
+    return response.runs.length > 0 ? response.runs[0] : null;
+  } catch (error) {
+    log.error(`Error getting latest run for domain ${domain}`, { error });
+    return null;
+  }
+} 

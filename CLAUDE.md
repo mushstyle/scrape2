@@ -58,3 +58,10 @@
 - CLI flags: Initialize `options || {}` before custom flags
 - Logger errors: Check method names (normal not info)
 - Timeout issues: Increase with --timeout flag
+
+## Orchestration Patterns
+- **ETL API**: Use `src/providers/etl-api.ts` for scrape run management
+- **Distribution**: Use `itemsToSessions()` for pure functional item distribution
+- **Session Pool**: Use `SessionManager` to manage browser session lifecycle
+- **Run Management**: Use `ScrapeRunManager` for high-level run operations
+- **Environment**: Requires `ETL_API_ENDPOINT` and `ETL_API_KEY` env vars
