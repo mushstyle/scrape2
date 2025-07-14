@@ -1,6 +1,6 @@
-import type { SiteConfig } from '../../lib/types/site-config.js';
-import { getSiteById } from '../../services/siteConfigApiService.js';
-import type { ApiSiteMetadata } from '../../types/siteScrapingConfig.js';
+import type { SiteConfig } from './site-config-types.js';
+import { getSiteById } from '../services/siteConfigApiService.js';
+import type { ApiSiteMetadata } from './siteScrapingConfig.js';
 import { extractDomain } from '../utils/url-utils.js';
 
 /**

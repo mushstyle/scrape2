@@ -3,8 +3,21 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "test:watch": "vitest watch",
+    "test:browser": "vitest tests/browser.test.ts",
+    "test:proxy": "vitest tests/proxy.test.ts",
+    "test:cache": "vitest tests/cache.test.ts",
+    "test:integration": "vitest tests/integration.test.ts",
+    "example": "tsx --env-file=.env examples/session-based-usage.js"
+  },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/node": "^20.0.0",
+    "tsx": "^4.20.1",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -12,6 +25,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.844.0",
     "@aws-sdk/lib-storage": "^3.844.0",
+    "@browserbasehq/sdk": "^2.6.0",
     "playwright": "^1.54.1",
     "zod": "^4.0.5"
   }
