@@ -47,30 +47,38 @@ export async function getSiteConfig(domainOrUrl: string): Promise<SiteConfig> {
         };
 
         // Load and merge proxy strategies
-        try {
-            const proxyStrategies = await loadProxyStrategies();
-            
-            // Look for domain-specific strategy or fall back to default
-            const proxyStrategy = proxyStrategies[cleanDomain] || proxyStrategies['default'];
-            
-            if (proxyStrategy) {
-                // Merge proxy strategy into site config
-                siteConfig.proxy = {
-                    strategy: proxyStrategy.strategy,
-                    geo: proxyStrategy.geo,
-                    cooldownMinutes: proxyStrategy.cooldownMinutes,
-                    failureThreshold: proxyStrategy.failureThreshold,
-                    sessionLimit: proxyStrategy.sessionLimit
-                };
-                
-                log.debug(`Applied proxy strategy for ${cleanDomain}: ${proxyStrategy.strategy}`);
-            } else {
-                log.debug(`No proxy strategy found for ${cleanDomain}, no default available`);
-            }
-        } catch (error) {
-            log.error(`Failed to load proxy strategies for ${cleanDomain}`, { error });
-            // Continue without proxy config if loading fails
+        const proxyStrategies = await loadProxyStrategies();
+        
+        // Check if proxy strategies are valid
+        if (!proxyStrategies || typeof proxyStrategies !== 'object') {
+            throw new Error('Invalid proxy-strategies.json: must be an object');
         }
+        
+        // Look for domain-specific strategy or fall back to default
+        const proxyStrategy = proxyStrategies[cleanDomain] || proxyStrategies['default'];
+        
+        if (!proxyStrategy) {
+            throw new Error(`No proxy strategy found for ${cleanDomain} and no default strategy available`);
+        }
+        
+        // Validate proxy strategy structure
+        if (!proxyStrategy.strategy || !proxyStrategy.geo || 
+            typeof proxyStrategy.cooldownMinutes !== 'number' || 
+            typeof proxyStrategy.failureThreshold !== 'number' ||
+            typeof proxyStrategy.sessionLimit !== 'number') {
+            throw new Error(`Invalid proxy strategy structure for ${cleanDomain}: missing required fields`);
+        }
+        
+        // Merge proxy strategy into site config
+        siteConfig.proxy = {
+            strategy: proxyStrategy.strategy,
+            geo: proxyStrategy.geo,
+            cooldownMinutes: proxyStrategy.cooldownMinutes,
+            failureThreshold: proxyStrategy.failureThreshold,
+            sessionLimit: proxyStrategy.sessionLimit
+        };
+        
+        log.debug(`Applied proxy strategy for ${cleanDomain}: ${proxyStrategy.strategy}`);
 
         return siteConfig;
 

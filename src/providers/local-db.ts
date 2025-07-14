@@ -80,13 +80,7 @@ export async function loadProxies(): Promise<ProxyStore> {
  * Load proxy strategies from proxy-strategies.json
  */
 export async function loadProxyStrategies(): Promise<ProxyStrategiesStore> {
-  try {
-    return await loadJsonFile<ProxyStrategiesStore>('proxy-strategies.json');
-  } catch (error) {
-    log.error('Failed to load proxy-strategies.json, returning empty strategies', { error });
-    // Return empty object if file doesn't exist or can't be loaded
-    return {};
-  }
+  return await loadJsonFile<ProxyStrategiesStore>('proxy-strategies.json');
 }
 
 /**

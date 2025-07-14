@@ -34,22 +34,18 @@ describe('local-db provider', () => {
   });
 
   describe('loadProxyStrategies', () => {
-    it('should load proxy-strategies.json or return empty object', async () => {
+    it('should load proxy-strategies.json successfully', async () => {
       const strategies = await loadProxyStrategies();
       
       expect(strategies).toBeDefined();
       expect(typeof strategies).toBe('object');
-      // Should either have entries or be empty object
-      if (Object.keys(strategies).length > 0) {
-        // If we have a default strategy, check its structure
-        if (strategies.default) {
-          expect(strategies.default.strategy).toBeDefined();
-          expect(strategies.default.geo).toBeDefined();
-          expect(strategies.default.cooldownMinutes).toBeDefined();
-          expect(strategies.default.failureThreshold).toBeDefined();
-          expect(strategies.default.sessionLimit).toBeDefined();
-        }
-      }
+      // Should have at least a default strategy
+      expect(strategies.default).toBeDefined();
+      expect(strategies.default.strategy).toBeDefined();
+      expect(strategies.default.geo).toBeDefined();
+      expect(strategies.default.cooldownMinutes).toBeDefined();
+      expect(strategies.default.failureThreshold).toBeDefined();
+      expect(strategies.default.sessionLimit).toBeDefined();
     });
   });
 
