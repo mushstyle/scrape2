@@ -13,7 +13,7 @@
     "test:integration": "vitest --run tests/integration.test.ts",
     "example": "tsx --env-file=.env examples/session-based-usage.js",
     "orchestration-demo": "tsx --env-file=.env examples/orchestration-demo.ts",
-    "site-info": "tsx --env-file=.env examples/site-info.ts"
+    "example:site-info": "tsx --env-file=.env examples/site-info.ts"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
