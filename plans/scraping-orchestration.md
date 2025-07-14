@@ -1,35 +1,82 @@
-# Distributor System Plan
+# Scraping Orchestration Plan
 
 ## Overview
-A system for distributing scraping work (items) across available browser sessions. The core is a pure function that handles the distribution logic, supported by managers that handle external interactions.
+A system for orchestrating web scraping by distributing work items across available browser sessions. The core is a pure function that handles the distribution logic, supported by managers that handle external interactions.
 
-## Files to Create
+## Type Files to Create
 
-### 1. `src/lib/distributor.ts`
-Pure functional core for distributing items to sessions.
+### 1. `src/types/orchestration.ts`
+Shared types for the orchestration system.
 
 ```typescript
-// Types
-interface ItemToScrape {
+import type { Session } from './session.js';
+
+export interface ItemToScrape {
   url: string;
   domain: string;
   // Additional metadata to be added over time
 }
 
-interface DistributionResult {
+export interface DistributionResult {
   session: Session;
   items: ItemToScrape[];
 }
 
+export interface SessionStats {
+  sessionId: string;
+  itemsProcessed: number;
+  errors: number;
+  uptime: number;
+  currentLoad: number;
+}
+
+export interface ItemStats {
+  total: number;
+  pending: number;
+  completed: number;
+  failed: number;
+  byDomain: Record<string, number>;
+}
+
+export type DistributionStrategy = 'round-robin' | 'domain-affinity' | 'least-loaded';
+
+export interface DistributionOptions {
+  strategy?: DistributionStrategy;
+  maxItemsPerSession?: number;
+  prioritizeDomains?: string[];
+}
+
+export interface SessionManagerOptions {
+  maxSessions?: number;
+  sessionTimeout?: number;
+  provider?: 'browserbase' | 'local';
+}
+
+export interface ItemManagerOptions {
+  limit?: number;
+  domain?: string;
+  since?: Date;
+}
+```
+
+## Implementation Files to Create
+
+### 1. `src/lib/distributor.ts`
+Pure functional core for distributing items to sessions.
+
+```typescript
+import type { Session } from '../types/session.js';
+import type { 
+  ItemToScrape, 
+  DistributionResult, 
+  DistributionOptions 
+} from '../types/orchestration.js';
+
 // Main function
-function itemsToSessions(
+export function itemsToSessions(
   items: ItemToScrape[],
   sessions: Session[],
-  options?: {
-    strategy?: 'round-robin' | 'domain-affinity' | 'least-loaded';
-    maxItemsPerSession?: number;
-    prioritizeDomains?: string[];
-  }
+  options?: DistributionOptions
 ): DistributionResult[]
 ```
 
@@ -46,19 +93,15 @@ function itemsToSessions(
 Manages browser sessions (non-pure, handles external state).
 
 ```typescript
-// Types
-interface SessionManagerOptions {
-  maxSessions?: number;
-  sessionTimeout?: number;
-  provider?: 'browserbase' | 'local';
-}
+import type { Session, SessionOptions } from '../types/session.js';
+import type { SessionManagerOptions, SessionStats } from '../types/orchestration.js';
 
 // Functions
-async function getActiveSessions(): Promise<Session[]>
-async function createSession(options?: SessionOptions): Promise<Session>
-async function destroySession(sessionId: string): Promise<void>
-async function getSessionStats(sessionId: string): Promise<SessionStats>
-async function refreshSessions(): Promise<Session[]>
+export async function getActiveSessions(): Promise<Session[]>
+export async function createSession(options?: SessionOptions): Promise<Session>
+export async function destroySession(sessionId: string): Promise<void>
+export async function getSessionStats(sessionId: string): Promise<SessionStats>
+export async function refreshSessions(): Promise<Session[]>
 ```
 
 **Responsibilities:**
@@ -72,17 +115,18 @@ async function refreshSessions(): Promise<Session[]>
 Manages items to be scraped (non-pure, handles external state).
 
 ```typescript
-// Functions
-async function getItemsToScrape(options?: {
-  limit?: number;
-  domain?: string;
-  since?: Date;
-}): Promise<ItemToScrape[]>
+import type { 
+  ItemToScrape, 
+  ItemStats, 
+  ItemManagerOptions 
+} from '../types/orchestration.js';
 
-async function markItemScraped(item: ItemToScrape): Promise<void>
-async function markItemFailed(item: ItemToScrape, error: Error): Promise<void>
-async function getItemStats(): Promise<ItemStats>
-async function getPendingItemsByDomain(): Promise<Map<string, ItemToScrape[]>>
+// Functions
+export async function getItemsToScrape(options?: ItemManagerOptions): Promise<ItemToScrape[]>
+export async function markItemScraped(item: ItemToScrape): Promise<void>
+export async function markItemFailed(item: ItemToScrape, error: Error): Promise<void>
+export async function getItemStats(): Promise<ItemStats>
+export async function getPendingItemsByDomain(): Promise<Map<string, ItemToScrape[]>>
 ```
 
 **Responsibilities:**
