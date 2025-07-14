@@ -1,32 +1,12 @@
-import { readFile } from 'fs/promises';
-import { join } from 'path';
 import type { Proxy, ProxyStore, PlaywrightProxy } from '../types/proxy.js';
-
-let cachedStore: ProxyStore | null = null;
+import { loadProxies as loadProxiesFromDb } from '../providers/local-db.js';
 
 /**
  * Load all proxies from proxies.json
+ * This function now delegates to the local-db provider
  */
 export async function loadProxies(): Promise<ProxyStore> {
-  if (cachedStore) {
-    return cachedStore;
-  }
-
-  const proxyPath = join(process.cwd(), 'db', 'proxies.json');
-  const data = await readFile(proxyPath, 'utf-8');
-  const store = JSON.parse(data) as ProxyStore;
-  
-  // Basic validation
-  if (!store.proxies || !Array.isArray(store.proxies)) {
-    throw new Error('Invalid proxy store: missing proxies array');
-  }
-  
-  if (!store.default || typeof store.default !== 'string') {
-    throw new Error('Invalid proxy store: missing default proxy id');
-  }
-
-  cachedStore = store;
-  return store;
+  return loadProxiesFromDb();
 }
 
 /**

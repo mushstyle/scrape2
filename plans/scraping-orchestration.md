@@ -19,6 +19,7 @@
    - [x] Implement `getLatestRunForDomain()` convenience function
    - [x] Add `normalizeRunResponse()` helper for field name variations
    - [x] Add `buildApiUrl()` helper for consistent URL construction
+   - [x] Re-export `getSiteConfigWithProxyStrategy` for enhanced site config
    - [ ] Write unit tests for all API functions with mocked responses
 
 [x] 3. Implement pure functional distributor
@@ -70,6 +71,21 @@
    - [ ] Add API documentation for all exported functions
    - [ ] Create troubleshooting guide for common issues
    - [x] Update CLAUDE.md with orchestration patterns
+
+[x] 8. Implement local database provider
+   - [x] Create `src/providers/local-db.ts` for loading JSON files from db/
+   - [x] Implement generic `loadJsonFile()` with caching
+   - [x] Implement `loadProxies()` for proxies.json
+   - [x] Implement `loadProxyStrategies()` for proxy-strategies.json
+   - [x] Implement `clearCache()` for cache management
+   - [x] Update `src/lib/proxy.ts` to use local-db provider
+   - [x] Create tests for local-db provider
+
+[x] 9. Enhance site config with proxy strategies
+   - [x] Update `getSiteConfig()` to merge proxy strategies from local JSON
+   - [x] Load proxy-strategies.json and merge domain-specific or default strategy
+   - [x] Add logging for proxy strategy application
+   - [x] Handle missing proxy strategies gracefully
 
 **Key Considerations:**
 

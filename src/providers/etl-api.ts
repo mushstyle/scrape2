@@ -321,4 +321,10 @@ export async function getLatestRunForDomain(domain: string): Promise<ScrapeRun |
     log.error(`Error getting latest run for domain ${domain}`, { error });
     return null;
   }
-} 
+}
+
+/**
+ * Get site config with proxy strategy merged from local proxy-strategies.json
+ * This is a re-export for convenience from the site-config module
+ */
+export { getSiteConfig as getSiteConfigWithProxyStrategy } from '../types/site-config.js'; 

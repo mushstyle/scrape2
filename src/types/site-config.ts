@@ -1,10 +1,15 @@
 import type { SiteConfig } from './site-config-types.js';
 import { getSiteById } from '../providers/etl-api.js';
+import { loadProxyStrategies } from '../providers/local-db.js';
 import type { ApiSiteMetadata } from './siteScrapingConfig.js';
 import { extractDomain } from '../utils/url-utils.js';
+import { logger } from '../lib/logger.js';
+
+const log = logger.createContext('site-config');
 
 /**
- * Fetches site configuration for a given domain from the remote API.
+ * Fetches site configuration for a given domain from the remote API
+ * and merges proxy strategy from local proxy-strategies.json.
  * @param domainOrUrl The domain or a URL containing the domain.
  * @returns A Promise resolving to the SiteConfig object.
  */
@@ -22,7 +27,7 @@ export async function getSiteConfig(domainOrUrl: string): Promise<SiteConfig> {
             // or let it be undefined if SiteConfig allows scraping.browser to be optional.
             // For now, assuming API should provide at least an empty browser object if scrapeConfig exists.
             apiData.scrapeConfig.browser = {} as any; // Or handle more gracefully
-            console.error(`API response for ${cleanDomain} is missing 'scrapeConfig.browser'. Using defaults.`);
+            log.error(`API response for ${cleanDomain} is missing 'scrapeConfig.browser'. Using defaults.`);
         }
 
         const siteConfig: SiteConfig = {
@@ -41,10 +46,36 @@ export async function getSiteConfig(domainOrUrl: string): Promise<SiteConfig> {
             },
         };
 
+        // Load and merge proxy strategies
+        try {
+            const proxyStrategies = await loadProxyStrategies();
+            
+            // Look for domain-specific strategy or fall back to default
+            const proxyStrategy = proxyStrategies[cleanDomain] || proxyStrategies['default'];
+            
+            if (proxyStrategy) {
+                // Merge proxy strategy into site config
+                siteConfig.proxy = {
+                    strategy: proxyStrategy.strategy,
+                    geo: proxyStrategy.geo,
+                    cooldownMinutes: proxyStrategy.cooldownMinutes,
+                    failureThreshold: proxyStrategy.failureThreshold,
+                    sessionLimit: proxyStrategy.sessionLimit
+                };
+                
+                log.debug(`Applied proxy strategy for ${cleanDomain}: ${proxyStrategy.strategy}`);
+            } else {
+                log.debug(`No proxy strategy found for ${cleanDomain}, no default available`);
+            }
+        } catch (error) {
+            log.error(`Failed to load proxy strategies for ${cleanDomain}`, { error });
+            // Continue without proxy config if loading fails
+        }
+
         return siteConfig;
 
     } catch (error) {
-        console.error(`Error fetching site config for ${cleanDomain} from API:`, error);
+        log.error(`Error fetching site config for ${cleanDomain} from API:`, { error });
         // Re-throw or handle error as appropriate for callers
         throw new Error(`Failed to get configuration for domain: ${cleanDomain}. Reason: ${error instanceof Error ? error.message : String(error)}`);
     }
