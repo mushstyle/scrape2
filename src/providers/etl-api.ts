@@ -126,7 +126,11 @@ const log = logger.createContext('etl-api');
  */
 function buildApiUrl(path: string): string {
   const base = getApiBaseUrl();
-  return `${base}${path}`;
+  const apiKey = process.env.ETL_API_KEY;
+  
+  // Add api_key as query parameter
+  const separator = path.includes('?') ? '&' : '?';
+  return `${base}${path}${separator}api_key=${apiKey}`;
 }
 
 /**
@@ -248,8 +252,8 @@ export async function listScrapeRuns(query?: ListScrapeRunsQuery): Promise<ListS
     const data = await response.json();
     log.debug('API response:', { data });
     
-    // The API might return the runs directly as an array
-    const runs = Array.isArray(data) ? data : (data.runs || []);
+    // The API returns { data: [...] } format
+    const runs = data.data || data.runs || (Array.isArray(data) ? data : []);
     return {
       runs: runs.map(normalizeRunResponse),
       total: data.total || runs.length
