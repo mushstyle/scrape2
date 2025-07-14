@@ -126,11 +126,7 @@ const log = logger.createContext('etl-api');
  */
 function buildApiUrl(path: string): string {
   const base = getApiBaseUrl();
-  const apiKey = process.env.ETL_API_KEY;
-  
-  // Add api_key as query parameter
-  const separator = path.includes('?') ? '&' : '?';
-  return `${base}${path}${separator}api_key=${apiKey}`;
+  return `${base}${path}`;
 }
 
 /**
