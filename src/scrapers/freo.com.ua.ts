@@ -1,5 +1,5 @@
 import { /* chromium, Browser, */ Page } from 'playwright';
-import { Item, Image, Size } from '../db/types.js';
+import { Item, Image, Size } from '../types/item.js';
 import * as Utils from '../db/db-utils.js';
 // import { uploadImageUrlToS3 } from '../providers/s3.js'; // Not used directly, uploadImagesToS3AndAddUrls is preferred
 import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js';

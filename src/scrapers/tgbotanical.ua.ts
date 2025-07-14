@@ -1,6 +1,6 @@
 import type { Page } from 'playwright';
 // import playwright from 'playwright'; // Removed playwright import
-import type { Item, Image } from '../db/types.js'; // Import from db/types.js
+import type { Item, Image } from '../types/item.js'; // Import from db/types.js
 import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js'; // Corrected function name
 import { formatItem } from '../db/db-utils.js'; // Import formatItem directly
 import { logger } from '../lib/logger.js';
