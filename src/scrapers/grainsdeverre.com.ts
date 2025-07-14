@@ -1,6 +1,6 @@
 import type { Page } from 'playwright';
 // import { chromium } from 'playwright'; // Removed chromium
-import type { Item, Image, Size } from '../db/types.js'; // Corrected path to types
+import type { Item, Image, Size } from '../types/item.js'; // Corrected path to types
 import type { Scraper } from './types.js'; // Corrected path for Scraper type
 // import { getSiteConfig } from '../diagnostics/site-utils.js'; // Removed getSiteConfig
 import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js'; // Adjust path if necessary

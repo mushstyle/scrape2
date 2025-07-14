@@ -1,6 +1,6 @@
 import type { Page } from 'playwright';
 // import { chromium } from 'playwright'; // No longer needed as browser is not launched here
-import { Item, Image, Size } from '../db/types.js';
+import { Item, Image, Size } from '../types/item.js';
 import * as Utils from '../db/db-utils.js';
 // import { getSiteConfig, extractDomain } from '../diagnostics/site-utils.js'; // No longer needed
 import { uploadImageUrlToS3 } from '../providers/s3.js';

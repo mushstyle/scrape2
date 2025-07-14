@@ -1,6 +1,6 @@
 import type { Page } from 'playwright';
 // import { chromium } from 'playwright'; // Removed chromium
-import { Item, Image, Size } from "../db/types.js";
+import { Item, Image, Size } from '../types/item.js";
 import * as Utils from "../db/db-utils.js";
 import { getSiteConfig } from "../types/site-config.js";
 import type { Scraper } from './types.js';

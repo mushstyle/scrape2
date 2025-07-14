@@ -1,6 +1,6 @@
 import type { Page } from 'playwright';
 import type { Scraper } from './types.js';
-import type { Item, Size, Image } from '../db/types.js';
+import type { Item, Size, Image } from '../types/item.js';
 // import playwright from 'playwright'; // Removed playwright
 import { formatItem } from '../db/db-utils.js';
 import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js';

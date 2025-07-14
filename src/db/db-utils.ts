@@ -1,4 +1,4 @@
-import { Item } from './types.js';
+import { Item } from '../types/item.js';
 import { createHash } from 'crypto';
 
 const currencyMap = {

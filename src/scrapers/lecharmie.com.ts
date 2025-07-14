@@ -1,6 +1,6 @@
 import type { Page, Browser } from 'playwright';
 import { chromium } from 'playwright'; // chromium might still be needed if other funcs in this file were to use it, but not for scrapeItem
-import { Item, Size, Image } from "../db/types.js"; // Import needed types
+import { Item, Size, Image } from '../types/item.js"; // Import needed types
 import * as Utils from "../db/db-utils.js";
 import { uploadImageUrlToS3 } from '../providers/s3.js'; // Import S3 function
 import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js'; // Import the new helper

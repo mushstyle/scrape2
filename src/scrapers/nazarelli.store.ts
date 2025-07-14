@@ -1,6 +1,6 @@
 import type { Page } from 'playwright';
 // import playwright from 'playwright'; // Removed playwright import, chromium/Browser will be managed by caller
-import type { Item, Image } from '../db/types.js';
+import type { Item, Image } from '../types/item.js';
 import { Scraper } from './types.js';
 import { formatItem } from '../db/db-utils.js';
 import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js';

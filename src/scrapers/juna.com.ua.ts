@@ -1,5 +1,5 @@
 import type { Page } from 'playwright';
-import { Item, Image, Size } from '../db/types.js'; // Import Item types
+import { Item, Image, Size } from '../types/item.js'; // Import Item types
 import * as Utils from '../db/db-utils.js';
 import { uploadImageUrlToS3 } from '../providers/s3.js'; // Import S3 function
 import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js'; // Import the new helper

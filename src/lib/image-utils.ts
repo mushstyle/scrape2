@@ -1,4 +1,4 @@
-import type { Image } from '../db/types.js';
+import type { Image } from '../types/item.js';
 import { uploadImageUrlToS3 } from '../providers/s3.js';
 import { logger } from '../lib/logger.js';
 
