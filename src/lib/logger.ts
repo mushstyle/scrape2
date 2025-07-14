@@ -47,7 +47,7 @@ class Logger {
   }
 
   // Core logging methods
-  log(level: LogLevel, message: string, context?: string): void {
+  log(level: LogLevel, message: string, context?: string, data?: any): void {
     if (level > this.config.level) return;
 
     const prefix = context ? `[${context}] ` : '';
@@ -62,30 +62,36 @@ class Logger {
     }
 
     console.log(formattedMessage);
+    if (data !== undefined) {
+      console.log(data);
+    }
   }
 
   // Convenience methods
-  quiet(message: string, context?: string): void {
-    this.log(LogLevel.QUIET, message, context);
+  quiet(message: string, context?: string, data?: any): void {
+    this.log(LogLevel.QUIET, message, context, data);
   }
 
-  normal(message: string, context?: string): void {
-    this.log(LogLevel.NORMAL, message, context);
+  normal(message: string, context?: string, data?: any): void {
+    this.log(LogLevel.NORMAL, message, context, data);
   }
 
-  verbose(message: string, context?: string): void {
-    this.log(LogLevel.VERBOSE, message, context);
+  verbose(message: string, context?: string, data?: any): void {
+    this.log(LogLevel.VERBOSE, message, context, data);
   }
 
-  debug(message: string, context?: string): void {
-    this.log(LogLevel.DEBUG, message, context);
+  debug(message: string, context?: string, data?: any): void {
+    this.log(LogLevel.DEBUG, message, context, data);
   }
 
-  error(message: string, context?: string): void {
+  error(message: string, context?: string, data?: any): void {
     // Errors always show unless in quiet mode
     if (this.config.level > LogLevel.QUIET) {
       const prefix = context ? `[${context}] ` : '';
       console.error(`${prefix}${message}`);
+      if (data !== undefined) {
+        console.error(data);
+      }
     }
   }
 
@@ -140,29 +146,29 @@ export class ContextualLogger {
     private logger: Logger
   ) {}
 
-  quiet(message: string): void {
-    this.logger.quiet(message, this.context);
+  quiet(message: string, data?: any): void {
+    this.logger.quiet(message, this.context, data);
   }
 
-  normal(message: string): void {
-    this.logger.normal(message, this.context);
+  normal(message: string, data?: any): void {
+    this.logger.normal(message, this.context, data);
   }
 
-  verbose(message: string): void {
-    this.logger.verbose(message, this.context);
+  verbose(message: string, data?: any): void {
+    this.logger.verbose(message, this.context, data);
   }
 
-  debug(message: string): void {
-    this.logger.debug(message, this.context);
+  debug(message: string, data?: any): void {
+    this.logger.debug(message, this.context, data);
   }
 
-  error(message: string): void {
-    this.logger.error(message, this.context);
+  error(message: string, data?: any): void {
+    this.logger.error(message, this.context, data);
   }
 
   // Log only at a specific level
-  log(message: string): void {
-    this.logger.normal(message, this.context);
+  log(message: string, data?: any): void {
+    this.logger.normal(message, this.context, data);
   }
 }
 
