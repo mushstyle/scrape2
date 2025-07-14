@@ -1,5 +1,8 @@
 import type { ScrapeRunItem } from '../types/scrape-run.js';
 import type { SiteConfig } from '../types/site-config-types.js';
+import { logger } from './logger.js';
+
+const log = logger.createContext('distributor');
 
 export interface UrlSessionPair {
   url: string;
@@ -69,7 +72,7 @@ export function itemsToSessions(
     
     // If no matching session found, skip this URL
     if (!matched) {
-      console.warn(`No suitable session found for URL: ${item.url}`);
+      log.debug(`No suitable session found for URL: ${item.url}`);
     }
   }
   
@@ -128,7 +131,7 @@ function extractDomain(url: string): string {
     // Remove 'www.' prefix if present
     return urlObj.hostname.replace(/^www\./, '');
   } catch (error) {
-    console.warn(`Failed to parse URL: ${url}`);
+    log.debug(`Failed to parse URL: ${url}`);
     return '';
   }
 }
