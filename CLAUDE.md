@@ -16,6 +16,7 @@
 - `rules/types.md`: how to use and create
 - `rules/plans.md`: how to create plans
 - `rules/scrapers.md`: how to create scrapers
+- `rules/providers.md`: how to create or access providers and external services/APIs
 
 ## Testing
 - DO NOT use cos.com for testing - has non-standard behavior
