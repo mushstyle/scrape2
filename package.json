@@ -14,7 +14,8 @@
     "example": "tsx --no-warnings --env-file=.env examples/session-based-usage.js",
     "orchestration-demo": "tsx --no-warnings --env-file=.env examples/orchestration-demo.ts",
     "example:site-info": "tsx --no-warnings --env-file=.env examples/site-info.ts",
-    "example:browserbase-sessions": "tsx --no-warnings --env-file=.env examples/browserbase-sessions.ts"
+    "example:browserbase-sessions": "tsx --no-warnings --env-file=.env examples/browserbase-sessions.ts",
+    "example:start-pages": "tsx --no-warnings --env-file=.env examples/start-pages.ts"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
