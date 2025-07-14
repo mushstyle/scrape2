@@ -4,11 +4,12 @@ import type { Session, SessionOptions, LocalSession } from '../types/session.js'
 /**
  * Create a local browser session with optional proxy configuration
  * Note: Proxy is stored for later use when creating contexts
+ * @param options.headless - Whether to run browser in headless mode (defaults to false)
  */
 export async function createSession(options: SessionOptions = {}): Promise<Session> {
-  // Local browser is always headed
+  // Default to headed mode unless explicitly set to headless
   const browser = await chromium.launch({
-    headless: false
+    headless: options.headless ?? false
   });
 
   const localSession: LocalSession = {

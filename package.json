@@ -5,13 +5,14 @@
   "private": true,
   "scripts": {
     "build": "tsc",
-    "test": "vitest",
-    "test:watch": "vitest watch",
-    "test:browser": "vitest tests/browser.test.ts",
-    "test:proxy": "vitest tests/proxy.test.ts",
-    "test:cache": "vitest tests/cache.test.ts",
-    "test:integration": "vitest tests/integration.test.ts",
-    "example": "tsx --env-file=.env examples/session-based-usage.js"
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "test:browser": "vitest --run tests/browser.test.ts",
+    "test:proxy": "vitest --run tests/proxy.test.ts",
+    "test:cache": "vitest --run tests/cache.test.ts",
+    "test:integration": "vitest --run tests/integration.test.ts",
+    "example": "tsx --env-file=.env examples/session-based-usage.js",
+    "orchestration-demo": "tsx --env-file=.env examples/orchestration-demo.ts"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

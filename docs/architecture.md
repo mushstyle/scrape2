@@ -218,3 +218,78 @@ try {
 3. **Clean Separation**: External providers isolated in their own modules
 4. **Resource Management**: Explicit cleanup functions prevent leaks
 5. **Type Safety**: Full TypeScript support throughout
+
+## Scraping Orchestration System
+
+The orchestration system builds on top of the session architecture to manage large-scale scraping operations.
+
+### Core Components
+
+1. **ETL API Provider** (`src/providers/etl-api.ts`)
+   - Manages scrape runs and their lifecycle
+   - Handles item status updates
+   - Provides run statistics and metadata
+
+2. **Distributor** (`src/lib/distributor.ts`)
+   - Pure functional core for distributing items to sessions
+   - Simple linear matching algorithm: iterate URLs, then sessions
+   - Matches sessions based on proxy requirements from SiteConfig
+   - Returns URL-Session pairs for processing
+   - Filters out completed items automatically
+
+3. **Session Manager** (`src/lib/session-manager.ts`)
+   - Manages pool of browser sessions
+   - Handles session creation, destruction, and health checks
+   - Tracks session usage and statistics
+
+4. **Scrape Run Manager** (`src/lib/scrape-run-manager.ts`)
+   - High-level API for managing scrape runs
+   - Handles run creation, item updates, and finalization
+   - Provides run statistics and progress tracking
+
+### Orchestration Flow
+
+1. **Create/Resume Run**: Get or create a scrape run for a domain
+2. **Get Pending Items**: Fetch items that haven't been processed
+3. **Create Sessions**: Spin up browser sessions based on concurrency needs
+4. **Distribute Items**: Use distributor to assign items to sessions
+5. **Process Items**: Scrape items and update their status
+6. **Track Progress**: Monitor completion and handle failures
+7. **Finalize Run**: Mark run as complete when all items are processed
+
+### Example Usage
+
+```typescript
+import { SessionManager } from '../src/lib/session-manager.js';
+import { ScrapeRunManager } from '../src/lib/scrape-run-manager.js';
+import { itemsToSessions } from '../src/lib/distributor.js';
+
+// Initialize managers
+const sessionManager = new SessionManager({ sessionLimit: 5 });
+const runManager = new ScrapeRunManager();
+
+// Get or create run
+const run = await runManager.getOrCreateRun('example.com');
+const pendingItems = await runManager.getPendingItems(run.id);
+
+// Create sessions
+const sessionIds = [];
+for (let i = 0; i < 3; i++) {
+  const sessionId = await sessionManager.createSession();
+  sessionIds.push(sessionId);
+}
+
+// Distribute items
+const urlSessionPairs = itemsToSessions(pendingItems, sessionIds);
+
+// Process items (simplified)
+for (const { url, sessionId } of urlSessionPairs) {
+  // Scrape item with assigned session...
+  await runManager.updateItemStatus(run.id, url, { done: true });
+}
+
+// Finalize when complete
+await runManager.finalizeRun(run.id);
+```
+
+See `examples/orchestration-demo.ts` for a complete working example.

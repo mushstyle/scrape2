@@ -13,7 +13,7 @@ test('Integration - local browser + proxy + cache', async () => {
   if (!proxy) return;
 
   // Create session with proxy
-  const session = await createLocalSession({ proxy });
+  const session = await createLocalSession({ proxy, headless: true });
   const { browser, createContext, cleanup } = await createBrowserFromSession(session);
 
   try {
@@ -58,7 +58,7 @@ test('Integration - local browser + proxy + cache', async () => {
 
 test('Integration - session without proxy', async () => {
   // Create session without proxy
-  const session = await createLocalSession();
+  const session = await createLocalSession({ headless: true });
   const { browser, createContext, cleanup } = await createBrowserFromSession(session, {
     blockImages: true
   });
