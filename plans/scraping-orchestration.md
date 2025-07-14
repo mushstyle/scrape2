@@ -28,9 +28,12 @@
    - [x] Add filtering for completed items (done === true)
    - [x] Update to iterate through URLs then sessions
    - [x] Add session "works for URL" logic based on proxy requirements
-   - [x] Support SiteConfig to determine proxy strategy matching
+   - [x] Support array of SiteConfigs with blocked proxy IDs
+   - [x] Add geo matching between site requirements and session proxy
+   - [x] Include proxyGeo in SessionInfo interface
+   - [x] Handle domain extraction from URLs (with www prefix support)
    - [x] Write comprehensive unit tests for linear distribution
-   - [x] Test edge cases: empty items, empty sessions, single session, proxy matching
+   - [x] Test edge cases: empty items, empty sessions, single session, proxy matching, geo matching, blocked proxies
 
 [x] 4. Implement session manager
    - [x] Create `src/lib/session-manager.ts` with session tracking
@@ -40,6 +43,7 @@
    - [x] Implement `getSessionStats()` for load balancing
    - [x] Implement `refreshSessions()` for health checks
    - [x] Add session pooling and timeout management
+   - [x] Track proxy geo information in session metadata
    - [ ] Write integration tests with mocked providers
 
 [x] 5. Implement scrape run manager
@@ -57,6 +61,8 @@
    - [x] Demonstrate creating/resuming runs
    - [x] Show distribution strategies in action
    - [x] Include error handling examples
+   - [x] Show SiteConfigWithBlockedProxies usage
+   - [x] Demonstrate geo-aware proxy matching
    - [ ] Add performance monitoring example
 
 [x] 7. Update documentation
@@ -72,6 +78,10 @@
 - [x] Distributor must filter out completed items before distribution
 - [x] Session manager needs to handle both browserbase and local providers
 - [x] Consider implementing batch updates for performance with many items
+- [x] Distributor accepts array of SiteConfigs with blocked proxy IDs
+- [x] SessionInfo includes denormalized proxy information (type, id, geo)
+- [x] Proxy geo matching between site requirements and session capabilities
+- [x] Domain extraction handles www prefixes correctly
 - [ ] Add retry logic for transient API failures
 - [ ] Monitor memory usage when handling large numbers of items
 - [ ] Ensure proper TypeScript types throughout for maintainability

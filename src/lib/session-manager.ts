@@ -15,6 +15,7 @@ interface Session {
   itemCount: number;
   proxyType?: 'residential' | 'datacenter' | 'none';
   proxyId?: string;
+  proxyGeo?: string;
 }
 
 export class SessionManager {
@@ -71,7 +72,8 @@ export class SessionManager {
         isActive: true,
         itemCount: 0,
         proxyType: options.proxy ? this.getProxyType(options.proxy) : 'none',
-        proxyId: options.proxy?.id
+        proxyId: options.proxy?.id,
+        proxyGeo: options.proxy?.geo
       });
       
       log.normal(`Created ${this.provider} session ${sessionId}`);

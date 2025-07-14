@@ -3,7 +3,7 @@
 import { logger } from '../src/lib/logger.js';
 import { SessionManager } from '../src/lib/session-manager.js';
 import { ScrapeRunManager } from '../src/lib/scrape-run-manager.js';
-import { itemsToSessions, type SessionInfo } from '../src/lib/distributor.js';
+import { itemsToSessions, type SessionInfo, type SiteConfigWithBlockedProxies } from '../src/lib/distributor.js';
 import { getSiteConfig } from '../src/types/site-config.js';
 
 const log = logger.createContext('orchestration-demo');
@@ -60,11 +60,16 @@ async function main() {
     }
     log.normal(`Created ${sessionIds.length} sessions`);
     
-    // Step 4: Get site config for proxy requirements
-    log.normal('\\nStep 4: Getting site configuration...');
-    let siteConfig;
+    // Step 4: Get site configs for proxy requirements
+    log.normal('\\nStep 4: Getting site configurations...');
+    const siteConfigs: SiteConfigWithBlockedProxies[] = [];
     try {
-      siteConfig = await getSiteConfig(domain);
+      const siteConfig = await getSiteConfig(domain);
+      // Add any blocked proxy IDs (for demo purposes, we'll simulate some)
+      siteConfigs.push({
+        ...siteConfig,
+        blockedProxyIds: [] // In production, this would come from monitoring/failure tracking
+      });
       log.normal(`Site proxy strategy: ${siteConfig.proxy?.strategy || 'none'}`);
     } catch (error) {
       log.normal('Could not fetch site config, proceeding without proxy requirements');
@@ -77,12 +82,13 @@ async function main() {
     // In a real implementation, the session manager would track proxy info
     const sessionInfos: SessionInfo[] = sessionIds.map((id, index) => ({
       id,
-      // For demo purposes, assign different proxy types
+      // For demo purposes, assign different proxy types and geos
       proxyType: index === 0 ? 'datacenter' : index === 1 ? 'residential' : 'none',
-      proxyId: index === 0 ? 'proxy-dc-1' : index === 1 ? 'proxy-res-1' : undefined
+      proxyId: index === 0 ? 'proxy-dc-1' : index === 1 ? 'proxy-res-1' : undefined,
+      proxyGeo: index === 0 ? 'US' : index === 1 ? 'US' : undefined
     }));
     
-    const urlSessionPairs = itemsToSessions(pendingItems, sessionInfos, siteConfig);
+    const urlSessionPairs = itemsToSessions(pendingItems, sessionInfos, siteConfigs);
     
     log.normal(`Distributed ${urlSessionPairs.length} items to sessions`);
     

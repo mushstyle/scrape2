@@ -10,6 +10,11 @@ export interface SessionInfo {
   id: string;
   proxyType?: 'residential' | 'datacenter' | 'none';
   proxyId?: string;
+  proxyGeo?: string;  // 2-letter ISO code: 'US', 'UK', etc.
+}
+
+export interface SiteConfigWithBlockedProxies extends SiteConfig {
+  blockedProxyIds?: string[];
 }
 
 /**
@@ -17,19 +22,20 @@ export interface SessionInfo {
  * 
  * Algorithm:
  * - Iterate through URLs
- * - For each URL, iterate through sessions
- * - Take first session that works for URL based on site proxy requirements
+ * - For each URL, find its site config based on domain
+ * - Iterate through sessions
+ * - Take first session that works for URL based on site proxy requirements and blocked proxies
  * - Return URL + Session pairs
  * 
  * @param items - Array of ScrapeRunItems to distribute
  * @param sessions - Array of session info with proxy details
- * @param siteConfig - Site configuration with proxy requirements
+ * @param siteConfigs - Array of site configurations with proxy requirements and blocked proxy IDs
  * @returns Array of URL-Session pairs
  */
 export function itemsToSessions(
   items: ScrapeRunItem[],
   sessions: SessionInfo[],
-  siteConfig?: SiteConfig
+  siteConfigs: SiteConfigWithBlockedProxies[] = []
 ): UrlSessionPair[] {
   // Filter out completed items (done === true)
   const pendingItems = items.filter(item => !item.done);
@@ -44,6 +50,10 @@ export function itemsToSessions(
   // Iterate through URLs
   for (const item of pendingItems) {
     let matched = false;
+    
+    // Find site config for this URL's domain
+    const urlDomain = extractDomain(item.url);
+    const siteConfig = siteConfigs.find(config => config.domain === urlDomain);
     
     // Iterate through sessions to find first one that works
     for (const session of sessions) {
@@ -69,10 +79,20 @@ export function itemsToSessions(
 /**
  * Check if a session's proxy configuration matches the site's requirements
  */
-function sessionWorksForUrl(session: SessionInfo, siteConfig?: SiteConfig): boolean {
+function sessionWorksForUrl(session: SessionInfo, siteConfig?: SiteConfigWithBlockedProxies): boolean {
   // If no site config provided, any session works
   if (!siteConfig || !siteConfig.proxy) {
     return true;
+  }
+  
+  // Check if session's proxy is in the blocked list
+  if (session.proxyId && siteConfig.blockedProxyIds?.includes(session.proxyId)) {
+    return false;
+  }
+  
+  // Check geo match if required
+  if (siteConfig.proxy.geo && session.proxyGeo && session.proxyGeo !== siteConfig.proxy.geo) {
+    return false;
   }
   
   const requiredStrategy = siteConfig.proxy.strategy;
@@ -96,5 +116,19 @@ function sessionWorksForUrl(session: SessionInfo, siteConfig?: SiteConfig): bool
     default:
       // Unknown strategy, be conservative and reject
       return false;
+  }
+}
+
+/**
+ * Extract domain from URL
+ */
+function extractDomain(url: string): string {
+  try {
+    const urlObj = new URL(url);
+    // Remove 'www.' prefix if present
+    return urlObj.hostname.replace(/^www\./, '');
+  } catch (error) {
+    console.warn(`Failed to parse URL: ${url}`);
+    return '';
   }
 }
