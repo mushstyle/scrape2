@@ -82,7 +82,7 @@ async function main() {
     await page.close();
     await context.close();
     await browser.close();
-    await sessionManager.destroySession(session.browserbase?.id || 'local');
+    await sessionManager.destroySessionByObject(session);
     
   } catch (error) {
     log.error(`Error: ${error.message}`);
