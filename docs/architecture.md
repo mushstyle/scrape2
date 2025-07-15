@@ -4,213 +4,221 @@
 
 This codebase follows a strict layered architecture where each layer can only import from specific other layers. This ensures clean separation of concerns and prevents architectural violations.
 
-## Directory Structure
+## The Five Layers
 
-```
-src/
-├── providers/          # External service integrations (Level 1)
-│   ├── browserbase.ts      # Browserbase API integration
-│   ├── local-browser.ts    # Local Chrome browser provider
-│   ├── etl-api.ts          # ETL API for scrape runs and sites
-│   └── local-db.ts         # Local JSON file access
-│
-├── drivers/            # Provider abstractions (Level 2)
-│   ├── browser.ts          # Browser session creation and management
-│   ├── proxy.ts            # Proxy configuration management
-│   ├── site-config.ts      # Site configuration retrieval
-│   ├── cache.ts            # Request/response caching
-│   └── scrape-runs.ts      # Scrape run operations wrapper
-│
-├── services/           # Stateful managers (Level 3)
-│   ├── session-manager.ts      # Browser session pool management
-│   ├── site-manager.ts         # Site configuration and state
-│
-├── core/               # Pure business logic (Level 4)
-│   └── distributor.ts          # URL-session matching algorithms
-│                               # Including doublePassMatcher function
-│
-├── engines/            # Top-level orchestration (Level 5)
-│   └── scrape-engine.ts        # Main scraping engine
-│
-├── utils/              # Cross-cutting utilities
-│   ├── logger.ts               # Logging utilities
-│   └── image-utils.ts          # Image processing utilities
-│
-└── types/              # TypeScript type definitions
-```
+### 1. Providers (External Integrations)
+Direct integrations with external services and APIs. These are the only components that make external calls.
 
-## CRITICAL: Import Rules
+### 2. Drivers (Abstractions) 
+Thin wrappers around providers that abstract implementation details and provide a consistent interface.
 
-### Strict Hierarchy (MUST BE FOLLOWED)
+### 3. Services (Stateful Managers)
+Stateful components that manage resources, coordinate operations, and maintain domain state.
 
-1. **Providers** (Level 1)
-   - Can import: `utils/*`, `types/*`
-   - Cannot import: ANY other src files
+### 4. Core (Pure Business Logic)
+Pure functions containing business logic with no side effects or external dependencies.
 
-2. **Drivers** (Level 2)
-   - Can import: `providers/*`, `utils/*`, `types/*`
-   - Cannot import: `services/*`, `core/*`, `engines/*`
+### 5. Engines (Orchestration)
+Top-level components that orchestrate complex workflows using services and core logic.
 
-3. **Services** (Level 3)
-   - Can import: `drivers/*`, `utils/*`, `types/*`
-   - Cannot import: `providers/*`, `core/*`, `engines/*`
-   - MUST use drivers for ALL external service access
+## Import Rules - The Foundation of Our Architecture
 
-4. **Core** (Level 4)
-   - Can import: `utils/*`, `types/*`
-   - Cannot import: `providers/*`, `drivers/*`, `services/*`, `engines/*`
-   - Contains ONLY pure functions (no side effects)
+### Dependency Flow
+Dependencies must flow in one direction only: **Engines → Services → Drivers → Providers**
 
-5. **Engines** (Level 5)
-   - Can import: `services/*`, `core/*`, `utils/*`, `types/*`
-   - Cannot import: `providers/*`, `drivers/*`
-   - MUST use services for ALL stateful operations
+### Layer Import Rules
 
-6. **Examples** Not a layer, but a directory that contains examples of how to use the code.
-  - Can import services/*, core/*, utils/*, types/*
-  - Only exception: if an example is meant to demonstrate how to use a specific layer, it can import that layer directly.
+#### Level 1: Providers
+- **Can import**: utilities, types
+- **Cannot import**: ANY other application code
+- **Why**: Providers are the foundation and must not depend on higher layers
 
-### Examples of Correct Usage
+#### Level 2: Drivers  
+- **Can import**: providers, utilities, types
+- **Cannot import**: services, core, engines
+- **Why**: Drivers abstract providers but don't know about business logic
+
+#### Level 3: Services
+- **Can import**: drivers, utilities, types
+- **Cannot import**: providers, core, engines
+- **Must**: Use drivers for ALL external access (never providers directly)
+- **Why**: Services coordinate through drivers, maintaining abstraction
+
+#### Level 4: Core
+- **Can import**: utilities, types
+- **Cannot import**: providers, drivers, services, engines
+- **Must**: Contain ONLY pure functions (no side effects)
+- **Why**: Core logic must be testable and reusable without dependencies
+
+#### Level 5: Engines
+- **Can import**: services, core, utilities, types
+- **Cannot import**: providers, drivers
+- **Must**: Use services for ALL stateful operations
+- **Why**: Engines orchestrate but don't implement low-level details
+
+### Special Cases
+
+#### Examples
+- **Default**: Import from services, core, utilities, types
+- **Exception**: When demonstrating a specific layer, may import that layer
+- **Why**: Examples should show typical usage patterns
+
+#### Tests
+- **Rule**: Test files follow the same import rules as the code they test
+- **Why**: Tests must respect architecture to catch violations
+
+### Correct Patterns
 
 ```typescript
-// ✅ CORRECT: Engine uses services
-// engines/scrape-engine.ts
+// ✅ Engine uses services for orchestration
 import { SessionManager } from '../services/session-manager.js';
-import { itemsToSessions } from '../core/distributor.js';
+import { calculateOptimalDistribution } from '../core/algorithms.js';
 
-// ✅ CORRECT: Service uses drivers
-// services/session-manager.ts
-import { createBrowserbaseSession } from '../drivers/browser.js';
+// ✅ Service uses drivers for external access
+import { createRemoteSession } from '../drivers/browser.js';
 
-// ✅ CORRECT: Driver uses providers
-// drivers/browser.ts
-import { createSession } from '../providers/browserbase.js';
+// ✅ Driver uses providers for implementation
+import { connectToAPI } from '../providers/external-api.js';
+
+// ✅ Core contains pure business logic
+export function calculateScore(items: Item[]): number {
+  return items.reduce((sum, item) => sum + item.value, 0);
+}
 ```
 
-### Examples of Violations
+### Anti-Patterns to Avoid
 
 ```typescript
-// ❌ WRONG: Engine importing driver directly
-// engines/scrape-engine.ts
-import { createBrowserFromSession } from '../drivers/browser.js';
+// ❌ Engine bypassing service layer
+import { fetchDataDirectly } from '../drivers/data.js';
 
-// ❌ WRONG: Service importing provider directly
-// services/session-manager.ts
-import { createSession } from '../providers/browserbase.js';
+// ❌ Service bypassing driver abstraction  
+import { makeAPICall } from '../providers/api.js';
 
-// ❌ WRONG: Core importing service
-// core/distributor.ts
+// ❌ Core depending on stateful services
 import { SessionManager } from '../services/session-manager.js';
+
+// ❌ Lower layer depending on higher layer
+import { Engine } from '../engines/main.js';
 ```
 
-## Browser Session Architecture
+## Key Architectural Patterns
 
-### The Only Correct Flow
+### Resource Management Pattern
 
-**Provider → Session → Browser (via browser.ts)**
+**Flow**: External Resource → Provider → Driver → Service → Engine
 
-1. **Providers** create Session objects with connection information
-2. **Drivers** wrap provider functions and expose them to services
-3. **Services** manage Session objects (NOT just IDs)
-4. **Only browser.ts** creates browser instances from Sessions
+1. **Providers** create connections to external resources
+2. **Drivers** wrap provider functions with consistent interfaces
+3. **Services** manage resource lifecycle and state
+4. **Engines** orchestrate resource usage for business goals
 
-### CRITICAL: Session Management
+### State Management Pattern
 
-The SessionManager MUST:
-- Store actual Session objects, not just IDs
-- Return Session[] from getActiveSessions()
-- Pass Session objects to browser.ts for browser creation
+**Services as State Owners**:
+- Services maintain all stateful data
+- Services provide high-level APIs for state access
+- Services handle state synchronization with external systems
+- Engines coordinate but never own state
 
-### NEVER Do This
+### Pure Logic Pattern
 
-- ❌ Create browsers directly with Playwright
-- ❌ Call chromium.launch() or chromium.connect()
-- ❌ Store only session IDs in SessionManager
-- ❌ Bypass the browser.ts driver
+**Core as Pure Functions**:
+- Core functions take inputs and return outputs
+- No side effects or external dependencies
+- Easily testable with simple unit tests
+- Reusable across different contexts
 
-## Core Components
+## Design Principles
 
-### Providers (External Services)
-- **browserbase.ts**: Creates remote browser sessions via API
-- **local-browser.ts**: Creates local Chrome browser sessions
-- **etl-api.ts**: Manages scrape runs, sites, and items
-- **local-db.ts**: Reads local JSON configuration files
+### 1. Separation of Concerns
+Each layer has a single, well-defined responsibility. Mixing concerns across layers is forbidden.
 
-### Drivers (Abstractions)
-- **browser.ts**: Creates browsers from sessions, manages contexts
-- **proxy.ts**: Loads and formats proxy configurations
-- **site-config.ts**: Retrieves site scraping configurations
-- **cache.ts**: In-memory request/response caching
-- **scrape-runs.ts**: Wraps ETL API operations
+### 2. Dependency Inversion
+Higher layers define interfaces they need, lower layers implement them. Dependencies point inward.
 
-### Services (Stateful Managers)
-- **session-manager.ts**: Manages pool of browser sessions
-- **site-manager.ts**: Central hub for all site-related operations:
-  - Site configurations and state
-  - Scrape run creation and management
-  - URL retry tracking
-  - Item status updates and data uploads
-  - Pending (uncommitted) runs
+### 3. Abstraction Layers
+Each layer provides abstractions that hide implementation details from higher layers.
 
-### Core (Business Logic)
-- **distributor.ts**: Contains pure functions for URL-session matching
-  - `itemsToSessions()`: Linear 1:1 URL-session matching
-  - `doublePassMatcher()`: Two-pass matching algorithm
+### 4. Testability First
+Architecture enables testing at every layer with appropriate mocking boundaries.
 
-### Engines (Orchestration)
-- **scrape-engine.ts**: Orchestrates scraping operations using services
+### 5. No Leaky Abstractions
+Implementation details must not leak across layer boundaries. Change internals without affecting consumers.
 
-## Key Principles
+## Implementation Guidelines
 
-1. **Separation of Concerns**: Each layer has a specific responsibility
-2. **Dependency Inversion**: Higher layers define interfaces, lower layers implement
-3. **No Leaky Abstractions**: Implementation details don't leak across layers
-4. **Testability**: Each layer can be tested independently
-5. **Type Safety**: Full TypeScript support throughout
+### Creating New Components
 
-## Common Patterns
+1. **Identify the Layer**
+   - External integration? → Provider
+   - Abstracting a provider? → Driver
+   - Managing state/resources? → Service
+   - Pure business logic? → Core
+   - Orchestrating workflow? → Engine
 
-### Creating a Browser Session
+2. **Define Interfaces First**
+   - What does this component expose?
+   - What dependencies does it need?
+   - What types flow in and out?
 
-```typescript
-// In a service (e.g., session-manager.ts)
-import { createBrowserbaseSession } from '../drivers/browser.js';
+3. **Respect Layer Boundaries**
+   - Only import from allowed layers
+   - Never bypass abstraction layers
+   - Keep implementation details private
 
-const session = await createBrowserbaseSession({ proxy });
-// Store the actual Session object, not just an ID!
-```
+### Testing Strategy
 
-### Using Sessions to Create Browsers
+1. **Unit Tests**
+   - Providers: Mock external APIs
+   - Drivers: Mock providers
+   - Services: Mock drivers
+   - Core: Pure functions, no mocks needed
+   - Engines: Mock services
 
-```typescript
-// In an engine or high-level code
-import { createBrowserFromSession } from '../drivers/browser.js';
+2. **Integration Tests**
+   - Test layer combinations
+   - Verify contracts between layers
+   - Ensure proper error propagation
 
-const { browser, createContext, cleanup } = await createBrowserFromSession(session);
-const context = await createContext();
-const page = await context.newPage();
-// ... do work ...
-await cleanup();
-```
+### Code Review Checklist
 
-### Distributing Work
+- [ ] Imports follow layer rules
+- [ ] No abstraction leakage
+- [ ] Proper error handling
+- [ ] State managed by services
+- [ ] Business logic in core
+- [ ] External calls in providers only
 
-```typescript
-// In an engine
-import { itemsToSessions, doublePassMatcher } from '../core/distributor.js';
+## Maintaining the Architecture
 
-// Simple distribution
-const pairs = itemsToSessions(items, sessions, siteConfigs);
+### Adding New Features
 
-// Or use double-pass matching
-const { firstPassMatched, excessSessions, finalMatched } = 
-  doublePassMatcher(items, initialSessions, finalSessions, siteConfigs);
-```
+1. **Start from the top**: What does the engine need?
+2. **Work downward**: What services support this?
+3. **Identify externals**: What external resources are required?
+4. **Build upward**: Implement providers → drivers → services
+5. **Integrate**: Connect everything in the engine
 
-## Benefits of This Architecture
+### Refactoring Safely
 
-1. **Clear Boundaries**: Violations are immediately obvious
-2. **Maintainability**: Changes are isolated to specific layers
-3. **Scalability**: New features fit naturally into the hierarchy
-4. **Reliability**: Reduced coupling means fewer cascading failures
-5. **Onboarding**: New developers quickly understand the structure
+1. **Never skip layers** when moving functionality
+2. **Extract to appropriate layer** based on responsibility
+3. **Update tests** to match new structure
+4. **Verify imports** still follow rules
+
+### Common Pitfalls
+
+1. **"Just this once"** - Breaking layer rules for convenience
+2. **Fat services** - Services doing too much instead of delegating
+3. **Smart drivers** - Drivers containing business logic
+4. **Stateful core** - Core functions with side effects
+5. **Orchestrating services** - Services calling other services
+
+### Benefits of Discipline
+
+- **Predictable codebase** - Know where to find functionality
+- **Safe refactoring** - Changes don't cascade unexpectedly  
+- **Easy testing** - Clear mocking boundaries
+- **Parallel development** - Teams can work on different layers
+- **Onboarding speed** - New developers understand structure quickly
