@@ -232,9 +232,10 @@ The orchestration system builds on top of the session architecture to manage lar
 
 2. **Distributor** (`src/lib/distributor.ts`)
    - Pure functional core for distributing items to sessions
-   - Simple linear matching algorithm: iterate URLs, then sessions
+   - Simple linear matching algorithm with 1:1 mapping
+   - Each session can only be used once per distribution
    - Matches sessions based on proxy requirements from SiteConfig
-   - Returns URL-Session pairs for processing
+   - Returns max N URL-session pairs where N = number of sessions
    - Filters out completed items automatically
 
 3. **Session Manager** (`src/lib/session-manager.ts`)

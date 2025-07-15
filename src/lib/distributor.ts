@@ -21,19 +21,21 @@ export interface SiteConfigWithBlockedProxies extends SiteConfig {
 }
 
 /**
- * Simple linear distributor that matches URLs to sessions
+ * Simple linear distributor that matches URLs to sessions with 1:1 mapping
  * 
  * Algorithm:
+ * - Each session can only be used once
  * - Iterate through URLs
  * - For each URL, find its site config based on domain
- * - Iterate through sessions
+ * - Iterate through available sessions (not yet used)
  * - Take first session that works for URL based on site proxy requirements and blocked proxies
- * - Return URL + Session pairs
+ * - Mark session as used
+ * - Return URL + Session pairs (max N pairs where N = number of sessions)
  * 
  * @param items - Array of ScrapeRunItems to distribute
  * @param sessions - Array of session info with proxy details
  * @param siteConfigs - Array of site configurations with proxy requirements and blocked proxy IDs
- * @returns Array of URL-Session pairs
+ * @returns Array of URL-Session pairs with unique sessions (max length = sessions.length)
  */
 export function itemsToSessions(
   items: ScrapeRunItem[],
@@ -49,32 +51,33 @@ export function itemsToSessions(
   }
   
   const results: UrlSessionPair[] = [];
+  const usedSessionIds = new Set<string>();
   
   // Iterate through URLs
   for (const item of pendingItems) {
-    let matched = false;
+    // Stop if we've used all sessions
+    if (usedSessionIds.size >= sessions.length) {
+      break;
+    }
     
     // Find site config for this URL's domain
     const urlDomain = extractDomain(item.url);
     const siteConfig = siteConfigs.find(config => config.domain === urlDomain);
     
-    // Iterate through sessions to find first one that works
+    // Iterate through sessions to find first unused one that works
     for (const session of sessions) {
-      if (sessionWorksForUrl(session, siteConfig)) {
+      if (!usedSessionIds.has(session.id) && sessionWorksForUrl(session, siteConfig)) {
         results.push({
           url: item.url,
           sessionId: session.id
         });
-        matched = true;
+        usedSessionIds.add(session.id);
         break;
       }
     }
-    
-    // If no matching session found, skip this URL
-    if (!matched) {
-      log.debug(`No suitable session found for URL: ${item.url}`);
-    }
   }
+  
+  log.debug(`Matched ${results.length} URL-session pairs from ${sessions.length} available sessions`);
   
   return results;
 }
