@@ -153,6 +153,29 @@ export class ScrapeRunManager {
   }
   
   /**
+   * List scrape runs with optional filters
+   */
+  async listRuns(options: { since?: Date; domain?: string; status?: string } = {}): Promise<{ runs: ScrapeRun[] }> {
+    try {
+      const listOptions: any = {};
+      if (options.since) {
+        listOptions.since = options.since;
+      }
+      if (options.domain) {
+        listOptions.domain = options.domain;
+      }
+      if (options.status) {
+        listOptions.status = options.status;
+      }
+      
+      return await listRuns(listOptions);
+    } catch (error) {
+      log.error('Failed to list runs', { error });
+      throw error;
+    }
+  }
+  
+  /**
    * Calculate run statistics from a ScrapeRun
    */
   private calculateRunStats(run: ScrapeRun): ItemStats {

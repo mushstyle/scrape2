@@ -1,9 +1,8 @@
 import { logger } from '../utils/logger.js';
 import { SessionManager } from '../services/session-manager.js';
 import { SiteManager } from '../services/site-manager.js';
+import { ScrapeRunManager } from '../services/scrape-run-manager.js';
 import { itemsToSessions } from '../core/distributor.js';
-import { listRuns } from '../drivers/scrape-runs.js';
-import { getSiteConfig } from '../drivers/site-config.js';
 import type { SiteConfig } from '../types/site-config-types.js';
 import type { ScrapeRunItem } from '../types/scrape-run.js';
 import type { SessionInfo, SiteConfigWithBlockedProxies, UrlSessionPair } from '../core/distributor.js';
@@ -24,6 +23,7 @@ interface UrlWithDomain {
 export class Engine {
   private sessionManager: SessionManager;
   private siteManager: SiteManager;
+  private scrapeRunManager: ScrapeRunManager;
   private provider: 'browserbase' | 'local';
   private since: Date;
   private instanceLimit: number;
@@ -41,6 +41,7 @@ export class Engine {
     });
     
     this.siteManager = new SiteManager();
+    this.scrapeRunManager = new ScrapeRunManager();
   }
 
   /**
@@ -102,7 +103,7 @@ export class Engine {
   private async getScrapeRunItems(): Promise<UrlWithDomain[]> {
     log.normal(`Fetching items from scrape runs since ${this.since.toISOString()}...`);
     
-    const scrapeRunsResponse = await listRuns({ since: this.since });
+    const scrapeRunsResponse = await this.scrapeRunManager.listRuns({ since: this.since });
     const allRuns = scrapeRunsResponse.runs || [];
     
     const urls: UrlWithDomain[] = [];
@@ -116,25 +117,14 @@ export class Engine {
       }
     }
 
-    const siteConfigs = await Promise.allSettled(
-      Array.from(runsByDomain.keys()).map(async (domain) => {
-        try {
-          const config = await getSiteConfig(domain);
-          return { domain, config };
-        } catch (error) {
-          log.debug(`Failed to load config for domain ${domain}:`, error);
-          return null;
-        }
-      })
-    );
-
+    // Use SiteManager to get site configs instead of calling driver directly
     const validDomainConfigs = new Map<string, SiteConfig>();
-    siteConfigs
-      .filter((result) => result.status === 'fulfilled' && result.value !== null)
-      .forEach((result: any) => {
-        const { domain, config } = result.value;
+    for (const domain of runsByDomain.keys()) {
+      const config = this.siteManager.getSiteConfig(domain);
+      if (config) {
         validDomainConfigs.set(domain, config);
-      });
+      }
+    }
 
     for (const [domain, run] of runsByDomain) {
       const config = validDomainConfigs.get(domain);

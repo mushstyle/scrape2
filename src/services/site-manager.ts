@@ -111,6 +111,14 @@ export class SiteManager {
   }
 
   /**
+   * Get site config by domain
+   */
+  getSiteConfig(domain: string): SiteConfig | null {
+    const site = this.getSite(domain);
+    return site ? site.config : null;
+  }
+
+  /**
    * Update site state
    */
   updateSite(domain: string, updates: Partial<SiteState>): void {

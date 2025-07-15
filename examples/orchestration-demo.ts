@@ -4,8 +4,8 @@
 import { logger } from '../src/utils/logger.js';
 import { SessionManager } from '../src/services/session-manager.js';
 import { ScrapeRunManager } from '../src/services/scrape-run-manager.js';
+import { SiteManager } from '../src/services/site-manager.js';
 import { itemsToSessions, type SessionInfo, type SiteConfigWithBlockedProxies } from '../src/core/distributor.js';
-import { getSiteConfig } from '../src/drivers/site-config.js';
 
 const log = logger.createContext('orchestration-demo');
 
@@ -34,6 +34,8 @@ async function main() {
     });
     
     const runManager = new ScrapeRunManager();
+    const siteManager = new SiteManager();
+    await siteManager.loadSites();
     
     // Step 1: Get or create a scrape run
     log.normal('Step 1: Getting or creating scrape run...');
@@ -64,15 +66,16 @@ async function main() {
     // Step 4: Get site configs for proxy requirements
     log.normal('\\nStep 4: Getting site configurations...');
     const siteConfigs: SiteConfigWithBlockedProxies[] = [];
-    try {
-      const siteConfig = await getSiteConfig(domain);
+    const siteConfig = siteManager.getSiteConfig(domain);
+    
+    if (siteConfig) {
       // Add any blocked proxy IDs (for demo purposes, we'll simulate some)
       siteConfigs.push({
         ...siteConfig,
         blockedProxyIds: [] // In production, this would come from monitoring/failure tracking
       });
       log.normal(`Site proxy strategy: ${siteConfig.proxy?.strategy || 'none'}`);
-    } catch (error) {
+    } else {
       log.normal('Could not fetch site config, proceeding without proxy requirements');
     }
     
