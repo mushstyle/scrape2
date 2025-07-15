@@ -1,6 +1,6 @@
 import type { Image } from '../types/item.js';
 import { uploadImageUrlToS3 } from '../providers/s3.js';
-import { logger } from '../lib/logger.js';
+import { logger } from './logger.js';
 
 const log = logger.createContext('image-utils');
 
