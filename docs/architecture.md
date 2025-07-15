@@ -27,6 +27,19 @@ src/
 
 ## Session-Based Architecture
 
+### CRITICAL: Browser Creation Flow
+
+**The ONLY correct flow is: Provider → Session → Browser (via browser.ts)**
+
+1. **Providers** create sessions
+2. **Sessions** contain browser connection info
+3. **browser.ts** creates browsers from sessions
+
+**NEVER:**
+- Create browsers directly with Playwright
+- Call chromium.launch() or chromium.connect()
+- Bypass browser.ts
+
 ### 1. Create a Session
 
 Sessions are created through provider-specific functions that share a common interface:
@@ -46,8 +59,9 @@ const session = await createSession({
 - Proxy configuration is handled differently:
   - **Browserbase**: Proxy is configured at session creation via API
   - **Local**: Proxy is stored and applied when creating contexts
+- Sessions DO NOT create browsers - they only prepare the connection
 
-### 2. Create Browser from Session
+### 2. Create Browser from Session (MANDATORY)
 
 Once you have a session, create a browser instance:
 
@@ -240,13 +254,39 @@ The orchestration system builds on top of the session architecture to manage lar
 
 3. **Session Manager** (`src/lib/session-manager.ts`)
    - Manages pool of browser sessions
+   - **MUST store actual Session objects, not just IDs**
+   - Returns Session objects that can be used with browser.ts
    - Handles session creation, destruction, and health checks
    - Tracks session usage and statistics
+   - **Critical**: getActiveSessions() must return Session[] not string[]
 
-4. **Scrape Run Manager** (`src/lib/scrape-run-manager.ts`)
+4. **Site Manager** (`src/lib/site-manager.ts`)
+   - Loads and manages site configurations
+   - Maintains in-memory state for sites
+   - Provides filtered access (sites with start pages, etc.)
+   - Handles sessionLimit logic for each site
+   - Supports custom data storage per site
+   - Tracks site scraping history and statistics
+
+5. **Scrape Run Manager** (`src/lib/scrape-run-manager.ts`)
    - High-level API for managing scrape runs
    - Handles run creation, item updates, and finalization
    - Provides run statistics and progress tracking
+
+## CRITICAL: Session and Browser Management
+
+**The architecture requires this exact flow:**
+
+1. **Providers create Sessions** - Session objects contain connection info
+2. **SessionManager stores Session objects** - NOT just IDs or metadata
+3. **Distributor works with Sessions** - Maps URLs to actual Session objects
+4. **browser.ts creates browsers** - Uses Session objects to create browsers
+
+**Common mistakes to avoid:**
+- ❌ Storing only session IDs in SessionManager
+- ❌ Creating browsers directly without browser.ts
+- ❌ Returning string[] instead of Session[] from getActiveSessions()
+- ❌ Creating sessions without storing the Session object
 
 ### Orchestration Flow
 
@@ -262,30 +302,64 @@ The orchestration system builds on top of the session architecture to manage lar
 
 ```typescript
 import { SessionManager } from '../src/lib/session-manager.js';
+import { SiteManager } from '../src/lib/site-manager.js';
 import { ScrapeRunManager } from '../src/lib/scrape-run-manager.js';
 import { itemsToSessions } from '../src/lib/distributor.js';
+import { createBrowserFromSession } from '../src/lib/browser.js';
 
 // Initialize managers
 const sessionManager = new SessionManager({ sessionLimit: 5 });
 const runManager = new ScrapeRunManager();
+const siteManager = new SiteManager();
+
+// Load sites
+await siteManager.loadSites();
 
 // Get or create run
 const run = await runManager.getOrCreateRun('example.com');
 const pendingItems = await runManager.getPendingItems(run.id);
 
-// Create sessions
-const sessionIds = [];
+// Create sessions (returns actual Session objects)
+const sessions = [];
 for (let i = 0; i < 3; i++) {
-  const sessionId = await sessionManager.createSession();
-  sessionIds.push(sessionId);
+  const session = await sessionManager.createSession();
+  sessions.push(session);
 }
 
+// Convert Sessions to SessionInfo for distributor
+const sessionInfos = sessions.map(session => ({
+  id: session.provider === 'browserbase' ? session.browserbase.id : 'local-id',
+  proxyType: 'datacenter',
+  proxyGeo: 'US'
+}));
+
+// Get site configs
+const siteConfigs = siteManager.getSiteConfigs();
+
 // Distribute items
-const urlSessionPairs = itemsToSessions(pendingItems, sessionIds);
+const urlSessionPairs = itemsToSessions(pendingItems, sessionInfos, siteConfigs);
 
 // Process items (simplified)
 for (const { url, sessionId } of urlSessionPairs) {
-  // Scrape item with assigned session...
+  // Find the actual Session object
+  const session = sessions.find(s => 
+    s.provider === 'browserbase' ? s.browserbase.id === sessionId : false
+  );
+  
+  if (!session) continue;
+  
+  // Create browser from session (THIS IS THE ONLY WAY!)
+  const { browser, createContext } = await createBrowserFromSession(session);
+  const context = await createContext();
+  const page = await context.newPage();
+  
+  // Scrape the URL...
+  await page.goto(url);
+  
+  // Cleanup
+  await context.close();
+  
+  // Update status
   await runManager.updateItemStatus(run.id, url, { done: true });
 }
 

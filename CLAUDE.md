@@ -6,8 +6,15 @@
 - **CRITICAL: ALWAYS use providers for external services** - never make direct API calls
 - **Tell users when we need a new provider** - don't implement direct API calls in examples or scripts
 - **Sessions** created via provider's `createSession({ proxy })`
-- **Browser contexts** from `createBrowserFromSession(session)`
+- **Browser contexts** from `createBrowserFromSession(session)` - NEVER create browsers directly!
 - **NO backwards compatibility** - this is a clean-slate project
+
+## CRITICAL: Browser Creation Rules
+- **NEVER create browsers without `browser.ts`** - This is the ONLY way to create browsers
+- **NEVER call playwright's chromium.launch() or connect() directly**
+- **ALWAYS use `createBrowserFromSession()` from `src/lib/browser.ts`**
+- **Sessions are created by providers, browsers are created from sessions**
+- **The flow is: Provider → Session → Browser (via browser.ts)**
 
 ## use node
 - We use Node.js v20+ with native `.env` support

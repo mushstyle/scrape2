@@ -13,9 +13,10 @@
  */
 
 import { logger } from '../src/lib/logger.js';
-import { getSites, listScrapeRuns } from '../src/providers/etl-api.js';
+import { listScrapeRuns } from '../src/providers/etl-api.js';
 import { getSiteConfig } from '../src/providers/site-config.js';
 import { itemsToSessions } from '../src/lib/distributor.js';
+import { SiteManager } from '../src/lib/site-manager.js';
 import * as browserbase from '../src/providers/browserbase.js';
 import * as localBrowser from '../src/providers/local-browser.js';
 import type { SiteConfig } from '../src/types/site-config-types.js';
@@ -118,50 +119,45 @@ function parseArgs(): { source: 'start-pages' | 'scrape-runs'; since?: Date; ins
 }
 
 /**
- * Get URLs from start pages
+ * Get URLs from start pages using SiteManager
  */
-async function getUrlsFromStartPages(): Promise<UrlWithDomain[]> {
+async function getUrlsFromStartPages(siteManager: SiteManager): Promise<UrlWithDomain[]> {
   log.normal('Fetching URLs from start pages...');
   
-  const sitesResponse = await getSites();
-  const allSites = sitesResponse.data || sitesResponse.sites || [];
+  // Load sites if not already loaded
+  if (!siteManager.isLoaded()) {
+    await siteManager.loadSites();
+  }
   
-  const urls: UrlWithDomain[] = [];
+  // Get all start pages respecting sessionLimit
+  const urls = siteManager.getAllStartPages();
   
+  return urls;
+}
+
+/**
+ * Load configs for specific domains
+ */
+async function loadConfigsForDomains(domains: string[]): Promise<SiteConfigWithBlockedProxies[]> {
+  log.normal(`Loading configurations for ${domains.length} unique domains...`);
+
   const siteConfigs = await Promise.allSettled(
-    allSites.map(async (site: any) => {
+    domains.map(async (domain) => {
       try {
-        const domain = site._id || site.id || site.domain;
-        if (!domain) return null;
-        
         const config = await getSiteConfig(domain);
         return config;
       } catch (error) {
-        log.debug(`Failed to load config for site:`, error);
+        log.debug(`Failed to load config for domain ${domain}:`, error);
         return null;
       }
     })
   );
 
-  const validConfigs: SiteConfig[] = siteConfigs
+  const validConfigs: SiteConfigWithBlockedProxies[] = siteConfigs
     .filter((result) => result.status === 'fulfilled' && result.value !== null)
     .map((result: any) => result.value);
 
-  for (const config of validConfigs) {
-    if (config.startPages && config.startPages.length > 0) {
-      const sessionLimit = config.proxy?.sessionLimit || 1;
-      const selectedUrls = config.startPages.slice(0, sessionLimit);
-      
-      for (const url of selectedUrls) {
-        urls.push({
-          url,
-          domain: config.domain
-        });
-      }
-    }
-  }
-
-  return urls;
+  return validConfigs;
 }
 
 /**
@@ -405,11 +401,14 @@ async function main() {
     log.normal(`Double-pass matcher with instance limit: ${instanceLimit}`);
     log.normal(`Source: ${source}, Provider: ${provider}`);
     
+    // Initialize SiteManager
+    const siteManager = new SiteManager();
+    
     // Step 1: Get URLs from the specified source
     log.normal(`\n=== Step 1: Get URLs ===`);
     let urlsWithDomains: UrlWithDomain[];
     if (source === 'start-pages') {
-      urlsWithDomains = await getUrlsFromStartPages();
+      urlsWithDomains = await getUrlsFromStartPages(siteManager);
     } else {
       urlsWithDomains = await getUrlsFromScrapeRuns(since!);
     }
@@ -421,25 +420,10 @@ async function main() {
 
     log.normal(`Found ${urlsWithDomains.length} total URLs`);
 
-    // Get unique domains and load their configs
-    const uniqueDomains = [...new Set(urlsWithDomains.map(u => u.domain))];
-    log.normal(`Loading configurations for ${uniqueDomains.length} unique domains...`);
-
-    const siteConfigs = await Promise.allSettled(
-      uniqueDomains.map(async (domain) => {
-        try {
-          const config = await getSiteConfig(domain);
-          return config;
-        } catch (error) {
-          log.debug(`Failed to load config for domain ${domain}:`, error);
-          return null;
-        }
-      })
-    );
-
-    const validConfigs: SiteConfigWithBlockedProxies[] = siteConfigs
-      .filter((result) => result.status === 'fulfilled' && result.value !== null)
-      .map((result: any) => result.value);
+    // Get site configs from SiteManager
+    const validConfigs: SiteConfigWithBlockedProxies[] = source === 'start-pages' 
+      ? siteManager.getSiteConfigs()
+      : await loadConfigsForDomains([...new Set(urlsWithDomains.map(u => u.domain))]);
 
     // Convert URLs to ScrapeRunItem format
     const scrapeRunItems: ScrapeRunItem[] = urlsWithDomains.map(({ url }) => ({
