@@ -15,7 +15,7 @@ src/
 ├── providers/          # External service integrations
 ├── drivers/            # Provider abstractions
 ├── services/           # Stateful managers
-├── core/               # Pure business logic
+├── core/               # Pure business logic (distributor.ts with doublePassMatcher)
 ├── engines/            # Top-level orchestration
 ├── utils/              # Cross-cutting concerns
 └── types/              # Type definitions
@@ -36,6 +36,7 @@ src/
 - [ ] Move distributor.ts to core/
 - [ ] Move engine.ts to engines/scrape-engine.ts
 - [ ] Move logger.ts, image-utils.ts to utils/
+- [ ] Add doublePassMatcher function inside distributor.ts (not separate file)
 
 ### Phase 3: Update Imports
 - [ ] Update all imports in moved files to reflect new paths
