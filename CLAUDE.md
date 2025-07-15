@@ -26,7 +26,8 @@
 - Use `vitest` for testing instead of Bun test
 
 ## Rules to Follow
-- `rules/types.md`: how to use and create
+- `rules/testing.md`: how to test
+- `rules/types.md`: how to use and create types
 - `rules/plans.md`: how to create plans
 - `rules/scrapers.md`: how to create scrapers
 - `rules/providers.md`: how to create or access providers and external services/APIs
@@ -74,10 +75,3 @@
 - CLI flags: Initialize `options || {}` before custom flags
 - Logger errors: Check method names (normal not info)
 - Timeout issues: Increase with --timeout flag
-
-## Orchestration Patterns
-- **Services Layer**: Use services (session-manager, site-manager, scrape-run-manager)
-- **Distribution**: Use `itemsToSessions()` and `doublePassMatcher()` from core/distributor
-- **Session Pool**: Use `SessionManager` service to manage browser sessions
-- **Run Management**: Use `ScrapeRunManager` service for run operations
-- **Environment**: Requires `ETL_API_ENDPOINT` and `ETL_API_KEY` env vars
