@@ -65,19 +65,8 @@ export async function createSession(options: SessionOptions = {}): Promise<Sessi
     provider: 'browserbase',
     browserbase: browserbaseSession,
     cleanup: async () => {
-      // Try to release the session
-      try {
-        await fetch(`https://api.browserbase.com/v1/sessions/${browserbaseSession.id}`, {
-          method: 'DELETE',
-          headers: {
-            'X-BB-API-Key': apiKey,
-            'Content-Type': 'application/json'
-          }
-        });
-      } catch (error) {
-        // Silently fail - session will timeout anyway
-        log.error('Failed to release Browserbase session:', error);
-      }
+      // Use the terminateSession function to properly release the session
+      await terminateSession(browserbaseSession.id);
     }
   };
 }
