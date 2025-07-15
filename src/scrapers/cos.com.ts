@@ -1,8 +1,8 @@
 import type { Page } from 'playwright';
 import type { Item, Image, Size } from '../types/item.js';
-import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js';
+import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js';
 import { formatItem } from '../db/db-utils.js';
-import { logger } from '../lib/logger.js';
+import { logger } from '../utils/logger.js';
 
 const DOMAIN = 'cos.com';
 const log = logger.createContext('cos.com');

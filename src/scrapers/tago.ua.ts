@@ -1,10 +1,9 @@
-import { /* chromium, Browser, */ Page } from 'playwright';
-import { Item, Image, Size } from '../types/item.js';
+import type { Item, Image, Size } from '../types/item.js';
 import * as Utils from '../db/db-utils.js';
 import { uploadImageUrlToS3 } from '../providers/s3.js';
-import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js';
+import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js';
 import type { Scraper } from './types.js';
-import { logger } from '../lib/logger.js';
+import { logger } from '../utils/logger.js';
 
 const log = logger.createContext('tago.ua');
 

@@ -1,9 +1,9 @@
 import type { Page } from 'playwright';
-import { Item, Image, Size } from '../types/item.js';
+import type { Item, Image, Size } from '../types/item.js';
 import * as Utils from "../db/db-utils.js";
 import type { Scraper } from './types.js'; // Import the Scraper type
-import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js'; // Import S3 helper
-import { logger } from '../lib/logger.js';
+import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js'; // Import S3 helper
+import { logger } from '../utils/logger.js';
 
 const log = logger.createContext('ivaclothe.com');
 

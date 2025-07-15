@@ -3,8 +3,8 @@ import { Item, Size, Image } from '../types/item.js'; // Import needed types
 import * as Utils from "../db/db-utils.js";
 import type { Scraper } from './types.js';
 import { uploadImageUrlToS3 } from '../providers/s3.js'; // Import S3 function
-import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js'; // Import the new helper
-import { logger } from '../lib/logger.js';
+import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js'; // Import the new helper
+import { logger } from '../utils/logger.js';
 
 export const SELECTORS = {
   productGrid: 'div.products > ul.products__list',

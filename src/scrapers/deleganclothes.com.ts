@@ -1,10 +1,10 @@
 import type { Page } from 'playwright';
-import { Item, Image, Size } from '../types/item.js';
+import type { Item, Image, Size } from '../types/item.js';
 import * as Utils from "../db/db-utils.js";
 import type { Scraper } from './types.js';
 import { uploadImageUrlToS3 } from '../providers/s3.js';
-import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js';
-import { logger } from '../lib/logger.js';
+import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * Scraper for deleganclothes.com – refactored to follow the Phase 3

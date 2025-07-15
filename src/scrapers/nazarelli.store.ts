@@ -3,8 +3,8 @@ import type { Page } from 'playwright';
 import type { Item, Image } from '../types/item.js';
 import { Scraper } from './types.js';
 import { formatItem } from '../db/db-utils.js';
-import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js';
-import { logger } from '../lib/logger.js';
+import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js';
+import { logger } from '../utils/logger.js';
 
 const domain = 'nazarelli.store';
 const log = logger.createContext('nazarelli.store');
