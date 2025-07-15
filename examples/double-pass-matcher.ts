@@ -13,12 +13,10 @@
  */
 
 import { logger } from '../src/utils/logger.js';
-import { listScrapeRuns } from '../src/providers/etl-api.js';
-import { getSiteConfig } from '../src/providers/site-config.js';
-import { itemsToSessions } from '../src/core/distributor.js';
+import { itemsToSessions, doublePassMatcher } from '../src/core/distributor.js';
 import { SiteManager } from '../src/services/site-manager.js';
-import * as browserbase from '../src/providers/browserbase.js';
-import * as localBrowser from '../src/providers/local-browser.js';
+import { SessionManager } from '../src/services/session-manager.js';
+import { ScrapeRunManager } from '../src/services/scrape-run-manager.js';
 import type { SiteConfig } from '../src/types/site-config-types.js';
 import type { ScrapeRunItem } from '../src/types/scrape-run.js';
 import type { SessionInfo, SiteConfigWithBlockedProxies, UrlSessionPair } from '../src/core/distributor.js';
@@ -135,30 +133,7 @@ async function getUrlsFromStartPages(siteManager: SiteManager): Promise<UrlWithD
   return urls;
 }
 
-/**
- * Load configs for specific domains
- */
-async function loadConfigsForDomains(domains: string[]): Promise<SiteConfigWithBlockedProxies[]> {
-  log.normal(`Loading configurations for ${domains.length} unique domains...`);
-
-  const siteConfigs = await Promise.allSettled(
-    domains.map(async (domain) => {
-      try {
-        const config = await getSiteConfig(domain);
-        return config;
-      } catch (error) {
-        log.debug(`Failed to load config for domain ${domain}:`, error);
-        return null;
-      }
-    })
-  );
-
-  const validConfigs: SiteConfigWithBlockedProxies[] = siteConfigs
-    .filter((result) => result.status === 'fulfilled' && result.value !== null)
-    .map((result: any) => result.value);
-
-  return validConfigs;
-}
+// Removed loadConfigsForDomains - we'll use SiteManager instead
 
 /**
  * Get URLs from scrape runs

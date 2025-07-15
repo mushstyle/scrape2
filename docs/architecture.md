@@ -67,6 +67,10 @@ src/
    - Cannot import: `providers/*`, `drivers/*`
    - MUST use services for ALL stateful operations
 
+6. **Examples** Not a layer, but a directory that contains examples of how to use the code.
+  - Can import services/*, core/*, utils/*, types/*
+  - Only exception: if an example is meant to demonstrate how to use a specific layer, it can import that layer directly.
+
 ### Examples of Correct Usage
 
 ```typescript
