@@ -1,5 +1,5 @@
 import { logger } from '../utils/logger.js';
-import { createBrowserbaseSession, createLocalSession } from '../drivers/browser.js';
+import { createBrowserbaseSession, createLocalSession, terminateSession } from '../drivers/browser.js';
 import type { Session } from '../types/session.js';
 import type { SessionStats } from '../types/orchestration.js';
 
@@ -105,8 +105,8 @@ export class SessionManager {
     }
     
     try {
-      // Call cleanup on the session
-      await metadata.session.cleanup();
+      // Use the driver's terminateSession function
+      await terminateSession(metadata.session);
       
       // Remove from our tracking
       this.sessions.delete(sessionId);
@@ -133,7 +133,7 @@ export class SessionManager {
     
     // If not found in our tracking, still try to clean it up
     try {
-      await session.cleanup();
+      await terminateSession(session);
     } catch (error) {
       log.debug(`Failed to cleanup untracked session`, error);
     }

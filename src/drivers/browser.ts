@@ -94,3 +94,12 @@ export async function createBrowserbaseSession(options: { proxy?: any } = {}): P
 export async function createLocalSession(options: { proxy?: any } = {}): Promise<Session> {
   return createLocalSessionProvider(options);
 }
+
+/**
+ * Terminate a session properly
+ * This abstracts the termination logic for different providers
+ */
+export async function terminateSession(session: Session): Promise<void> {
+  // Call the session's cleanup function which handles provider-specific termination
+  await session.cleanup();
+}
