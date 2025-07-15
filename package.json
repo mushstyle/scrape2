@@ -14,8 +14,6 @@
     "example": "tsx --no-warnings --env-file=.env examples/session-based-usage.js",
     "orchestration-demo": "tsx --no-warnings --env-file=.env examples/orchestration-demo.ts",
     "example:site-info": "tsx --no-warnings --env-file=.env examples/site-info.ts",
-    "example:browserbase-sessions": "tsx --no-warnings --env-file=.env examples/browserbase-sessions.ts",
-    "example:double-pass-matcher": "tsx --no-warnings --env-file=.env examples/double-pass-matcher.ts",
     "example:architecture": "tsx --no-warnings --env-file=.env examples/architecture-demo.ts",
     "example:proper-layering": "tsx --no-warnings --env-file=.env examples/proper-layering.ts",
     "example:orchestration": "tsx --no-warnings --env-file=.env examples/orchestration-demo.ts",

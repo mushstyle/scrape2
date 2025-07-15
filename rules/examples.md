@@ -1,5 +1,7 @@
 # Example Creation Rules
 
+USE PROPERLY LAYERING, UNLESS YOU ARE DEMONSTRATING A SPECIFIC LAYER. See `docs/architecture.md` for more details on layering.
+
 ## File Organization
 - **Location**: All examples go in `examples/` directory
 - **Naming**: Use kebab-case filenames (e.g., `start-pages.ts`, `session-cleanup.ts`)
