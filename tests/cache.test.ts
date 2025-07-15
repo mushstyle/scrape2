@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest';
 import { chromium } from 'playwright';
-import { RequestCache } from '../src/lib/cache.js';
+import { RequestCache } from '../src/drivers/cache.js';
 
 test('RequestCache - basic caching', async () => {
   const cache = new RequestCache({

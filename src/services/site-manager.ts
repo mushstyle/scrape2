@@ -1,6 +1,6 @@
-import { logger } from './logger.js';
-import { getSites } from '../providers/etl-api.js';
-import { getSiteConfig } from '../providers/site-config.js';
+import { logger } from '../utils/logger.js';
+import { getSites } from '../drivers/scrape-runs.js';
+import { getSiteConfig } from '../drivers/site-config.js';
 import type { SiteConfig } from '../types/site-config-types.js';
 
 const log = logger.createContext('site-manager');

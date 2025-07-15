@@ -7,7 +7,7 @@
  */
 
 import type { SiteScrapingConfigData, ApiSitesResponse, ApiSiteMetadata } from '../types/siteScrapingConfig.js';
-import { logger } from '../lib/logger.js';
+import { logger } from '../utils/logger.js';
 import type {
   ScrapeRun,
   CreateScrapeRunRequest,
@@ -338,4 +338,4 @@ export async function getLatestRunForDomain(domain: string): Promise<ScrapeRun |
  * Get site config with proxy strategy merged from local proxy-strategies.json
  * This is a re-export for convenience from the site-config module
  */
-export { getSiteConfig as getSiteConfigWithProxyStrategy } from './site-config.js'; 
+// Site config is now in drivers/site-config.ts 

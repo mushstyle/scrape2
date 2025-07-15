@@ -1,12 +1,12 @@
-import { logger } from './logger.js';
-import { SessionManager } from './session-manager.js';
-import { SiteManager } from './site-manager.js';
-import { itemsToSessions } from './distributor.js';
-import { listScrapeRuns } from '../providers/etl-api.js';
-import { getSiteConfig } from '../providers/site-config.js';
+import { logger } from '../utils/logger.js';
+import { SessionManager } from '../services/session-manager.js';
+import { SiteManager } from '../services/site-manager.js';
+import { itemsToSessions } from '../core/distributor.js';
+import { listRuns } from '../drivers/scrape-runs.js';
+import { getSiteConfig } from '../drivers/site-config.js';
 import type { SiteConfig } from '../types/site-config-types.js';
 import type { ScrapeRunItem } from '../types/scrape-run.js';
-import type { SessionInfo, SiteConfigWithBlockedProxies, UrlSessionPair } from './distributor.js';
+import type { SessionInfo, SiteConfigWithBlockedProxies, UrlSessionPair } from '../core/distributor.js';
 
 const log = logger.createContext('engine');
 
@@ -102,7 +102,7 @@ export class Engine {
   private async getScrapeRunItems(): Promise<UrlWithDomain[]> {
     log.normal(`Fetching items from scrape runs since ${this.since.toISOString()}...`);
     
-    const scrapeRunsResponse = await listScrapeRuns({ since: this.since });
+    const scrapeRunsResponse = await listRuns({ since: this.since });
     const allRuns = scrapeRunsResponse.runs || [];
     
     const urls: UrlWithDomain[] = [];

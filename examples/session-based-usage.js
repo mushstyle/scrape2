@@ -5,10 +5,10 @@
  * Shows how to use both Browserbase and local browser providers
  */
 
-import { createSession as createBrowserbaseSession } from '../src/providers/browserbase.js';
-import { createSession as createLocalSession } from '../src/providers/local-browser.js';
-import { createBrowserFromSession } from '../src/lib/browser.js';
-import { loadProxies, getDefaultProxy } from '../src/lib/proxy.js';
+// NOTE: This example shows proper architecture usage
+// We use drivers, not providers directly
+import { createBrowserbaseSession, createLocalSession, createBrowserFromSession } from '../src/drivers/browser.js';
+import { loadProxies, getDefaultProxy } from '../src/drivers/proxy.js';
 
 async function testProvider(providerName, createSessionFn) {
   console.log(`\n${'='.repeat(60)}`);

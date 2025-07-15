@@ -7,7 +7,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import crypto from "crypto";
-import { logger } from '../lib/logger.js';
+import { logger } from '../utils/logger.js';
 
 const log = logger.createContext('s3');
 

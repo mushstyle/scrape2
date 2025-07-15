@@ -12,16 +12,16 @@
  * This maximizes efficiency by creating sessions that match upcoming URL requirements.
  */
 
-import { logger } from '../src/lib/logger.js';
+import { logger } from '../src/utils/logger.js';
 import { listScrapeRuns } from '../src/providers/etl-api.js';
 import { getSiteConfig } from '../src/providers/site-config.js';
-import { itemsToSessions } from '../src/lib/distributor.js';
-import { SiteManager } from '../src/lib/site-manager.js';
+import { itemsToSessions } from '../src/core/distributor.js';
+import { SiteManager } from '../src/services/site-manager.js';
 import * as browserbase from '../src/providers/browserbase.js';
 import * as localBrowser from '../src/providers/local-browser.js';
 import type { SiteConfig } from '../src/types/site-config-types.js';
 import type { ScrapeRunItem } from '../src/types/scrape-run.js';
-import type { SessionInfo, SiteConfigWithBlockedProxies, UrlSessionPair } from '../src/lib/distributor.js';
+import type { SessionInfo, SiteConfigWithBlockedProxies, UrlSessionPair } from '../src/core/distributor.js';
 import type { Session, SessionOptions } from '../src/types/session.js';
 
 const log = logger.createContext('double-pass-matcher');

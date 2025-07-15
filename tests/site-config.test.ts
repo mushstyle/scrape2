@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getSiteConfig } from '../src/providers/site-config.js';
+import { getSiteConfig } from '../src/drivers/site-config.js';
 import * as etlApi from '../src/providers/etl-api.js';
 import * as localDb from '../src/providers/local-db.js';
 

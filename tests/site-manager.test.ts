@@ -1,18 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SiteManager } from '../src/lib/site-manager.js';
+import { SiteManager } from '../src/services/site-manager.js';
 import type { SiteConfig } from '../src/types/site-config-types.js';
 
-// Mock the providers
-vi.mock('../src/providers/etl-api.js', () => ({
+// Mock the drivers
+vi.mock('../src/drivers/scrape-runs.js', () => ({
   getSites: vi.fn()
 }));
 
-vi.mock('../src/providers/site-config.js', () => ({
+vi.mock('../src/drivers/site-config.js', () => ({
   getSiteConfig: vi.fn()
 }));
 
-import { getSites } from '../src/providers/etl-api.js';
-import { getSiteConfig } from '../src/providers/site-config.js';
+import { getSites } from '../src/drivers/scrape-runs.js';
+import { getSiteConfig } from '../src/drivers/site-config.js';
 
 const mockGetSites = getSites as any;
 const mockGetSiteConfig = getSiteConfig as any;

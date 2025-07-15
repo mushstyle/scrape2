@@ -1,370 +1,209 @@
 # Architecture Overview
 
-## Core Concepts
+## Strict Layered Architecture
 
-The scraping infrastructure is built around three main concepts:
-
-1. **Sessions** - Browser sessions that can be either local or remote (Browserbase)
-2. **Providers** - External services that provide browser instances
-3. **Contexts** - Browser contexts with automatic proxy and configuration handling
+This codebase follows a strict layered architecture where each layer can only import from specific other layers. This ensures clean separation of concerns and prevents architectural violations.
 
 ## Directory Structure
 
 ```
 src/
-├── providers/          # External browser providers
-│   ├── browserbase.ts  # Browserbase session creation
-│   └── local-browser.ts # Local Chrome session creation
-├── lib/               # Core functionality
-│   ├── browser.ts     # Browser/context creation from sessions
-│   ├── proxy.ts       # Proxy loading and formatting
-│   └── cache.ts       # Request caching layer
-└── types/             # TypeScript interfaces
-    ├── session.ts     # Session interfaces
-    ├── proxy.ts       # Proxy interfaces
-    └── browser.ts     # Browser interfaces
+├── providers/          # External service integrations (Level 1)
+│   ├── browserbase.ts      # Browserbase API integration
+│   ├── local-browser.ts    # Local Chrome browser provider
+│   ├── etl-api.ts          # ETL API for scrape runs and sites
+│   └── local-db.ts         # Local JSON file access
+│
+├── drivers/            # Provider abstractions (Level 2)
+│   ├── browser.ts          # Browser session creation and management
+│   ├── proxy.ts            # Proxy configuration management
+│   ├── site-config.ts      # Site configuration retrieval
+│   ├── cache.ts            # Request/response caching
+│   └── scrape-runs.ts      # Scrape run operations wrapper
+│
+├── services/           # Stateful managers (Level 3)
+│   ├── session-manager.ts      # Browser session pool management
+│   ├── site-manager.ts         # Site configuration and state
+│   └── scrape-run-manager.ts   # Scrape run lifecycle management
+│
+├── core/               # Pure business logic (Level 4)
+│   └── distributor.ts          # URL-session matching algorithms
+│                               # Including doublePassMatcher function
+│
+├── engines/            # Top-level orchestration (Level 5)
+│   └── scrape-engine.ts        # Main scraping engine
+│
+├── utils/              # Cross-cutting utilities
+│   ├── logger.ts               # Logging utilities
+│   └── image-utils.ts          # Image processing utilities
+│
+└── types/              # TypeScript type definitions
 ```
 
-## Session-Based Architecture
+## CRITICAL: Import Rules
 
-### CRITICAL: Browser Creation Flow
+### Strict Hierarchy (MUST BE FOLLOWED)
 
-**The ONLY correct flow is: Provider → Session → Browser (via browser.ts)**
+1. **Providers** (Level 1)
+   - Can import: `utils/*`, `types/*`
+   - Cannot import: ANY other src files
 
-1. **Providers** create sessions
-2. **Sessions** contain browser connection info
-3. **browser.ts** creates browsers from sessions
+2. **Drivers** (Level 2)
+   - Can import: `providers/*`, `utils/*`, `types/*`
+   - Cannot import: `services/*`, `core/*`, `engines/*`
 
-**NEVER:**
-- Create browsers directly with Playwright
-- Call chromium.launch() or chromium.connect()
-- Bypass browser.ts
+3. **Services** (Level 3)
+   - Can import: `drivers/*`, `utils/*`, `types/*`
+   - Cannot import: `providers/*`, `core/*`, `engines/*`
+   - MUST use drivers for ALL external service access
 
-### 1. Create a Session
+4. **Core** (Level 4)
+   - Can import: `utils/*`, `types/*`
+   - Cannot import: `providers/*`, `drivers/*`, `services/*`, `engines/*`
+   - Contains ONLY pure functions (no side effects)
 
-Sessions are created through provider-specific functions that share a common interface:
+5. **Engines** (Level 5)
+   - Can import: `services/*`, `core/*`, `utils/*`, `types/*`
+   - Cannot import: `providers/*`, `drivers/*`
+   - MUST use services for ALL stateful operations
+
+### Examples of Correct Usage
 
 ```typescript
-import { createSession } from '../src/providers/browserbase.js';
-// or
-import { createSession } from '../src/providers/local-browser.js';
+// ✅ CORRECT: Engine uses services
+// engines/scrape-engine.ts
+import { SessionManager } from '../services/session-manager.js';
+import { itemsToSessions } from '../core/distributor.js';
 
-const session = await createSession({
-  proxy: proxyObject  // Optional proxy configuration
-});
+// ✅ CORRECT: Service uses drivers
+// services/session-manager.ts
+import { createBrowserbaseSession } from '../drivers/browser.js';
+
+// ✅ CORRECT: Driver uses providers
+// drivers/browser.ts
+import { createSession } from '../providers/browserbase.js';
 ```
 
-**Key Points:**
-- Both providers accept the same `SessionOptions` interface
-- Proxy configuration is handled differently:
-  - **Browserbase**: Proxy is configured at session creation via API
-  - **Local**: Proxy is stored and applied when creating contexts
-- Sessions DO NOT create browsers - they only prepare the connection
-
-### 2. Create Browser from Session (MANDATORY)
-
-Once you have a session, create a browser instance:
+### Examples of Violations
 
 ```typescript
-import { createBrowserFromSession } from '../src/lib/browser.js';
+// ❌ WRONG: Engine importing driver directly
+// engines/scrape-engine.ts
+import { createBrowserFromSession } from '../drivers/browser.js';
 
-const { browser, createContext, cleanup } = await createBrowserFromSession(session, {
-  blockImages: true  // Optional, defaults to true
-});
+// ❌ WRONG: Service importing provider directly
+// services/session-manager.ts
+import { createSession } from '../providers/browserbase.js';
+
+// ❌ WRONG: Core importing service
+// core/distributor.ts
+import { SessionManager } from '../services/session-manager.js';
 ```
 
-**Returns:**
-- `browser`: The Playwright Browser instance
-- `createContext()`: Helper function that creates contexts with automatic proxy application
-- `cleanup()`: Cleanup function that closes browser and releases session
+## Browser Session Architecture
 
-### 3. Create Contexts
+### The Only Correct Flow
 
-Use the `createContext()` helper to create browser contexts:
+**Provider → Session → Browser (via browser.ts)**
 
-```typescript
-const context = await createContext({
-  // Any Playwright context options
-});
+1. **Providers** create Session objects with connection information
+2. **Drivers** wrap provider functions and expose them to services
+3. **Services** manage Session objects (NOT just IDs)
+4. **Only browser.ts** creates browser instances from Sessions
 
-// For local browsers, proxy is automatically applied if provided in session
-// For Browserbase, the session is already proxied
-```
+### CRITICAL: Session Management
 
-## Provider Details
+The SessionManager MUST:
+- Store actual Session objects, not just IDs
+- Return Session[] from getActiveSessions()
+- Pass Session objects to browser.ts for browser creation
 
-### Browserbase Provider
+### NEVER Do This
 
-```typescript
-// src/providers/browserbase.ts
-export async function createSession(options: SessionOptions): Promise<Session>
-```
+- ❌ Create browsers directly with Playwright
+- ❌ Call chromium.launch() or chromium.connect()
+- ❌ Store only session IDs in SessionManager
+- ❌ Bypass the browser.ts driver
 
-- Requires `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` env vars
-- Creates session via API with optional proxy configuration
-- Returns session with `connectUrl` for CDP connection
-- Cleanup releases the session via API
+## Core Components
 
-### Local Browser Provider
+### Providers (External Services)
+- **browserbase.ts**: Creates remote browser sessions via API
+- **local-browser.ts**: Creates local Chrome browser sessions
+- **etl-api.ts**: Manages scrape runs, sites, and items
+- **local-db.ts**: Reads local JSON configuration files
 
-```typescript
-// src/providers/local-browser.ts
-export async function createSession(options: SessionOptions): Promise<Session>
-```
+### Drivers (Abstractions)
+- **browser.ts**: Creates browsers from sessions, manages contexts
+- **proxy.ts**: Loads and formats proxy configurations
+- **site-config.ts**: Retrieves site scraping configurations
+- **cache.ts**: In-memory request/response caching
+- **scrape-runs.ts**: Wraps ETL API operations
 
-- Launches local Chrome browser (always headed)
-- Stores proxy configuration for later use
-- Proxy is applied when creating contexts
-- Cleanup closes the browser process
+### Services (Stateful Managers)
+- **session-manager.ts**: Manages pool of browser sessions
+- **site-manager.ts**: Manages site configurations and state
+- **scrape-run-manager.ts**: Manages scrape run lifecycle
 
-## Proxy Handling
+### Core (Business Logic)
+- **distributor.ts**: Contains pure functions for URL-session matching
+  - `itemsToSessions()`: Linear 1:1 URL-session matching
+  - `doublePassMatcher()`: Two-pass matching algorithm
 
-The proxy system is designed to be transparent:
+### Engines (Orchestration)
+- **scrape-engine.ts**: Orchestrates scraping operations using services
 
-1. **Load proxies** from `db/proxies.json`:
-   ```typescript
-   const proxyStore = await loadProxies();
-   const proxy = getDefaultProxy(proxyStore);
-   ```
+## Key Principles
 
-2. **Pass to session creation**:
-   ```typescript
-   const session = await createSession({ proxy });
-   ```
-
-3. **Automatic application**:
-   - Browserbase: Proxy configured at session level
-   - Local: Proxy applied via `formatProxyForPlaywright()` when creating contexts
-
-## Request Caching
-
-The caching layer is **opt-in** and must be explicitly enabled for each page:
-
-### When to Enable Cache
-
-1. **Create page first**:
-   ```typescript
-   const context = await createContext();
-   const page = await context.newPage();
-   ```
-
-2. **Enable caching**:
-   ```typescript
-   const cache = new RequestCache({ 
-     maxSizeBytes: 100 * 1024 * 1024, // 100MB
-     ttlSeconds: 300 // 5 minutes
-   });
-   await cache.enableForPage(page);
-   ```
-
-3. **Navigate** - requests will now be cached:
-   ```typescript
-   await page.goto('https://example.com');
-   ```
-
-### How Caching Works
-
-- **Interception**: Uses Playwright's `page.route('**/*')` to intercept all requests
-- **GET only**: Only caches GET requests
-- **No auth**: Skips requests with authorization/cookie headers
-- **In-memory**: Cache is not persisted between runs
-- **Per-page**: Each page needs its own cache enablement
-
-### Cache Stats
-
-```typescript
-const stats = cache.getStats();
-// { hits: 5, misses: 10, sizeBytes: 1048576, itemCount: 15 }
-```
-
-## Complete Example
-
-See `examples/session-based-usage.js` for a working example. Run it with:
-
-```bash
-npm run example
-```
-
-The example demonstrates:
-- Creating sessions for both local and Browserbase providers
-- Automatic proxy configuration
-- Image blocking
-- Proper cleanup
-
-Key code pattern:
-
-```typescript
-import { createSession as createBrowserbaseSession } from './providers/browserbase.js';
-import { createBrowserFromSession } from './lib/browser.js';
-import { loadProxies, getDefaultProxy } from './lib/proxy.js';
-
-// 1. Load proxy
-const proxyStore = await loadProxies();
-const proxy = getDefaultProxy(proxyStore);
-
-// 2. Create session with proxy
-const session = await createBrowserbaseSession({ proxy });
-
-// 3. Create browser from session
-const { browser, createContext, cleanup } = await createBrowserFromSession(session, {
-  blockImages: true
-});
-
-try {
-  // 4. Create context (proxy automatically applied)
-  const context = await createContext();
-  const page = await context.newPage();
-  
-  // 5. Navigate and scrape
-  await page.goto('https://httpbin.org/ip');
-  const ipInfo = await page.textContent('body');
-  
-} finally {
-  // 7. Cleanup
-  await cleanup();
-}
-```
-
-## Benefits
-
-1. **Unified Interface**: Same API for local and remote browsers
-2. **Transparent Proxy Handling**: Proxies work the same way regardless of provider
-3. **Clean Separation**: External providers isolated in their own modules
-4. **Resource Management**: Explicit cleanup functions prevent leaks
+1. **Separation of Concerns**: Each layer has a specific responsibility
+2. **Dependency Inversion**: Higher layers define interfaces, lower layers implement
+3. **No Leaky Abstractions**: Implementation details don't leak across layers
+4. **Testability**: Each layer can be tested independently
 5. **Type Safety**: Full TypeScript support throughout
 
-## Scraping Orchestration System
+## Common Patterns
 
-The orchestration system builds on top of the session architecture to manage large-scale scraping operations.
-
-### Core Components
-
-1. **ETL API Provider** (`src/providers/etl-api.ts`)
-   - Manages scrape runs and their lifecycle
-   - Handles item status updates
-   - Provides run statistics and metadata
-
-2. **Distributor** (`src/lib/distributor.ts`)
-   - Pure functional core for distributing items to sessions
-   - Simple linear matching algorithm with 1:1 mapping
-   - Each session can only be used once per distribution
-   - Matches sessions based on proxy requirements from SiteConfig
-   - Returns max N URL-session pairs where N = number of sessions
-   - Filters out completed items automatically
-
-3. **Session Manager** (`src/lib/session-manager.ts`)
-   - Manages pool of browser sessions
-   - **MUST store actual Session objects, not just IDs**
-   - Returns Session objects that can be used with browser.ts
-   - Handles session creation, destruction, and health checks
-   - Tracks session usage and statistics
-   - **Critical**: getActiveSessions() must return Session[] not string[]
-
-4. **Site Manager** (`src/lib/site-manager.ts`)
-   - Loads and manages site configurations
-   - Maintains in-memory state for sites
-   - Provides filtered access (sites with start pages, etc.)
-   - Handles sessionLimit logic for each site
-   - Supports custom data storage per site
-   - Tracks site scraping history and statistics
-
-5. **Scrape Run Manager** (`src/lib/scrape-run-manager.ts`)
-   - High-level API for managing scrape runs
-   - Handles run creation, item updates, and finalization
-   - Provides run statistics and progress tracking
-
-## CRITICAL: Session and Browser Management
-
-**The architecture requires this exact flow:**
-
-1. **Providers create Sessions** - Session objects contain connection info
-2. **SessionManager stores Session objects** - NOT just IDs or metadata
-3. **Distributor works with Sessions** - Maps URLs to actual Session objects
-4. **browser.ts creates browsers** - Uses Session objects to create browsers
-
-**Common mistakes to avoid:**
-- ❌ Storing only session IDs in SessionManager
-- ❌ Creating browsers directly without browser.ts
-- ❌ Returning string[] instead of Session[] from getActiveSessions()
-- ❌ Creating sessions without storing the Session object
-
-### Orchestration Flow
-
-1. **Create/Resume Run**: Get or create a scrape run for a domain
-2. **Get Pending Items**: Fetch items that haven't been processed
-3. **Create Sessions**: Spin up browser sessions based on concurrency needs
-4. **Distribute Items**: Use distributor to assign items to sessions
-5. **Process Items**: Scrape items and update their status
-6. **Track Progress**: Monitor completion and handle failures
-7. **Finalize Run**: Mark run as complete when all items are processed
-
-### Example Usage
+### Creating a Browser Session
 
 ```typescript
-import { SessionManager } from '../src/lib/session-manager.js';
-import { SiteManager } from '../src/lib/site-manager.js';
-import { ScrapeRunManager } from '../src/lib/scrape-run-manager.js';
-import { itemsToSessions } from '../src/lib/distributor.js';
-import { createBrowserFromSession } from '../src/lib/browser.js';
+// In a service (e.g., session-manager.ts)
+import { createBrowserbaseSession } from '../drivers/browser.js';
 
-// Initialize managers
-const sessionManager = new SessionManager({ sessionLimit: 5 });
-const runManager = new ScrapeRunManager();
-const siteManager = new SiteManager();
-
-// Load sites
-await siteManager.loadSites();
-
-// Get or create run
-const run = await runManager.getOrCreateRun('example.com');
-const pendingItems = await runManager.getPendingItems(run.id);
-
-// Create sessions (returns actual Session objects)
-const sessions = [];
-for (let i = 0; i < 3; i++) {
-  const session = await sessionManager.createSession();
-  sessions.push(session);
-}
-
-// Convert Sessions to SessionInfo for distributor
-const sessionInfos = sessions.map(session => ({
-  id: session.provider === 'browserbase' ? session.browserbase.id : 'local-id',
-  proxyType: 'datacenter',
-  proxyGeo: 'US'
-}));
-
-// Get site configs
-const siteConfigs = siteManager.getSiteConfigs();
-
-// Distribute items
-const urlSessionPairs = itemsToSessions(pendingItems, sessionInfos, siteConfigs);
-
-// Process items (simplified)
-for (const { url, sessionId } of urlSessionPairs) {
-  // Find the actual Session object
-  const session = sessions.find(s => 
-    s.provider === 'browserbase' ? s.browserbase.id === sessionId : false
-  );
-  
-  if (!session) continue;
-  
-  // Create browser from session (THIS IS THE ONLY WAY!)
-  const { browser, createContext } = await createBrowserFromSession(session);
-  const context = await createContext();
-  const page = await context.newPage();
-  
-  // Scrape the URL...
-  await page.goto(url);
-  
-  // Cleanup
-  await context.close();
-  
-  // Update status
-  await runManager.updateItemStatus(run.id, url, { done: true });
-}
-
-// Finalize when complete
-await runManager.finalizeRun(run.id);
+const session = await createBrowserbaseSession({ proxy });
+// Store the actual Session object, not just an ID!
 ```
 
-See `examples/orchestration-demo.ts` for a complete working example.
+### Using Sessions to Create Browsers
+
+```typescript
+// In an engine or high-level code
+import { createBrowserFromSession } from '../drivers/browser.js';
+
+const { browser, createContext, cleanup } = await createBrowserFromSession(session);
+const context = await createContext();
+const page = await context.newPage();
+// ... do work ...
+await cleanup();
+```
+
+### Distributing Work
+
+```typescript
+// In an engine
+import { itemsToSessions, doublePassMatcher } from '../core/distributor.js';
+
+// Simple distribution
+const pairs = itemsToSessions(items, sessions, siteConfigs);
+
+// Or use double-pass matching
+const { firstPassMatched, excessSessions, finalMatched } = 
+  doublePassMatcher(items, initialSessions, finalSessions, siteConfigs);
+```
+
+## Benefits of This Architecture
+
+1. **Clear Boundaries**: Violations are immediately obvious
+2. **Maintainability**: Changes are isolated to specific layers
+3. **Scalability**: New features fit naturally into the hierarchy
+4. **Reliability**: Reduced coupling means fewer cascading failures
+5. **Onboarding**: New developers quickly understand the structure

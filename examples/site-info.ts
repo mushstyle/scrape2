@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-import { logger } from '../src/lib/logger.js';
-import { getSiteConfig } from '../src/providers/site-config.js';
-import { listScrapeRuns } from '../src/providers/etl-api.js';
+import { logger } from '../src/utils/logger.js';
+import { getSiteConfig } from '../src/drivers/site-config.js';
+import { listRuns } from '../src/drivers/scrape-runs.js';
 import { parseArgs } from 'node:util';
 
 const log = logger.createContext('site-info');
@@ -86,7 +86,7 @@ async function main() {
     // 3. Get pending scrape run
     log.normal(`\nChecking for scrape runs...`);
     try {
-      const runsResponse = await listScrapeRuns({
+      const runsResponse = await listRuns({
         domain,
         since: sinceDate,
         limit: 10

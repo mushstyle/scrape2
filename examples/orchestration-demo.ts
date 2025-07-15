@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-import { logger } from '../src/lib/logger.js';
-import { SessionManager } from '../src/lib/session-manager.js';
-import { ScrapeRunManager } from '../src/lib/scrape-run-manager.js';
-import { itemsToSessions, type SessionInfo, type SiteConfigWithBlockedProxies } from '../src/lib/distributor.js';
-import { getSiteConfig } from '../src/providers/site-config.js';
+// This example demonstrates proper layered architecture usage
+import { logger } from '../src/utils/logger.js';
+import { SessionManager } from '../src/services/session-manager.js';
+import { ScrapeRunManager } from '../src/services/scrape-run-manager.js';
+import { itemsToSessions, type SessionInfo, type SiteConfigWithBlockedProxies } from '../src/core/distributor.js';
+import { getSiteConfig } from '../src/drivers/site-config.js';
 
 const log = logger.createContext('orchestration-demo');
 

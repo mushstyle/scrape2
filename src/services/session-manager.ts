@@ -1,10 +1,9 @@
-import { logger } from './logger.js';
-import { createSession as createBrowserbaseSession } from '../providers/browserbase.js';
-import { createSession as createLocalSession } from '../providers/local-browser.js';
+import { logger } from '../utils/logger.js';
+import { createBrowserbaseSession, createLocalSession } from '../drivers/browser.js';
 import type { Session } from '../types/session.js';
 import type { SessionStats } from '../types/orchestration.js';
 
-const log = logger.createContext('session-manager-v2');
+const log = logger.createContext('session-manager');
 
 interface SessionMetadata {
   session: Session;
@@ -19,7 +18,7 @@ interface SessionMetadata {
  * Manages browser sessions properly - stores actual Session objects
  * This is the correct implementation that works with the architecture
  */
-export class SessionManagerV2 {
+export class SessionManager {
   private sessions: Map<string, SessionMetadata> = new Map();
   private sessionLimit: number;
   private provider: 'browserbase' | 'local';

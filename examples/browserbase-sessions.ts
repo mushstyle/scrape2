@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { logger } from '../src/lib/logger.js';
+import { logger } from '../src/utils/logger.js';
 import { parseArgs } from 'node:util';
 import * as browserbase from '../src/providers/browserbase.js';
 

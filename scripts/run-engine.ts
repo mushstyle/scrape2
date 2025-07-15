@@ -6,8 +6,8 @@
  *   npm run scrape:items -- [options]   # Run item loop
  */
 
-import { Engine } from '../src/lib/engine.js';
-import { logger } from '../src/lib/logger.js';
+import { Engine } from '../src/engines/scrape-engine.js';
+import { logger } from '../src/utils/logger.js';
 
 const log = logger.createContext('run-engine');
 

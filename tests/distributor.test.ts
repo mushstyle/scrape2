@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { itemsToSessions, type SessionInfo, type SiteConfigWithBlockedProxies } from '../src/lib/distributor.js';
+import { itemsToSessions, type SessionInfo, type SiteConfigWithBlockedProxies } from '../src/core/distributor.js';
 import type { ScrapeRunItem } from '../src/types/scrape-run.js';
 
 describe('distributor', () => {

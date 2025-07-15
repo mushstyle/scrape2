@@ -1,9 +1,9 @@
 import type { SiteConfig } from '../types/site-config-types.js';
-import { getSiteById } from './etl-api.js';
-import { loadProxyStrategies } from './local-db.js';
+import { getSiteById } from '../providers/etl-api.js';
+import { loadProxyStrategies } from '../providers/local-db.js';
 import type { ApiSiteMetadata } from '../types/siteScrapingConfig.js';
 import { extractDomain } from '../utils/url-utils.js';
-import { logger } from '../lib/logger.js';
+import { logger } from '../utils/logger.js';
 
 const log = logger.createContext('site-config');
 

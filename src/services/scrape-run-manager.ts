@@ -1,12 +1,13 @@
-import { logger } from './logger.js';
+import { logger } from '../utils/logger.js';
 import {
-  createScrapeRun,
-  fetchScrapeRun,
-  listScrapeRuns,
-  updateScrapeRunItem,
-  finalizeScrapeRun,
-  getLatestRunForDomain
-} from '../providers/etl-api.js';
+  createRun,
+  getRun,
+  listRuns,
+  updateRunItem,
+  finalizeRun,
+  getLatestRunForDomain,
+  fetchRun
+} from '../drivers/scrape-runs.js';
 import type {
   ScrapeRun,
   ScrapeRunItem,
@@ -27,7 +28,7 @@ export class ScrapeRunManager {
     }
     
     try {
-      const run = await createScrapeRun(request);
+      const run = await createRun(request);
       log.normal(`Created run ${run.id} for domain ${domain} with ${run.items.length} items`);
       return run;
     } catch (error) {
@@ -41,7 +42,7 @@ export class ScrapeRunManager {
    */
   async getActiveRun(domain: string): Promise<ScrapeRun | null> {
     try {
-      const response = await listScrapeRuns({
+      const response = await listRuns({
         domain,
         status: 'processing',
         limit: 1
@@ -52,7 +53,7 @@ export class ScrapeRunManager {
       }
       
       // Check for pending runs if no processing runs
-      const pendingResponse = await listScrapeRuns({
+      const pendingResponse = await listRuns({
         domain,
         status: 'pending',
         limit: 1
@@ -70,7 +71,7 @@ export class ScrapeRunManager {
    */
   async getPendingItems(runId: string): Promise<ScrapeRunItem[]> {
     try {
-      const run = await fetchScrapeRun(runId);
+      const run = await fetchRun(runId);
       const pendingItems = run.items.filter(item => !item.done);
       log.debug(`Found ${pendingItems.length} pending items in run ${runId}`);
       return pendingItems;
@@ -89,12 +90,7 @@ export class ScrapeRunManager {
     status: { done?: boolean; failed?: boolean; invalid?: boolean }
   ): Promise<void> {
     try {
-      await updateScrapeRunItem(runId, {
-        updateItem: {
-          url,
-          changes: status
-        }
-      });
+      await updateRunItem(runId, url, status);
       log.debug(`Updated item ${url} in run ${runId}`, status);
     } catch (error) {
       log.error(`Failed to update item ${url} in run ${runId}`, { error });
@@ -126,10 +122,10 @@ export class ScrapeRunManager {
   async finalizeRun(runId: string): Promise<void> {
     try {
       // Calculate metadata before finalizing
-      const run = await fetchScrapeRun(runId);
+      const run = await fetchRun(runId);
       const stats = this.calculateRunStats(run);
       
-      await finalizeScrapeRun(runId);
+      await finalizeRun(runId);
       log.normal(`Finalized run ${runId}`, stats);
     } catch (error) {
       log.error(`Failed to finalize run ${runId}`, { error });
@@ -142,7 +138,7 @@ export class ScrapeRunManager {
    */
   async getRunStats(runId: string): Promise<ItemStats> {
     try {
-      const run = await fetchScrapeRun(runId);
+      const run = await fetchRun(runId);
       return this.calculateRunStats(run);
     } catch (error) {
       log.error(`Failed to get stats for run ${runId}`, { error });
