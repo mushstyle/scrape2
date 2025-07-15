@@ -1,10 +1,7 @@
 import { logger } from '../utils/logger.js';
 import {
   listScrapeRuns,
-  getScrapeRun,
   createScrapeRun,
-  updateScrapeRun,
-  getScrapeRunItems,
   updateScrapeRunItem,
   getSites as getSitesProvider,
   finalizeScrapeRun as finalizeScrapeRunProvider,
@@ -14,8 +11,7 @@ import {
   type ScrapeRun,
   type ScrapeRunItem,
   type CreateScrapeRunOptions,
-  type UpdateScrapeRunOptions,
-  type UpdateScrapeRunItemOptions
+  type UpdateScrapeRunItemRequest
 } from '../providers/etl-api.js';
 
 const log = logger.createContext('scrape-runs-driver');
@@ -38,7 +34,7 @@ export async function listRuns(options: ListScrapeRunsOptions = {}): Promise<{ r
 export async function getRun(id: string): Promise<ScrapeRun> {
   try {
     log.debug(`Getting scrape run ${id}`);
-    return await getScrapeRun(id);
+    return await fetchScrapeRun(id);
   } catch (error) {
     log.error(`Failed to get scrape run ${id}`, { error });
     throw error;
@@ -55,30 +51,24 @@ export async function createRun(options: CreateScrapeRunOptions): Promise<Scrape
   }
 }
 
-export async function updateRun(id: string, options: UpdateScrapeRunOptions): Promise<ScrapeRun> {
-  try {
-    log.debug(`Updating scrape run ${id}`, options);
-    return await updateScrapeRun(id, options);
-  } catch (error) {
-    log.error(`Failed to update scrape run ${id}`, { error });
-    throw error;
-  }
-}
+// Note: updateScrapeRun doesn't exist in the ETL API provider
+// Only updateScrapeRunItem is available
 
 export async function getRunItems(runId: string): Promise<{ items: ScrapeRunItem[] }> {
   try {
     log.debug(`Getting items for scrape run ${runId}`);
-    return await getScrapeRunItems(runId);
+    const run = await fetchScrapeRun(runId);
+    return { items: run.items };
   } catch (error) {
     log.error(`Failed to get items for scrape run ${runId}`, { error });
     throw error;
   }
 }
 
-export async function updateRunItem(runId: string, url: string, options: UpdateScrapeRunItemOptions): Promise<ScrapeRunItem> {
+export async function updateRunItem(runId: string, url: string, options: { done?: boolean; failed?: boolean; invalid?: boolean }): Promise<void> {
   try {
     log.debug(`Updating item ${url} in run ${runId}`, options);
-    return await updateScrapeRunItem(runId, url, options);
+    await updateScrapeRunItem(runId, { updateItem: { url, changes: options } });
   } catch (error) {
     log.error(`Failed to update item ${url} in run ${runId}`, { error });
     throw error;
@@ -131,6 +121,5 @@ export type {
   ScrapeRunItem,
   ListScrapeRunsOptions,
   CreateScrapeRunOptions,
-  UpdateScrapeRunOptions,
-  UpdateScrapeRunItemOptions
+  UpdateScrapeRunItemRequest
 };
