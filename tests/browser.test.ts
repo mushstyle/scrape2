@@ -1,7 +1,5 @@
 import { test, expect } from 'vitest';
-import { createSession as createLocalSession } from '../src/providers/local-browser.js';
-import { createSession as createBrowserbaseSession } from '../src/providers/browserbase.js';
-import { createBrowserFromSession } from '../src/lib/browser.js';
+import { createLocalSession, createBrowserbaseSession, createBrowserFromSession } from '../src/drivers/browser.js';
 
 test('Local browser session', async () => {
   const session = await createLocalSession({ headless: true });

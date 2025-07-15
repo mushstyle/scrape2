@@ -1,6 +1,6 @@
 import type { ScrapeRunItem } from '../types/scrape-run.js';
 import type { SiteConfig } from '../types/site-config-types.js';
-import { logger } from './logger.js';
+import { logger } from '../utils/logger.js';
 
 const log = logger.createContext('distributor');
 
@@ -137,4 +137,45 @@ function extractDomain(url: string): string {
     log.debug(`Failed to parse URL: ${url}`);
     return '';
   }
+}
+
+/**
+ * Double-pass matcher algorithm for efficient URL-session distribution
+ * 
+ * This pure function implements a two-pass matching strategy:
+ * 1. First pass: Match URLs to existing sessions
+ * 2. Identify excess sessions and needed sessions
+ * 3. Second pass: Match URLs to all sessions (including newly created ones)
+ * 
+ * @param items - Items to distribute
+ * @param initialSessions - Initially available sessions
+ * @param finalSessions - All sessions after creation/termination
+ * @param siteConfigs - Site configurations with proxy requirements
+ * @returns Object with first pass results, excess sessions, and final results
+ */
+export function doublePassMatcher(
+  items: ScrapeRunItem[],
+  initialSessions: SessionInfo[],
+  finalSessions: SessionInfo[],
+  siteConfigs: SiteConfigWithBlockedProxies[] = []
+): {
+  firstPassMatched: UrlSessionPair[];
+  excessSessions: SessionInfo[];
+  finalMatched: UrlSessionPair[];
+} {
+  // First pass with initial sessions
+  const firstPassMatched = itemsToSessions(items, initialSessions, siteConfigs);
+  
+  // Identify excess sessions (not used in first pass)
+  const usedSessionIds = new Set(firstPassMatched.map(pair => pair.sessionId));
+  const excessSessions = initialSessions.filter(session => !usedSessionIds.has(session.id));
+  
+  // Second pass with final sessions (after creation/termination)
+  const finalMatched = itemsToSessions(items, finalSessions, siteConfigs);
+  
+  return {
+    firstPassMatched,
+    excessSessions,
+    finalMatched
+  };
 }

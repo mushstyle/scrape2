@@ -1,0 +1,658 @@
+import { logger } from '../utils/logger.js';
+import { 
+  getSites,
+  createRun,
+  getRun,
+  listRuns,
+  updateRunItem,
+  finalizeRun,
+  getLatestRunForDomain,
+  fetchRun
+} from '../drivers/scrape-runs.js';
+import { getSiteConfig } from '../drivers/site-config.js';
+import type { SiteConfig } from '../types/site-config-types.js';
+import type {
+  ScrapeRun,
+  ScrapeRunItem,
+  CreateScrapeRunRequest
+} from '../types/scrape-run.js';
+import type { ItemStats } from '../types/orchestration.js';
+
+const log = logger.createContext('site-manager');
+
+export interface SiteState {
+  domain: string;
+  config: SiteConfig;
+  lastScraped?: Date;
+  activeSessionCount?: number;
+  customData?: Record<string, any>;
+  // Scrape run management
+  activeRun?: ScrapeRun;
+  pendingRun?: ScrapeRun; // Uncommitted run being built
+  recentRuns?: ScrapeRun[];
+  // URL retry tracking
+  retryCount?: Map<string, number>;
+  failedUrls?: Set<string>;
+}
+
+export interface SiteManagerOptions {
+  autoLoad?: boolean;
+}
+
+/**
+ * Manages site configurations, state, and scrape runs
+ * Central hub for all site-related operations including:
+ * - Site configurations
+ * - Scrape run creation and management
+ * - URL retry tracking
+ * - Item status updates
+ */
+export class SiteManager {
+  private sites: Map<string, SiteState> = new Map();
+  private loaded: boolean = false;
+  // In-memory scrape runs not yet committed to ETL API
+  private uncommittedRuns: Map<string, ScrapeRun> = new Map();
+
+  constructor(private options: SiteManagerOptions = {}) {
+    log.debug('SiteManager initialized');
+  }
+
+  /**
+   * Load all sites from ETL API and their configurations
+   */
+  async loadSites(): Promise<void> {
+    if (this.loaded && !this.options.autoLoad) {
+      log.debug('Sites already loaded, skipping');
+      return;
+    }
+
+    log.normal('Loading sites from ETL API...');
+    
+    const sitesResponse = await getSites();
+    const allSites = sitesResponse.data || sitesResponse.sites || [];
+    
+    log.normal(`Found ${allSites.length} sites`);
+
+    // Load configurations in parallel
+    const configPromises = allSites.map(async (site: any) => {
+      const domain = site._id || site.id || site.domain;
+      if (!domain) {
+        log.debug('Site missing domain identifier', site);
+        return null;
+      }
+
+      try {
+        const config = await getSiteConfig(domain);
+        return { domain, config };
+      } catch (error) {
+        log.debug(`Failed to load config for ${domain}:`, error);
+        return null;
+      }
+    });
+
+    const results = await Promise.allSettled(configPromises);
+    
+    // Clear existing sites
+    this.sites.clear();
+
+    // Add successfully loaded sites
+    let loadedCount = 0;
+    results.forEach((result) => {
+      if (result.status === 'fulfilled' && result.value) {
+        const { domain, config } = result.value;
+        this.sites.set(domain, {
+          domain,
+          config,
+          customData: {}
+        });
+        loadedCount++;
+      }
+    });
+
+    log.normal(`Successfully loaded ${loadedCount} site configurations`);
+    this.loaded = true;
+  }
+
+  /**
+   * Get all sites
+   */
+  getAllSites(): SiteState[] {
+    return Array.from(this.sites.values());
+  }
+
+  /**
+   * Get sites with start pages
+   */
+  getSitesWithStartPages(): SiteState[] {
+    return Array.from(this.sites.values()).filter(
+      site => site.config.startPages && site.config.startPages.length > 0
+    );
+  }
+
+  /**
+   * Get a specific site by domain
+   */
+  getSite(domain: string): SiteState | undefined {
+    // Handle www prefix
+    const normalizedDomain = domain.replace(/^www\./, '');
+    return this.sites.get(normalizedDomain);
+  }
+
+  /**
+   * Get site config by domain
+   */
+  getSiteConfig(domain: string): SiteConfig | null {
+    const site = this.getSite(domain);
+    return site ? site.config : null;
+  }
+
+  /**
+   * Update site state
+   */
+  updateSite(domain: string, updates: Partial<SiteState>): void {
+    const normalizedDomain = domain.replace(/^www\./, '');
+    const existing = this.sites.get(normalizedDomain);
+    
+    if (!existing) {
+      log.debug(`Cannot update non-existent site: ${domain}`);
+      return;
+    }
+
+    this.sites.set(normalizedDomain, {
+      ...existing,
+      ...updates,
+      domain: existing.domain, // Preserve original domain
+      config: updates.config || existing.config // Preserve config unless explicitly updated
+    });
+
+    log.debug(`Updated site state for ${domain}`);
+  }
+
+  /**
+   * Update custom data for a site
+   */
+  updateSiteCustomData(domain: string, key: string, value: any): void {
+    const normalizedDomain = domain.replace(/^www\./, '');
+    const site = this.sites.get(normalizedDomain);
+    
+    if (!site) {
+      log.debug(`Cannot update custom data for non-existent site: ${domain}`);
+      return;
+    }
+
+    site.customData = site.customData || {};
+    site.customData[key] = value;
+
+    log.debug(`Updated custom data for ${domain}: ${key}`);
+  }
+
+  /**
+   * Get custom data for a site
+   */
+  getSiteCustomData(domain: string, key: string): any {
+    const site = this.getSite(domain);
+    return site?.customData?.[key];
+  }
+
+  /**
+   * Get start pages for a domain, respecting sessionLimit
+   */
+  getStartPagesForDomain(domain: string): string[] {
+    const site = this.getSite(domain);
+    if (!site || !site.config.startPages) {
+      return [];
+    }
+
+    const sessionLimit = site.config.proxy?.sessionLimit || 1;
+    return site.config.startPages.slice(0, sessionLimit);
+  }
+
+  /**
+   * Get all start pages from all sites, respecting sessionLimit
+   */
+  getAllStartPages(): Array<{ url: string; domain: string }> {
+    const urls: Array<{ url: string; domain: string }> = [];
+
+    for (const site of this.sites.values()) {
+      const startPages = this.getStartPagesForDomain(site.domain);
+      for (const url of startPages) {
+        urls.push({ url, domain: site.domain });
+      }
+    }
+
+    return urls;
+  }
+
+  /**
+   * Get site configurations for use with distributor
+   */
+  getSiteConfigs(): SiteConfig[] {
+    return Array.from(this.sites.values()).map(site => site.config);
+  }
+
+  /**
+   * Add or update a site manually
+   */
+  addSite(domain: string, config: SiteConfig, state?: Partial<SiteState>): void {
+    const normalizedDomain = domain.replace(/^www\./, '');
+    
+    this.sites.set(normalizedDomain, {
+      domain: normalizedDomain,
+      config,
+      lastScraped: state?.lastScraped,
+      activeSessionCount: state?.activeSessionCount,
+      customData: state?.customData || {}
+    });
+
+    log.debug(`Added/updated site: ${domain}`);
+  }
+
+  /**
+   * Remove a site
+   */
+  removeSite(domain: string): boolean {
+    const normalizedDomain = domain.replace(/^www\./, '');
+    const result = this.sites.delete(normalizedDomain);
+    
+    if (result) {
+      log.debug(`Removed site: ${domain}`);
+    }
+    
+    return result;
+  }
+
+  /**
+   * Clear all sites
+   */
+  clear(): void {
+    this.sites.clear();
+    this.loaded = false;
+    log.debug('Cleared all sites');
+  }
+
+  /**
+   * Get number of loaded sites
+   */
+  size(): number {
+    return this.sites.size;
+  }
+
+  /**
+   * Check if sites are loaded
+   */
+  isLoaded(): boolean {
+    return this.loaded;
+  }
+
+  // ========== Scrape Run Management ==========
+
+  /**
+   * Create a new scrape run for a domain
+   */
+  async createRun(domain: string, urls?: string[]): Promise<ScrapeRun> {
+    const request: CreateScrapeRunRequest = { domain };
+    if (urls && urls.length > 0) {
+      request.urls = urls;
+    }
+    
+    try {
+      const run = await createRun(request);
+      log.normal(`Created run ${run.id} for domain ${domain} with ${run.items.length} items`);
+      
+      // Update site state with the new run
+      const site = this.getSite(domain);
+      if (site) {
+        site.activeRun = run;
+        site.lastScraped = new Date();
+      }
+      
+      return run;
+    } catch (error) {
+      log.error(`Failed to create run for domain ${domain}`, { error });
+      throw error;
+    }
+  }
+  
+  /**
+   * Create a pending (uncommitted) run that can be built up before committing
+   */
+  createPendingRun(domain: string): ScrapeRun {
+    const pendingRun: ScrapeRun = {
+      id: `pending-${domain}-${Date.now()}`,
+      domain,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      items: []
+    };
+    
+    this.uncommittedRuns.set(pendingRun.id, pendingRun);
+    
+    const site = this.getSite(domain);
+    if (site) {
+      site.pendingRun = pendingRun;
+    }
+    
+    log.debug(`Created pending run ${pendingRun.id} for domain ${domain}`);
+    return pendingRun;
+  }
+  
+  /**
+   * Add URLs to a pending run
+   */
+  addUrlsToPendingRun(runId: string, urls: string[]): void {
+    const pendingRun = this.uncommittedRuns.get(runId);
+    if (!pendingRun) {
+      throw new Error(`Pending run ${runId} not found`);
+    }
+    
+    const newItems: ScrapeRunItem[] = urls.map(url => ({
+      url,
+      done: false,
+      failed: false
+    }));
+    
+    pendingRun.items.push(...newItems);
+    log.debug(`Added ${urls.length} URLs to pending run ${runId}`);
+  }
+  
+  /**
+   * Commit a pending run to the ETL API
+   */
+  async commitPendingRun(runId: string): Promise<ScrapeRun> {
+    const pendingRun = this.uncommittedRuns.get(runId);
+    if (!pendingRun) {
+      throw new Error(`Pending run ${runId} not found`);
+    }
+    
+    // Create the run with all accumulated URLs
+    const urls = pendingRun.items.map(item => item.url);
+    const committedRun = await this.createRun(pendingRun.domain, urls);
+    
+    // Clean up
+    this.uncommittedRuns.delete(runId);
+    const site = this.getSite(pendingRun.domain);
+    if (site && site.pendingRun?.id === runId) {
+      site.pendingRun = undefined;
+    }
+    
+    log.normal(`Committed pending run ${runId} as ${committedRun.id}`);
+    return committedRun;
+  }
+  
+  /**
+   * Get active run for a domain (most recent non-completed run)
+   */
+  async getActiveRun(domain: string): Promise<ScrapeRun | null> {
+    // First check in-memory state
+    const site = this.getSite(domain);
+    if (site?.activeRun && (site.activeRun.status === 'pending' || site.activeRun.status === 'processing')) {
+      return site.activeRun;
+    }
+    
+    try {
+      const response = await listRuns({
+        domain,
+        status: 'processing',
+        limit: 1
+      });
+      
+      if (response.runs.length > 0) {
+        const run = response.runs[0];
+        if (site) {
+          site.activeRun = run;
+        }
+        return run;
+      }
+      
+      // Check for pending runs if no processing runs
+      const pendingResponse = await listRuns({
+        domain,
+        status: 'pending',
+        limit: 1
+      });
+      
+      if (pendingResponse.runs.length > 0) {
+        const run = pendingResponse.runs[0];
+        if (site) {
+          site.activeRun = run;
+        }
+        return run;
+      }
+      
+      return null;
+    } catch (error) {
+      log.error(`Failed to get active run for domain ${domain}`, { error });
+      return null;
+    }
+  }
+  
+  /**
+   * Get pending items from a run (not done)
+   */
+  async getPendingItems(runId: string): Promise<ScrapeRunItem[]> {
+    // Check if it's an uncommitted run
+    const pendingRun = this.uncommittedRuns.get(runId);
+    if (pendingRun) {
+      return pendingRun.items.filter(item => !item.done);
+    }
+    
+    try {
+      const run = await fetchRun(runId);
+      const pendingItems = run.items.filter(item => !item.done);
+      log.debug(`Found ${pendingItems.length} pending items in run ${runId}`);
+      return pendingItems;
+    } catch (error) {
+      log.error(`Failed to get pending items for run ${runId}`, { error });
+      return [];
+    }
+  }
+  
+  /**
+   * Update item status and optionally upload data
+   */
+  async updateItemStatus(
+    runId: string,
+    url: string,
+    status: { done?: boolean; failed?: boolean; invalid?: boolean },
+    data?: any
+  ): Promise<void> {
+    // Check if it's an uncommitted run
+    const pendingRun = this.uncommittedRuns.get(runId);
+    if (pendingRun) {
+      const item = pendingRun.items.find(i => i.url === url);
+      if (item) {
+        Object.assign(item, status);
+      }
+      return;
+    }
+    
+    try {
+      await updateRunItem(runId, url, status);
+      log.debug(`Updated item ${url} in run ${runId}`, status);
+      
+      // Update retry tracking
+      if (status.failed) {
+        const run = await fetchRun(runId);
+        const site = this.getSite(run.domain);
+        if (site) {
+          site.retryCount = site.retryCount || new Map();
+          site.failedUrls = site.failedUrls || new Set();
+          
+          const currentRetries = site.retryCount.get(url) || 0;
+          site.retryCount.set(url, currentRetries + 1);
+          site.failedUrls.add(url);
+        }
+      }
+      
+      // TODO: If data is provided, upload it to appropriate storage
+      if (data) {
+        log.debug(`Data provided for ${url}, would upload to storage`);
+      }
+    } catch (error) {
+      log.error(`Failed to update item ${url} in run ${runId}`, { error });
+      throw error;
+    }
+  }
+  
+  /**
+   * Batch update item statuses
+   */
+  async updateItemStatuses(
+    runId: string,
+    updates: Array<{ url: string; status: { done?: boolean; failed?: boolean; invalid?: boolean }; data?: any }>
+  ): Promise<void> {
+    // Process updates in parallel with concurrency limit
+    const batchSize = 10;
+    for (let i = 0; i < updates.length; i += batchSize) {
+      const batch = updates.slice(i, i + batchSize);
+      await Promise.all(
+        batch.map(({ url, status, data }) => this.updateItemStatus(runId, url, status, data))
+      );
+    }
+    log.normal(`Updated ${updates.length} items in run ${runId}`);
+  }
+  
+  /**
+   * Finalize a run
+   */
+  async finalizeRun(runId: string): Promise<void> {
+    try {
+      // Calculate metadata before finalizing
+      const run = await fetchRun(runId);
+      const stats = this.calculateRunStats(run);
+      
+      await finalizeRun(runId);
+      log.normal(`Finalized run ${runId}`, stats);
+      
+      // Update site state
+      const site = this.getSite(run.domain);
+      if (site && site.activeRun?.id === runId) {
+        site.activeRun = undefined;
+        site.recentRuns = site.recentRuns || [];
+        site.recentRuns.unshift(run);
+        // Keep only last 5 runs
+        if (site.recentRuns.length > 5) {
+          site.recentRuns = site.recentRuns.slice(0, 5);
+        }
+      }
+    } catch (error) {
+      log.error(`Failed to finalize run ${runId}`, { error });
+      throw error;
+    }
+  }
+  
+  /**
+   * Get run statistics
+   */
+  async getRunStats(runId: string): Promise<ItemStats> {
+    try {
+      const run = await fetchRun(runId);
+      return this.calculateRunStats(run);
+    } catch (error) {
+      log.error(`Failed to get stats for run ${runId}`, { error });
+      return {
+        total: 0,
+        pending: 0,
+        completed: 0,
+        failed: 0,
+        invalid: 0
+      };
+    }
+  }
+  
+  /**
+   * List scrape runs with optional filters
+   */
+  async listRuns(options: { since?: Date; domain?: string; status?: string } = {}): Promise<{ runs: ScrapeRun[] }> {
+    try {
+      const listOptions: any = {};
+      if (options.since) {
+        listOptions.since = options.since;
+      }
+      if (options.domain) {
+        listOptions.domain = options.domain;
+      }
+      if (options.status) {
+        listOptions.status = options.status;
+      }
+      
+      return await listRuns(listOptions);
+    } catch (error) {
+      log.error('Failed to list runs', { error });
+      throw error;
+    }
+  }
+  
+  /**
+   * Calculate run statistics from a ScrapeRun
+   */
+  private calculateRunStats(run: ScrapeRun): ItemStats {
+    const stats: ItemStats = {
+      total: run.items.length,
+      pending: 0,
+      completed: 0,
+      failed: 0,
+      invalid: 0
+    };
+    
+    run.items.forEach(item => {
+      if (item.done) {
+        stats.completed++;
+      } else if (item.failed) {
+        stats.failed++;
+      } else if (item.invalid) {
+        stats.invalid++;
+      } else {
+        stats.pending++;
+      }
+    });
+    
+    return stats;
+  }
+  
+  /**
+   * Get or create a run for a domain
+   */
+  async getOrCreateRun(domain: string, urls?: string[]): Promise<ScrapeRun> {
+    // Check for existing active run
+    const activeRun = await this.getActiveRun(domain);
+    if (activeRun) {
+      log.normal(`Using existing run ${activeRun.id} for domain ${domain}`);
+      return activeRun;
+    }
+    
+    // Create new run
+    return this.createRun(domain, urls);
+  }
+  
+  /**
+   * Get URLs that need retry for a domain
+   */
+  getRetryUrls(domain: string, maxRetries: number = 3): string[] {
+    const site = this.getSite(domain);
+    if (!site || !site.failedUrls || !site.retryCount) {
+      return [];
+    }
+    
+    const retryUrls: string[] = [];
+    for (const url of site.failedUrls) {
+      const retries = site.retryCount.get(url) || 0;
+      if (retries < maxRetries) {
+        retryUrls.push(url);
+      }
+    }
+    
+    return retryUrls;
+  }
+  
+  /**
+   * Clear retry tracking for a domain
+   */
+  clearRetryTracking(domain: string): void {
+    const site = this.getSite(domain);
+    if (site) {
+      site.retryCount = new Map();
+      site.failedUrls = new Set();
+    }
+  }
+}

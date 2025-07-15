@@ -1,13 +1,24 @@
 # Claude Development Rules
 
-## Architecture Overview
-- **Session-based browser management** (see `docs/architecture.md`)
-- **Providers** handle external services: `src/providers/` (browserbase, local-browser)
-- **CRITICAL: ALWAYS use providers for external services** - never make direct API calls
-- **Tell users when we need a new provider** - don't implement direct API calls in examples or scripts
-- **Sessions** created via provider's `createSession({ proxy })`
-- **Browser contexts** from `createBrowserFromSession(session)`
+## CRITICAL: Architecture Rules
+**BEFORE ANY EDITING, READ `docs/architecture.md`** - This is the source of truth for:
+- Directory structure and import hierarchy
+- Which layers can import from which other layers
+- How to properly create browsers and sessions
+- Examples of correct and incorrect patterns
+
+## Architecture Summary
+- **Strict 5-layer hierarchy**: providers → drivers → services → core/engines
+- **NEVER skip layers** - e.g., services MUST use drivers, not providers
+- **Browser creation**: Provider → Session → Browser (via browser.ts driver)
 - **NO backwards compatibility** - this is a clean-slate project
+
+## CRITICAL: Browser Creation Rules
+- **NEVER create browsers without `browser.ts`** - This is the ONLY way to create browsers
+- **NEVER call playwright's chromium.launch() or connect() directly**
+- **ALWAYS use `createBrowserFromSession()` from `src/drivers/browser.ts`**
+- **SessionManager MUST store actual Session objects, not just IDs**
+- **The flow is: Provider → Session → Browser (via browser.ts)**
 
 ## use node
 - We use Node.js v20+ with native `.env` support
@@ -15,7 +26,8 @@
 - Use `vitest` for testing instead of Bun test
 
 ## Rules to Follow
-- `rules/types.md`: how to use and create
+- `rules/testing.md`: how to test
+- `rules/types.md`: how to use and create types
 - `rules/plans.md`: how to create plans
 - `rules/scrapers.md`: how to create scrapers
 - `rules/providers.md`: how to create or access providers and external services/APIs
@@ -63,10 +75,3 @@
 - CLI flags: Initialize `options || {}` before custom flags
 - Logger errors: Check method names (normal not info)
 - Timeout issues: Increase with --timeout flag
-
-## Orchestration Patterns
-- **ETL API**: Use `src/providers/etl-api.ts` for scrape run management
-- **Distribution**: Use `itemsToSessions()` for pure functional item distribution
-- **Session Pool**: Use `SessionManager` to manage browser session lifecycle
-- **Run Management**: Use `ScrapeRunManager` for high-level run operations
-- **Environment**: Requires `ETL_API_ENDPOINT` and `ETL_API_KEY` env vars

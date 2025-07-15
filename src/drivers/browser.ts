@@ -2,6 +2,8 @@ import { chromium } from 'playwright';
 import type { Browser, BrowserContext } from 'playwright';
 import type { Session } from '../types/session.js';
 import { formatProxyForPlaywright } from './proxy.js';
+import { createSession as createBrowserbaseSessionProvider } from '../providers/browserbase.js';
+import { createSession as createLocalSessionProvider } from '../providers/local-browser.js';
 
 export interface BrowserFromSessionOptions {
   blockImages?: boolean; // Block image downloads, defaults to true
@@ -77,4 +79,18 @@ export async function createBrowserFromSession(
       await session.cleanup();
     }
   };
+}
+
+/**
+ * Create a Browserbase session (wrapper for provider)
+ */
+export async function createBrowserbaseSession(options: { proxy?: any } = {}): Promise<Session> {
+  return createBrowserbaseSessionProvider(options);
+}
+
+/**
+ * Create a local browser session (wrapper for provider)
+ */
+export async function createLocalSession(options: { proxy?: any } = {}): Promise<Session> {
+  return createLocalSessionProvider(options);
 }

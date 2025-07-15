@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 
-import { logger } from '../src/lib/logger.js';
-import { getSiteConfig } from '../src/providers/site-config.js';
-import { listScrapeRuns } from '../src/providers/etl-api.js';
+import { logger } from '../src/utils/logger.js';
+import { SiteManager } from '../src/services/site-manager.js';
 import { parseArgs } from 'node:util';
 
 const log = logger.createContext('site-info');
@@ -67,10 +66,21 @@ async function main() {
     }
   }
 
+  // Initialize services
+  const siteManager = new SiteManager();
+  
   try {
+    // Load sites
+    await siteManager.loadSites();
+    
     // 1. Get SiteConfig
     log.normal(`\nFetching site config for ${domain}...`);
-    const siteConfig = await getSiteConfig(domain);
+    const siteConfig = siteManager.getSiteConfig(domain);
+    
+    if (!siteConfig) {
+      log.error(`Site config not found for domain: ${domain}`);
+      process.exit(1);
+    }
     log.normal('Site Config:', JSON.stringify(siteConfig, null, 2));
 
     // 2. Get start pages
@@ -86,10 +96,9 @@ async function main() {
     // 3. Get pending scrape run
     log.normal(`\nChecking for scrape runs...`);
     try {
-      const runsResponse = await listScrapeRuns({
+      const runsResponse = await siteManager.listRuns({
         domain,
-        since: sinceDate,
-        limit: 10
+        since: sinceDate
       });
       
       if (runsResponse.runs && runsResponse.runs.length > 0) {

@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-import { logger } from '../src/lib/logger.js';
-import { SessionManager } from '../src/lib/session-manager.js';
-import { ScrapeRunManager } from '../src/lib/scrape-run-manager.js';
-import { itemsToSessions, type SessionInfo, type SiteConfigWithBlockedProxies } from '../src/lib/distributor.js';
-import { getSiteConfig } from '../src/providers/site-config.js';
+// This example demonstrates proper layered architecture usage
+import { logger } from '../src/utils/logger.js';
+import { SessionManager } from '../src/services/session-manager.js';
+import { ScrapeRunManager } from '../src/services/scrape-run-manager.js';
+import { SiteManager } from '../src/services/site-manager.js';
+import { itemsToSessions, type SessionInfo, type SiteConfigWithBlockedProxies } from '../src/core/distributor.js';
 
 const log = logger.createContext('orchestration-demo');
 
@@ -33,15 +34,17 @@ async function main() {
     });
     
     const runManager = new ScrapeRunManager();
+    const siteManager = new SiteManager();
+    await siteManager.loadSites();
     
     // Step 1: Get or create a scrape run
     log.normal('Step 1: Getting or creating scrape run...');
-    const run = await runManager.getOrCreateRun(domain);
+    const run = await siteManager.getOrCreateRun(domain);
     log.normal(`Using run ${run.id} with ${run.items.length} items`);
     
     // Step 2: Get pending items
     log.normal('\\nStep 2: Getting pending items...');
-    const pendingItems = await runManager.getPendingItems(run.id);
+    const pendingItems = await siteManager.getPendingItems(run.id);
     log.normal(`Found ${pendingItems.length} pending items`);
     
     if (pendingItems.length === 0) {
@@ -63,15 +66,16 @@ async function main() {
     // Step 4: Get site configs for proxy requirements
     log.normal('\\nStep 4: Getting site configurations...');
     const siteConfigs: SiteConfigWithBlockedProxies[] = [];
-    try {
-      const siteConfig = await getSiteConfig(domain);
+    const siteConfig = siteManager.getSiteConfig(domain);
+    
+    if (siteConfig) {
       // Add any blocked proxy IDs (for demo purposes, we'll simulate some)
       siteConfigs.push({
         ...siteConfig,
         blockedProxyIds: [] // In production, this would come from monitoring/failure tracking
       });
       log.normal(`Site proxy strategy: ${siteConfig.proxy?.strategy || 'none'}`);
-    } catch (error) {
+    } else {
       log.normal('Could not fetch site config, proceeding without proxy requirements');
     }
     
@@ -113,7 +117,7 @@ async function main() {
       // Simulate success/failure
       const isSuccess = Math.random() > 0.2; // 80% success rate
       
-      await runManager.updateItemStatus(run.id, item.url, {
+      await siteManager.updateItemStatus(run.id, item.url, {
         done: isSuccess,
         failed: !isSuccess
       });
@@ -123,7 +127,7 @@ async function main() {
     
     // Step 7: Get run statistics
     log.normal('\\nStep 7: Getting run statistics...');
-    const stats = await runManager.getRunStats(run.id);
+    const stats = await siteManager.getRunStats(run.id);
     log.normal('Run statistics:', stats);
     
     // Step 8: Clean up sessions
@@ -136,7 +140,7 @@ async function main() {
     // Optional: Finalize run if all items are processed
     if (stats.pending === 0) {
       log.normal('\\nAll items processed, finalizing run...');
-      await runManager.finalizeRun(run.id);
+      await siteManager.finalizeRun(run.id);
       log.normal('Run finalized');
     }
     

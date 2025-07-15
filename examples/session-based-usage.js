@@ -3,29 +3,22 @@
 /**
  * Example demonstrating the new session-based architecture
  * Shows how to use both Browserbase and local browser providers
+ * using the SessionManager service
  */
 
-import { createSession as createBrowserbaseSession } from '../src/providers/browserbase.js';
-import { createSession as createLocalSession } from '../src/providers/local-browser.js';
-import { createBrowserFromSession } from '../src/lib/browser.js';
-import { loadProxies, getDefaultProxy } from '../src/lib/proxy.js';
+import { SessionManager } from '../src/services/session-manager.js';
+import { createBrowserFromSession } from '../src/drivers/browser.js';
 
-async function testProvider(providerName, createSessionFn) {
+async function testProvider(providerName, sessionManager) {
   console.log(`\n${'='.repeat(60)}`);
   console.log(`Testing ${providerName}`);
   console.log(`${'='.repeat(60)}\n`);
 
-  // Load proxy configuration
-  const proxyStore = await loadProxies();
-  const proxy = getDefaultProxy(proxyStore);
-  
-  if (proxy) {
-    console.log(`📡 Using proxy: ${proxy.id} (${proxy.provider})`);
-  }
-
-  // Create session with proxy
+  // Create session using SessionManager
   console.log(`Creating ${providerName} session...`);
-  const session = await createSessionFn({ proxy });
+  const sessionId = await sessionManager.createSession();
+  const sessions = await sessionManager.getActiveSessions();
+  const session = sessions.find(s => s.id === sessionId);
   
   try {
     // Create browser from session
@@ -60,18 +53,28 @@ async function testProvider(providerName, createSessionFn) {
     
   } catch (error) {
     console.error('❌ Error:', error.message);
-    await session.cleanup();
+    await sessionManager.destroySession(sessionId);
   }
 }
 
 async function main() {
   try {
     // Test local browser
-    await testProvider('Local Browser', createLocalSession);
+    const localSessionManager = new SessionManager({
+      sessionLimit: 1,
+      provider: 'local'
+    });
+    await testProvider('Local Browser', localSessionManager);
+    await localSessionManager.destroyAllSessions();
 
     // Test Browserbase (only if credentials are available)
     if (process.env.BROWSERBASE_API_KEY && process.env.BROWSERBASE_PROJECT_ID) {
-      await testProvider('Browserbase', createBrowserbaseSession);
+      const browserbaseSessionManager = new SessionManager({
+        sessionLimit: 1,
+        provider: 'browserbase'
+      });
+      await testProvider('Browserbase', browserbaseSessionManager);
+      await browserbaseSessionManager.destroyAllSessions();
     } else {
       console.log('\n⚠️  Skipping Browserbase test (missing API credentials)');
     }

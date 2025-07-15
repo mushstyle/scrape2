@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest';
-import { loadProxies, getProxyById, getDefaultProxy, formatProxyForPlaywright } from '../src/lib/proxy.js';
+import { loadProxies, getProxyById, getDefaultProxy, formatProxyForPlaywright } from '../src/drivers/proxy.js';
 import type { ProxyStore } from '../src/types/proxy.js';
 
 test('loadProxies - loads proxies from JSON', async () => {

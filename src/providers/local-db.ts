@@ -9,7 +9,7 @@ import { readFile } from 'fs/promises';
 import { join } from 'path';
 import type { ProxyStore } from '../types/proxy.js';
 import type { ProxyStrategiesStore } from '../types/site-config-types.js';
-import { logger } from '../lib/logger.js';
+import { logger } from '../utils/logger.js';
 
 const log = logger.createContext('local-db');
 

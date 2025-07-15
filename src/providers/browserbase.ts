@@ -1,6 +1,6 @@
 import type { Session, SessionOptions, BrowserbaseSession } from '../types/session.js';
 import type { Proxy } from '../types/proxy.js';
-import { logger } from '../lib/logger.js';
+import { logger } from '../utils/logger.js';
 
 const log = logger.createContext('browserbase-provider');
 

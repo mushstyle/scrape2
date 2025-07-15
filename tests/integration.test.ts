@@ -1,9 +1,7 @@
 import { test, expect } from 'vitest';
-import { createSession as createLocalSession } from '../src/providers/local-browser.js';
-import { createSession as createBrowserbaseSession } from '../src/providers/browserbase.js';
-import { createBrowserFromSession } from '../src/lib/browser.js';
-import { loadProxies, getProxyById, getDefaultProxy } from '../src/lib/proxy.js';
-import { RequestCache } from '../src/lib/cache.js';
+import { createLocalSession, createBrowserbaseSession, createBrowserFromSession } from '../src/drivers/browser.js';
+import { loadProxies, getProxyById, getDefaultProxy } from '../src/drivers/proxy.js';
+import { RequestCache } from '../src/drivers/cache.js';
 
 test('Integration - local browser + proxy + cache', async () => {
   // Load proxy
