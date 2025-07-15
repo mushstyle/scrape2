@@ -20,6 +20,7 @@
     "example:double-pass": "tsx --no-warnings --env-file=.env examples/double-pass-demo.ts",
     "example:pagination": "tsx --no-warnings --env-file=.env examples/pagination.ts",
     "example:pagination-simple": "tsx --no-warnings --env-file=.env examples/pagination-simple.ts",
+    "example:pagination-multi": "tsx --no-warnings --env-file=.env examples/pagination-multi-site.ts",
     "scrape:urls": "SCRAPE_MODE=urls tsx --no-warnings --env-file=.env scripts/run-engine.ts",
     "scrape:items": "SCRAPE_MODE=items tsx --no-warnings --env-file=.env scripts/run-engine.ts"
   },
