@@ -457,7 +457,7 @@ async function main() {
     log.normal(`Found ${allSessions.length} existing sessions`);
     
     let matched = itemsToSessions(scrapeRunItems, sessionInfos, validConfigs);
-    log.normal(`First pass matched: ${matched.length} URLs`);
+    log.normal(`First pass matched: ${matched.length} URL-session pairs`);
     
     // Find excess sessions
     const usedSessionIds = new Set(matched.map(pair => pair.sessionId));
@@ -516,7 +516,7 @@ async function main() {
         
         // Run distributor again
         matched = itemsToSessions(scrapeRunItems, sessionInfos, validConfigs);
-        log.normal(`Second pass matched: ${matched.length} URLs`);
+        log.normal(`Second pass matched: ${matched.length} URL-session pairs`);
       } else {
         log.normal('No new sessions created');
       }
@@ -531,8 +531,8 @@ async function main() {
     log.normal(`Total URLs: ${scrapeRunItems.length}`);
     log.normal(`Instance limit: ${instanceLimit}`);
     log.normal(`Total sessions: ${allSessions.length}`);
-    log.normal(`Matched URLs: ${matched.length}`);
-    log.normal(`Efficiency: ${((matched.length / Math.min(scrapeRunItems.length, instanceLimit)) * 100).toFixed(1)}%`);
+    log.normal(`Matched URL-session pairs: ${matched.length}`);
+    log.normal(`Efficiency: ${((matched.length / instanceLimit) * 100).toFixed(1)}%`);
     
     // Show matched pairs (first 10)
     if (matched.length > 0) {
@@ -547,6 +547,20 @@ async function main() {
     }
     
     log.normal(`\nDouble-pass matching completed! 🎯`);
+    
+    // Cleanup: Kill all sessions
+    log.normal(`\nCleaning up ${allSessions.length} sessions...`);
+    await Promise.allSettled(
+      allSessions.map(async (session) => {
+        try {
+          await session.cleanup();
+          log.debug(`Terminated session: ${session.provider === 'browserbase' ? session.browserbase!.id : 'local'}`);
+        } catch (error) {
+          log.debug(`Failed to terminate session:`, error);
+        }
+      })
+    );
+    log.normal('Cleanup completed');
 
   } catch (error) {
     log.error('Example failed:', error);

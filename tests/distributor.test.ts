@@ -34,7 +34,7 @@ describe('distributor', () => {
       expect(result).toHaveLength(0);
     });
 
-    it('should filter out completed items', () => {
+    it('should filter out completed items and use sessions 1:1', () => {
       const items = [
         createItem('https://httpbin.org/1', false),
         createItem('https://httpbin.org/2', true),
@@ -43,14 +43,14 @@ describe('distributor', () => {
         createItem('https://httpbin.org/5', false)
       ];
       const result = itemsToSessions(items, sessions);
-      expect(result).toHaveLength(3); // Only pending items
-      // Without site config, all sessions work, so it takes first session for each
+      expect(result).toHaveLength(3); // Only pending items, each with unique session
+      // Without site config, all sessions work, so it takes first available sessions
       expect(result[0]).toEqual({ url: 'https://httpbin.org/1', sessionId: 'session1' });
-      expect(result[1]).toEqual({ url: 'https://httpbin.org/3', sessionId: 'session1' });
-      expect(result[2]).toEqual({ url: 'https://httpbin.org/5', sessionId: 'session1' });
+      expect(result[1]).toEqual({ url: 'https://httpbin.org/3', sessionId: 'session2' });
+      expect(result[2]).toEqual({ url: 'https://httpbin.org/5', sessionId: 'session3' });
     });
 
-    it('should match sessions based on site configurations', () => {
+    it('should match sessions based on site configurations with 1:1 mapping', () => {
       const items = [
         createItem('https://api.httpbin.org/1'),
         createItem('https://api.httpbin.org/2'),
@@ -76,15 +76,13 @@ describe('distributor', () => {
       ];
       
       const result = itemsToSessions(items, sessions, siteConfigs);
-      expect(result).toHaveLength(4);
+      expect(result).toHaveLength(2); // Only 2 pairs because we need specific session types
       
-      // api.httpbin.org items should use datacenter US (session1)
+      // api.httpbin.org items should use datacenter US (session1), but only one URL gets it
       expect(result[0]).toEqual({ url: 'https://api.httpbin.org/1', sessionId: 'session1' });
-      expect(result[1]).toEqual({ url: 'https://api.httpbin.org/2', sessionId: 'session1' });
       
-      // test.httpbin.org items should use residential US (session2)
-      expect(result[2]).toEqual({ url: 'https://test.httpbin.org/1', sessionId: 'session2' });
-      expect(result[3]).toEqual({ url: 'https://test.httpbin.org/2', sessionId: 'session2' });
+      // test.httpbin.org items should use residential US (session2), but only one URL gets it
+      expect(result[1]).toEqual({ url: 'https://test.httpbin.org/1', sessionId: 'session2' });
     });
 
     it('should respect blocked proxy IDs', () => {
@@ -110,7 +108,7 @@ describe('distributor', () => {
       expect(result).toHaveLength(0);
     });
 
-    it('should match geo requirements', () => {
+    it('should match geo requirements with 1:1 mapping', () => {
       const items = [
         createItem('https://httpbin.org/uk/1'),
         createItem('https://httpbin.org/uk/2')
@@ -127,14 +125,13 @@ describe('distributor', () => {
       ];
       
       const result = itemsToSessions(items, sessions, siteConfigs);
-      expect(result).toHaveLength(2);
+      expect(result).toHaveLength(1); // Only one datacenter UK session available
       
-      // Should use session4 (datacenter UK)
+      // Should use session4 (datacenter UK) for first URL only
       expect(result[0]).toEqual({ url: 'https://httpbin.org/uk/1', sessionId: 'session4' });
-      expect(result[1]).toEqual({ url: 'https://httpbin.org/uk/2', sessionId: 'session4' });
     });
 
-    it('should handle no proxy requirement', () => {
+    it('should handle no proxy requirement with 1:1 mapping', () => {
       const items = [
         createItem('https://httpbin.org/no-proxy/1'),
         createItem('https://httpbin.org/no-proxy/2')
@@ -151,11 +148,10 @@ describe('distributor', () => {
       ];
       
       const result = itemsToSessions(items, sessions, siteConfigs);
-      expect(result).toHaveLength(2);
+      expect(result).toHaveLength(1); // Only one no-proxy session available
       
-      // Should use session3 (no proxy)
+      // Should use session3 (no proxy) for first URL only
       expect(result[0]).toEqual({ url: 'https://httpbin.org/no-proxy/1', sessionId: 'session3' });
-      expect(result[1]).toEqual({ url: 'https://httpbin.org/no-proxy/2', sessionId: 'session3' });
     });
 
     it('should handle datacenter-to-residential strategy', () => {
@@ -195,7 +191,7 @@ describe('distributor', () => {
       expect(result).toHaveLength(0); // No matching sessions for FR geo
     });
 
-    it('should handle URLs without matching site config', () => {
+    it('should handle URLs without matching site config with 1:1 mapping', () => {
       const items = [
         createItem('https://httpbin.org/unknown/1'),
         createItem('https://httpbin.org/unknown/2')
@@ -214,12 +210,12 @@ describe('distributor', () => {
       const result = itemsToSessions(items, sessions, siteConfigs);
       expect(result).toHaveLength(2);
       
-      // No site config found, so any session works (takes first)
+      // No site config found, so any session works (takes first available sessions)
       expect(result[0]).toEqual({ url: 'https://httpbin.org/unknown/1', sessionId: 'session1' });
-      expect(result[1]).toEqual({ url: 'https://httpbin.org/unknown/2', sessionId: 'session1' });
+      expect(result[1]).toEqual({ url: 'https://httpbin.org/unknown/2', sessionId: 'session2' });
     });
 
-    it('should handle www prefixes correctly', () => {
+    it('should handle www prefixes correctly with 1:1 mapping', () => {
       const items = [
         createItem('https://www.httpbin.org/1'),
         createItem('https://httpbin.org/2')
@@ -236,11 +232,29 @@ describe('distributor', () => {
       ];
       
       const result = itemsToSessions(items, sessions, siteConfigs);
-      expect(result).toHaveLength(2);
+      expect(result).toHaveLength(1); // Only one residential UK session available
       
-      // Both should match and use residential UK (session5)
+      // First URL should match and use residential UK (session5)
       expect(result[0]).toEqual({ url: 'https://www.httpbin.org/1', sessionId: 'session5' });
-      expect(result[1]).toEqual({ url: 'https://httpbin.org/2', sessionId: 'session5' });
+    });
+
+    it('should never reuse sessions', () => {
+      const items = [
+        createItem('https://httpbin.org/1'),
+        createItem('https://httpbin.org/2'),
+        createItem('https://httpbin.org/3'),
+        createItem('https://httpbin.org/4'),
+        createItem('https://httpbin.org/5'),
+        createItem('https://httpbin.org/6')
+      ];
+      
+      const result = itemsToSessions(items, sessions);
+      expect(result).toHaveLength(5); // Max 5 because we only have 5 sessions
+      
+      // Verify all session IDs are unique
+      const sessionIds = result.map(r => r.sessionId);
+      const uniqueSessionIds = new Set(sessionIds);
+      expect(uniqueSessionIds.size).toBe(sessionIds.length);
     });
   });
 });

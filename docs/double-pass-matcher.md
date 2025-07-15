@@ -4,6 +4,8 @@
 
 The double-pass matcher is an efficient algorithm for matching URLs to browser sessions while minimizing resource waste. It intelligently manages sessions by analyzing URL requirements and creating exactly the right type of sessions needed.
 
+**Important**: The distributor enforces a 1:1 mapping between URLs and sessions. Each session can only be used for one URL, ensuring clean isolation for scraping operations.
+
 ## Algorithm Steps
 
 ### Step 1: Get URLs
