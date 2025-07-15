@@ -2,7 +2,6 @@
 
 import { logger } from '../src/utils/logger.js';
 import { SiteManager } from '../src/services/site-manager.js';
-import { ScrapeRunManager } from '../src/services/scrape-run-manager.js';
 import { parseArgs } from 'node:util';
 
 const log = logger.createContext('site-info');
@@ -69,7 +68,6 @@ async function main() {
 
   // Initialize services
   const siteManager = new SiteManager();
-  const scrapeRunManager = new ScrapeRunManager();
   
   try {
     // Load sites
@@ -98,7 +96,7 @@ async function main() {
     // 3. Get pending scrape run
     log.normal(`\nChecking for scrape runs...`);
     try {
-      const runsResponse = await scrapeRunManager.listRuns({
+      const runsResponse = await siteManager.listRuns({
         domain,
         since: sinceDate
       });

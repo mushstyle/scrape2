@@ -24,7 +24,6 @@ src/
 ├── services/           # Stateful managers (Level 3)
 │   ├── session-manager.ts      # Browser session pool management
 │   ├── site-manager.ts         # Site configuration and state
-│   └── scrape-run-manager.ts   # Scrape run lifecycle management
 │
 ├── core/               # Pure business logic (Level 4)
 │   └── distributor.ts          # URL-session matching algorithms
@@ -146,8 +145,12 @@ The SessionManager MUST:
 
 ### Services (Stateful Managers)
 - **session-manager.ts**: Manages pool of browser sessions
-- **site-manager.ts**: Manages site configurations and state
-- **scrape-run-manager.ts**: Manages scrape run lifecycle
+- **site-manager.ts**: Central hub for all site-related operations:
+  - Site configurations and state
+  - Scrape run creation and management
+  - URL retry tracking
+  - Item status updates and data uploads
+  - Pending (uncommitted) runs
 
 ### Core (Business Logic)
 - **distributor.ts**: Contains pure functions for URL-session matching

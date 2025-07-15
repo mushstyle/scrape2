@@ -19,7 +19,7 @@ import { Engine } from '../src/engines/scrape-engine.js';
 // Service-level imports
 import { SessionManager } from '../src/services/session-manager.js';
 import { SiteManager } from '../src/services/site-manager.js';
-import { ScrapeRunManager } from '../src/services/scrape-run-manager.js';
+// ScrapeRunManager has been merged into SiteManager
 
 // Core business logic (pure functions)
 import { itemsToSessions, doublePassMatcher } from '../src/core/distributor.js';

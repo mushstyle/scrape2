@@ -1,7 +1,6 @@
 import { logger } from '../utils/logger.js';
 import { SessionManager } from '../services/session-manager.js';
 import { SiteManager } from '../services/site-manager.js';
-import { ScrapeRunManager } from '../services/scrape-run-manager.js';
 import { itemsToSessions } from '../core/distributor.js';
 import type { SiteConfig } from '../types/site-config-types.js';
 import type { ScrapeRunItem } from '../types/scrape-run.js';
@@ -23,7 +22,6 @@ interface UrlWithDomain {
 export class Engine {
   private sessionManager: SessionManager;
   private siteManager: SiteManager;
-  private scrapeRunManager: ScrapeRunManager;
   private provider: 'browserbase' | 'local';
   private since: Date;
   private instanceLimit: number;
@@ -41,7 +39,6 @@ export class Engine {
     });
     
     this.siteManager = new SiteManager();
-    this.scrapeRunManager = new ScrapeRunManager();
   }
 
   /**
@@ -103,7 +100,7 @@ export class Engine {
   private async getScrapeRunItems(): Promise<UrlWithDomain[]> {
     log.normal(`Fetching items from scrape runs since ${this.since.toISOString()}...`);
     
-    const scrapeRunsResponse = await this.scrapeRunManager.listRuns({ since: this.since });
+    const scrapeRunsResponse = await this.siteManager.listRuns({ since: this.since });
     const allRuns = scrapeRunsResponse.runs || [];
     
     const urls: UrlWithDomain[] = [];

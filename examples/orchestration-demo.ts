@@ -39,12 +39,12 @@ async function main() {
     
     // Step 1: Get or create a scrape run
     log.normal('Step 1: Getting or creating scrape run...');
-    const run = await runManager.getOrCreateRun(domain);
+    const run = await siteManager.getOrCreateRun(domain);
     log.normal(`Using run ${run.id} with ${run.items.length} items`);
     
     // Step 2: Get pending items
     log.normal('\\nStep 2: Getting pending items...');
-    const pendingItems = await runManager.getPendingItems(run.id);
+    const pendingItems = await siteManager.getPendingItems(run.id);
     log.normal(`Found ${pendingItems.length} pending items`);
     
     if (pendingItems.length === 0) {
@@ -117,7 +117,7 @@ async function main() {
       // Simulate success/failure
       const isSuccess = Math.random() > 0.2; // 80% success rate
       
-      await runManager.updateItemStatus(run.id, item.url, {
+      await siteManager.updateItemStatus(run.id, item.url, {
         done: isSuccess,
         failed: !isSuccess
       });
@@ -127,7 +127,7 @@ async function main() {
     
     // Step 7: Get run statistics
     log.normal('\\nStep 7: Getting run statistics...');
-    const stats = await runManager.getRunStats(run.id);
+    const stats = await siteManager.getRunStats(run.id);
     log.normal('Run statistics:', stats);
     
     // Step 8: Clean up sessions
@@ -140,7 +140,7 @@ async function main() {
     // Optional: Finalize run if all items are processed
     if (stats.pending === 0) {
       log.normal('\\nAll items processed, finalizing run...');
-      await runManager.finalizeRun(run.id);
+      await siteManager.finalizeRun(run.id);
       log.normal('Run finalized');
     }
     
