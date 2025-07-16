@@ -1,7 +1,6 @@
 import type { Page } from 'playwright';
 import type { Item, Image, Size } from '../types/item.js';
 import * as Utils from "../db/db-utils.js";
-import { uploadImageUrlToS3 } from '../providers/s3.js';
 import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js';
 import type { Scraper } from './types.js';
 import { logger } from '../utils/logger.js';
@@ -48,40 +47,56 @@ export async function paginate(page: Page): Promise<boolean> {
     const initialCount = await page.evaluate((selector) => {
       return document.querySelectorAll(selector).length;
     }, SELECTORS.productLinks);
-    
+
     log.debug(`Current product count: ${initialCount}`);
-    
-    // Scroll to bottom to trigger infinite scroll
+
+    // Multiple scroll attempts with different strategies
+    let newCount = initialCount;
+
+    // Strategy 1: Scroll to bottom
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    
-    // Wait for potential new products to load
-    await page.waitForTimeout(2000); // Give time for AJAX request
-    
-    // Check if new products were loaded
-    const newCount = await page.evaluate((selector) => {
+    await page.waitForTimeout(3000); // Longer wait for AJAX
+
+    newCount = await page.evaluate((selector) => {
       return document.querySelectorAll(selector).length;
     }, SELECTORS.productLinks);
-    
-    log.debug(`After scroll product count: ${newCount}`);
-    
+
+    // Strategy 2: If no new products, try scrolling up slightly then down again
+    if (newCount === initialCount) {
+      await page.evaluate(() => {
+        window.scrollTo(0, document.body.scrollHeight - 100);
+      });
+      await page.waitForTimeout(500);
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await page.waitForTimeout(2000);
+
+      newCount = await page.evaluate((selector) => {
+        return document.querySelectorAll(selector).length;
+      }, SELECTORS.productLinks);
+    }
+
+    // Strategy 3: Check for loading indicators and wait if present
+    if (newCount === initialCount) {
+      const hasLoader = await page.evaluate(() => {
+        // Common loading indicator selectors
+        const loaders = document.querySelectorAll('.loading, .loader, [class*="load"], .spinner');
+        return loaders.length > 0;
+      });
+
+      if (hasLoader) {
+        log.debug('Found loading indicator, waiting...');
+        await page.waitForTimeout(3000);
+        newCount = await page.evaluate((selector) => {
+          return document.querySelectorAll(selector).length;
+        }, SELECTORS.productLinks);
+      }
+    }
+
     if (newCount > initialCount) {
       log.debug(`Loaded ${newCount - initialCount} more products via infinite scroll`);
       return true; // More products were loaded
     } else {
-      // Try one more scroll in case first didn't trigger
-      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await page.waitForTimeout(1000);
-      
-      const finalCount = await page.evaluate((selector) => {
-        return document.querySelectorAll(selector).length;
-      }, SELECTORS.productLinks);
-      
-      if (finalCount > initialCount) {
-        log.debug(`Loaded ${finalCount - initialCount} more products on second scroll`);
-        return true;
-      }
-      
-      log.debug(`No more products to load via infinite scroll`);
+      log.debug(`No more products to load via infinite scroll (stuck at ${initialCount} products)`);
       return false; // No more products
     }
   } catch (error) {
@@ -94,7 +109,7 @@ export async function paginate(page: Page): Promise<boolean> {
 // Default export (Scraper)
 // -----------------------
 
-export const scrapeItem = async (page: Page, options?: { 
+export const scrapeItem = async (page: Page, options?: {
   scrapeImages?: boolean;
   existingImages?: Array<{ sourceUrl: string; mushUrl: string }>;
   uploadToS3?: boolean;
@@ -126,7 +141,7 @@ export const scrapeItem = async (page: Page, options?: {
 
     // --- Images ---
     let imagesWithMushUrl: Image[];
-    
+
     if (options?.existingImages && !options?.scrapeImages) {
       // Use existing images from database - no scraping or S3 upload
       log.debug(`Using ${options.existingImages.length} existing images from database`);
