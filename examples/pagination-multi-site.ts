@@ -54,6 +54,7 @@ async function main() {
   // Parse command line args for domains and instanceLimit
   const args = process.argv.slice(2);
   let instanceLimit = 5; // Default
+  let provider: 'browserbase' | 'local' = 'browserbase';
   const domains: string[] = [];
   
   // Parse args
@@ -61,23 +62,26 @@ async function main() {
     if (args[i] === '--instance-limit' && i + 1 < args.length) {
       instanceLimit = parseInt(args[i + 1], 10);
       i++; // Skip next arg
-    } else {
+    } else if (args[i] === '--local') {
+      provider = 'local';
+    } else if (!args[i].startsWith('--')) {
       domains.push(args[i]);
     }
   }
   
   if (domains.length === 0) {
-    console.log('Usage: npm run example:pagination-multi [--instance-limit N] <domain1> <domain2> ...');
-    console.log('Example: npm run example:pagination-multi --instance-limit 5 iam-store.com amgbrand.com');
+    console.log('Usage: npm run example:pagination-multi <domain1> <domain2> ... [-- --instance-limit N] [-- --local]');
+    console.log('Example: npm run example:pagination-multi iam-store.com amgbrand.com -- --instance-limit 5');
+    console.log('Or with local: npm run example:pagination-multi iam-store.com amgbrand.com -- --local');
     process.exit(1);
   }
   
-  log.normal(`Starting with instanceLimit: ${instanceLimit}, domains: ${domains.join(', ')}`);
+  log.normal(`Starting with instanceLimit: ${instanceLimit}, provider: ${provider}, domains: ${domains.join(', ')}`);
   
   // Create SessionManager with the instanceLimit
   const sessionManager = new SessionManager({ 
     sessionLimit: instanceLimit,
-    provider: 'browserbase' // or 'local' based on your needs
+    provider
   });
   const siteManager = new SiteManager();
   const workers: SiteWorker[] = [];
@@ -118,7 +122,8 @@ async function main() {
       const sessionsForSite = Math.min(
         sessionLimit, // Site's limit
         instanceLimit - totalSessions, // Remaining global capacity
-        siteConfig.startPages.length // Number of start pages
+        siteConfig.startPages.length, // Number of start pages
+        2 // Limit to 2 per site for demo to avoid rate limits
       );
       
       if (sessionsForSite <= 0) {
@@ -130,6 +135,11 @@ async function main() {
       
       // Create workers for this site
       for (let i = 0; i < sessionsForSite; i++) {
+        // Add delay to avoid rate limits
+        if (totalSessions > 0) {
+          await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
+        }
+        
         const session = await sessionManager.createSession({ domain });
         const { browser, createContext } = await createBrowserFromSession(session);
         const context = await createContext();

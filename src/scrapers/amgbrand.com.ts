@@ -16,8 +16,8 @@ export const SELECTORS = {
   productGrid: '#gf-products', // Grid container
   productLinks: '#gf-products .spf-product-card__image-wrapper', // Product links within the grid
   pagination: {
-    type: 'numbered' as const, // Pagination type is numbered
-    pattern: 'page={n}',      // Standard Shopify pagination parameter
+    type: 'scroll' as const, // Pagination type is infinite scroll
+    pattern: 'page={n}',      // Still supports numbered pagination for other collection pages
   },
   product: {
     title: '.product__title',
@@ -38,48 +38,55 @@ export async function getItemUrls(page: Page): Promise<Set<string>> {
 }
 
 /**
- * Attempts to advance pagination by navigating to the next page URL.
- * Does NOT return URLs.
+ * Attempts to load more products using infinite scroll.
  * @param page Playwright page object
- * @returns `true` if navigation succeeded and the next page seems valid, `false` otherwise.
+ * @returns `true` if more products were loaded, `false` if no more products to load.
  */
 export async function paginate(page: Page): Promise<boolean> {
-  const currentUrl = page.url();
-  const url = new URL(currentUrl);
-  const currentPage = parseInt(url.searchParams.get('page') || '1', 10);
-  const nextPage = currentPage + 1;
-
-  url.searchParams.set('page', nextPage.toString());
-  const nextUrl = url.toString();
-
   try {
-    const response = await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
-    if (!response || !response.ok() || response.status() >= 400) {
-      log.debug(`Pagination failed: Non-OK response (${response?.status()}) for ${nextUrl}`);
-      return false;
-    }
-    // Check if the page still contains product links. If not, we've likely hit the end.
-    // Use a short wait to allow content to potentially render
-    await page.waitForTimeout(500);
-    const productLinksCount = await page.evaluate((selector) => {
+    // Get initial product count
+    const initialCount = await page.evaluate((selector) => {
       return document.querySelectorAll(selector).length;
     }, SELECTORS.productLinks);
-
-    if (productLinksCount === 0) {
-      log.debug(`Pagination likely ended: No product links found on ${nextUrl}`);
-      return false;
-    }
-
-    log.debug(`Pagination successful: Navigated to ${nextUrl}`);
-    return true; // Navigation succeeded and found products
-  } catch (error) {
-    // Handle timeouts specifically, often indicates the end of pagination
-    if (error instanceof Error && error.message.includes('timeout')) {
-      log.debug(`Pagination likely ended due to timeout on ${nextUrl}: ${error.message}`);
+    
+    log.debug(`Current product count: ${initialCount}`);
+    
+    // Scroll to bottom to trigger infinite scroll
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    
+    // Wait for potential new products to load
+    await page.waitForTimeout(2000); // Give time for AJAX request
+    
+    // Check if new products were loaded
+    const newCount = await page.evaluate((selector) => {
+      return document.querySelectorAll(selector).length;
+    }, SELECTORS.productLinks);
+    
+    log.debug(`After scroll product count: ${newCount}`);
+    
+    if (newCount > initialCount) {
+      log.debug(`Loaded ${newCount - initialCount} more products via infinite scroll`);
+      return true; // More products were loaded
     } else {
-      log.debug(`Pagination failed for ${nextUrl}:`, error);
+      // Try one more scroll in case first didn't trigger
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await page.waitForTimeout(1000);
+      
+      const finalCount = await page.evaluate((selector) => {
+        return document.querySelectorAll(selector).length;
+      }, SELECTORS.productLinks);
+      
+      if (finalCount > initialCount) {
+        log.debug(`Loaded ${finalCount - initialCount} more products on second scroll`);
+        return true;
+      }
+      
+      log.debug(`No more products to load via infinite scroll`);
+      return false; // No more products
     }
-    return false; // Navigation or check failed
+  } catch (error) {
+    log.debug(`Infinite scroll pagination failed:`, error);
+    return false;
   }
 }
 
