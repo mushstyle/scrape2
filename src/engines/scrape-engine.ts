@@ -3,7 +3,7 @@ import { SessionManager } from '../services/session-manager.js';
 import { SiteManager } from '../services/site-manager.js';
 import { itemsToSessions } from '../core/distributor.js';
 import type { SiteConfig } from '../types/site-config-types.js';
-import type { ScrapeRunItem } from '../types/scrape-run.js';
+import type { ScrapeTarget } from '../types/scrape-target.js';
 import type { SessionInfo, SiteConfigWithBlockedProxies, UrlSessionPair } from '../core/distributor.js';
 
 const log = logger.createContext('engine');
@@ -147,11 +147,12 @@ export class Engine {
    * Run double-pass matcher algorithm
    */
   private async runDoubleMatcher(urls: UrlWithDomain[], siteConfigs: SiteConfigWithBlockedProxies[]): Promise<UrlSessionPair[]> {
-    // Convert URLs to ScrapeRunItem format
-    const scrapeRunItems: ScrapeRunItem[] = urls.map(({ url }) => ({
+    // Convert URLs to ScrapeTarget format
+    const scrapeTargets: ScrapeTarget[] = urls.map(({ url }) => ({
       url,
       done: false,
-      failed: false
+      failed: false,
+      invalid: false
     }));
 
     // Step 1: Get existing sessions
@@ -161,7 +162,7 @@ export class Engine {
     log.normal(`Found ${existingSessions.length} existing sessions`);
     
     // Step 2: First pass
-    let matched = itemsToSessions(scrapeRunItems, sessionInfos, siteConfigs);
+    let matched = itemsToSessions(scrapeTargets, sessionInfos, siteConfigs);
     log.normal(`First pass matched: ${matched.length} URL-session pairs`);
     
     // Find excess sessions
@@ -181,7 +182,7 @@ export class Engine {
     }
     
     // Check if we need more sessions
-    const sessionsNeeded = Math.min(this.instanceLimit - matched.length, scrapeRunItems.length - matched.length);
+    const sessionsNeeded = Math.min(this.instanceLimit - matched.length, scrapeTargets.length - matched.length);
     
     if (sessionsNeeded > 0) {
       log.normal(`Creating ${sessionsNeeded} new sessions...`);
@@ -203,7 +204,7 @@ export class Engine {
         log.normal('Running second pass...');
         const allSessions = await this.sessionManager.getActiveSessions();
         const allSessionInfos = this.sessionsToSessionInfo(allSessions);
-        matched = itemsToSessions(scrapeRunItems, allSessionInfos, siteConfigs);
+        matched = itemsToSessions(scrapeTargets, allSessionInfos, siteConfigs);
         log.normal(`Second pass matched: ${matched.length} URL-session pairs`);
       }
     }

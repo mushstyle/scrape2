@@ -1,11 +1,10 @@
 import type { Page } from 'playwright';
-// import { chromium } from 'playwright'; // Removed chromium
-import { Item, Image, Size } from '../types/item.js';
+import type { Item, Image, Size } from '../types/item.js';
 import * as Utils from "../db/db-utils.js";
-import { getSiteConfig } from "../providers/site-config.js";
+// Site config is now managed by SiteManager service
 import type { Scraper } from './types.js';
-import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js';
-import { logger } from '../lib/logger.js';
+import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js';
+import { logger } from '../utils/logger.js';
 
 const log = logger.createContext('katerinakvit.com');
 

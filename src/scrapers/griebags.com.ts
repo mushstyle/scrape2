@@ -1,10 +1,9 @@
-import { /* chromium, */ Page } from 'playwright';
 // import type { Item, Scraper } from './types.js'; // Corrected import below
 import type { Scraper } from './types.js';
 import type { Item, Image } from '../types/item.js'; // Direct import for Item and Image
 import * as Utils from '../db/db-utils.js';
-import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js';
-import { logger } from '../lib/logger.js';
+import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js';
+import { logger } from '../utils/logger.js';
 
 const log = logger.createContext('griebags.com');
 

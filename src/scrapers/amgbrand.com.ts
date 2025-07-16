@@ -1,10 +1,9 @@
 import type { Page } from 'playwright';
-import { Item, Image, Size } from '../types/item.js';
+import type { Item, Image, Size } from '../types/item.js';
 import * as Utils from "../db/db-utils.js";
-import { uploadImageUrlToS3 } from '../providers/s3.js';
-import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js';
+import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js';
 import type { Scraper } from './types.js';
-import { logger } from '../lib/logger.js';
+import { logger } from '../utils/logger.js';
 
 const log = logger.createContext('amgbrand.com');
 
@@ -16,8 +15,8 @@ export const SELECTORS = {
   productGrid: '#gf-products', // Grid container
   productLinks: '#gf-products .spf-product-card__image-wrapper', // Product links within the grid
   pagination: {
-    type: 'numbered' as const, // Pagination type is numbered
-    pattern: 'page={n}',      // Standard Shopify pagination parameter
+    type: 'scroll' as const, // Pagination type is infinite scroll
+    pattern: 'page={n}',      // Still supports numbered pagination for other collection pages
   },
   product: {
     title: '.product__title',
@@ -38,48 +37,71 @@ export async function getItemUrls(page: Page): Promise<Set<string>> {
 }
 
 /**
- * Attempts to advance pagination by navigating to the next page URL.
- * Does NOT return URLs.
+ * Attempts to load more products using infinite scroll.
  * @param page Playwright page object
- * @returns `true` if navigation succeeded and the next page seems valid, `false` otherwise.
+ * @returns `true` if more products were loaded, `false` if no more products to load.
  */
 export async function paginate(page: Page): Promise<boolean> {
-  const currentUrl = page.url();
-  const url = new URL(currentUrl);
-  const currentPage = parseInt(url.searchParams.get('page') || '1', 10);
-  const nextPage = currentPage + 1;
-
-  url.searchParams.set('page', nextPage.toString());
-  const nextUrl = url.toString();
-
   try {
-    const response = await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
-    if (!response || !response.ok() || response.status() >= 400) {
-      log.debug(`Pagination failed: Non-OK response (${response?.status()}) for ${nextUrl}`);
-      return false;
-    }
-    // Check if the page still contains product links. If not, we've likely hit the end.
-    // Use a short wait to allow content to potentially render
-    await page.waitForTimeout(500);
-    const productLinksCount = await page.evaluate((selector) => {
+    // Get initial product count
+    const initialCount = await page.evaluate((selector) => {
       return document.querySelectorAll(selector).length;
     }, SELECTORS.productLinks);
 
-    if (productLinksCount === 0) {
-      log.debug(`Pagination likely ended: No product links found on ${nextUrl}`);
-      return false;
+    log.debug(`Current product count: ${initialCount}`);
+
+    // Multiple scroll attempts with different strategies
+    let newCount = initialCount;
+
+    // Strategy 1: Scroll to bottom
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(3000); // Longer wait for AJAX
+
+    newCount = await page.evaluate((selector) => {
+      return document.querySelectorAll(selector).length;
+    }, SELECTORS.productLinks);
+
+    // Strategy 2: If no new products, try scrolling up slightly then down again
+    if (newCount === initialCount) {
+      await page.evaluate(() => {
+        window.scrollTo(0, document.body.scrollHeight - 100);
+      });
+      await page.waitForTimeout(500);
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await page.waitForTimeout(2000);
+
+      newCount = await page.evaluate((selector) => {
+        return document.querySelectorAll(selector).length;
+      }, SELECTORS.productLinks);
     }
 
-    log.debug(`Pagination successful: Navigated to ${nextUrl}`);
-    return true; // Navigation succeeded and found products
-  } catch (error) {
-    // Handle timeouts specifically, often indicates the end of pagination
-    if (error instanceof Error && error.message.includes('timeout')) {
-      log.debug(`Pagination likely ended due to timeout on ${nextUrl}: ${error.message}`);
-    } else {
-      log.debug(`Pagination failed for ${nextUrl}:`, error);
+    // Strategy 3: Check for loading indicators and wait if present
+    if (newCount === initialCount) {
+      const hasLoader = await page.evaluate(() => {
+        // Common loading indicator selectors
+        const loaders = document.querySelectorAll('.loading, .loader, [class*="load"], .spinner');
+        return loaders.length > 0;
+      });
+
+      if (hasLoader) {
+        log.debug('Found loading indicator, waiting...');
+        await page.waitForTimeout(3000);
+        newCount = await page.evaluate((selector) => {
+          return document.querySelectorAll(selector).length;
+        }, SELECTORS.productLinks);
+      }
     }
-    return false; // Navigation or check failed
+
+    if (newCount > initialCount) {
+      log.debug(`Loaded ${newCount - initialCount} more products via infinite scroll`);
+      return true; // More products were loaded
+    } else {
+      log.debug(`No more products to load via infinite scroll (stuck at ${initialCount} products)`);
+      return false; // No more products
+    }
+  } catch (error) {
+    log.debug(`Infinite scroll pagination failed:`, error);
+    return false;
   }
 }
 
@@ -87,7 +109,7 @@ export async function paginate(page: Page): Promise<boolean> {
 // Default export (Scraper)
 // -----------------------
 
-export const scrapeItem = async (page: Page, options?: { 
+export const scrapeItem = async (page: Page, options?: {
   scrapeImages?: boolean;
   existingImages?: Array<{ sourceUrl: string; mushUrl: string }>;
   uploadToS3?: boolean;
@@ -119,7 +141,7 @@ export const scrapeItem = async (page: Page, options?: {
 
     // --- Images ---
     let imagesWithMushUrl: Image[];
-    
+
     if (options?.existingImages && !options?.scrapeImages) {
       // Use existing images from database - no scraping or S3 upload
       log.debug(`Using ${options.existingImages.length} existing images from database`);

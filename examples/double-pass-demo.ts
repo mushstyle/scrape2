@@ -12,7 +12,7 @@ import { doublePassMatcher, itemsToSessions } from '../src/core/distributor.js';
 import { SessionManager } from '../src/services/session-manager.js';
 import { SiteManager } from '../src/services/site-manager.js';
 import type { SessionInfo, SiteConfigWithBlockedProxies } from '../src/core/distributor.js';
-import type { ScrapeRunItem } from '../src/types/scrape-run.js';
+import type { ScrapeTarget } from '../src/types/scrape-target.js';
 
 const log = logger.createContext('double-pass-demo');
 
@@ -42,13 +42,13 @@ async function demonstrateDoublePassMatcher() {
     proxyGeo: 'US'
   }));
 
-  // 3. Create mock items to distribute
-  const items: ScrapeRunItem[] = [
-    { url: 'https://example.com/1', done: false, failed: false },
-    { url: 'https://example.com/2', done: false, failed: false },
-    { url: 'https://example.com/3', done: false, failed: false },
-    { url: 'https://example.com/4', done: false, failed: false },
-    { url: 'https://example.com/5', done: false, failed: false }
+  // 3. Create mock targets to distribute
+  const targets: ScrapeTarget[] = [
+    { url: 'https://example.com/1', done: false, failed: false, invalid: false },
+    { url: 'https://example.com/2', done: false, failed: false, invalid: false },
+    { url: 'https://example.com/3', done: false, failed: false, invalid: false },
+    { url: 'https://example.com/4', done: false, failed: false, invalid: false },
+    { url: 'https://example.com/5', done: false, failed: false, invalid: false }
   ];
 
   // 4. Get site configs
@@ -82,7 +82,7 @@ async function demonstrateDoublePassMatcher() {
   log.normal('\n=== Running Double-Pass Matcher ===');
   
   const result = doublePassMatcher(
-    items,
+    targets,
     initialSessionInfos,
     finalSessionInfos,
     siteConfigs

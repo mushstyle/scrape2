@@ -1,7 +1,7 @@
 import { Page } from 'playwright';
 import type { Item, Image, Size } from './types.js';
-import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js';
-import { logger } from '../lib/logger.js';
+import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js';
+import { logger } from '../utils/logger.js';
 
 const DOMAIN = 'example.com';
 

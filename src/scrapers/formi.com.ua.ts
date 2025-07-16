@@ -1,7 +1,6 @@
 import type { Page } from 'playwright';
-// import { chromium, Browser } from 'playwright'; // Removed Browser, chromium
 import { Scraper, Item, Image } from './types.js';
-import { logger } from '../lib/logger.js';
+import { logger } from '../utils/logger.js';
 
 const log = logger.createContext('formi.com.ua');
 const startUrl = 'https://formi.com.ua/shop/';

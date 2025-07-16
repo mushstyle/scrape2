@@ -1,11 +1,6 @@
-export interface ScrapeRunItem {
-  url: string;
-  done: boolean;
-  failed: boolean;
-  invalid: boolean;
-  created_at?: string;
-  updated_at?: string;
-}
+import type { ScrapeTarget, ScrapeRunItem } from './scrape-target.js';
+
+export { ScrapeRunItem };  // Re-export for compatibility
 
 export interface ScrapeRun {
   id: string;

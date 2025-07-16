@@ -1,11 +1,10 @@
 import type { Page } from 'playwright';
-// import { chromium } from 'playwright'; // Removed chromium
 import type { Item, Image, Size } from '../types/item.js'; // Corrected path to types
 import type { Scraper } from './types.js'; // Corrected path for Scraper type
 // import { getSiteConfig } from '../diagnostics/site-utils.js'; // Removed getSiteConfig
-import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js'; // Adjust path if necessary
+import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js'; // Adjust path if necessary
 import * as Utils from '../db/db-utils.js'; // Adjust path if necessary
-import { logger } from '../lib/logger.js';
+import { logger } from '../utils/logger.js';
 
 const log = logger.createContext('grainsdeverre.com');
 

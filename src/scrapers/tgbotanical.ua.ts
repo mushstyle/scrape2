@@ -1,9 +1,9 @@
 import type { Page } from 'playwright';
 // import playwright from 'playwright'; // Removed playwright import
 import type { Item, Image } from '../types/item.js'; // Import from db/types.js
-import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js'; // Corrected function name
+import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js'; // Corrected function name
 import { formatItem } from '../db/db-utils.js'; // Import formatItem directly
-import { logger } from '../lib/logger.js';
+import { logger } from '../utils/logger.js';
 
 const log = logger.createContext('tgbotanical.ua');
 

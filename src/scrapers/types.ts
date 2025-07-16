@@ -1,5 +1,5 @@
 import type { Page } from 'playwright';
-import { Item, Image, Size } from '../types/item.js';
+import type { Item, Image, Size } from '../types/item.js';
 
 // Re-export Item and Image so they are available to scrapers importing from ./types.js
 export type { Item, Image, Size };

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { itemsToSessions, type SessionInfo, type SiteConfigWithBlockedProxies } from '../src/core/distributor.js';
-import type { ScrapeRunItem } from '../src/types/scrape-run.js';
+import type { ScrapeTarget } from '../src/types/scrape-target.js';
 
 describe('distributor', () => {
-  const createItem = (url: string, done = false): ScrapeRunItem => ({
+  const createTarget = (url: string, done = false): ScrapeTarget => ({
     url,
     done,
     failed: false,
@@ -20,30 +20,30 @@ describe('distributor', () => {
 
   describe('itemsToSessions', () => {
     it('should return empty array for no sessions', () => {
-      const items = [createItem('https://httpbin.org/1'), createItem('https://httpbin.org/2')];
-      const result = itemsToSessions(items, []);
+      const targets = [createTarget('https://httpbin.org/1'), createTarget('https://httpbin.org/2')];
+      const result = itemsToSessions(targets, []);
       expect(result).toEqual([]);
     });
 
-    it('should return empty array for no pending items', () => {
-      const items = [
-        createItem('https://httpbin.org/1', true),
-        createItem('https://httpbin.org/2', true)
+    it('should return empty array for no pending targets', () => {
+      const targets = [
+        createTarget('https://httpbin.org/1', true),
+        createTarget('https://httpbin.org/2', true)
       ];
-      const result = itemsToSessions(items, sessions);
+      const result = itemsToSessions(targets, sessions);
       expect(result).toHaveLength(0);
     });
 
-    it('should filter out completed items and use sessions 1:1', () => {
-      const items = [
-        createItem('https://httpbin.org/1', false),
-        createItem('https://httpbin.org/2', true),
-        createItem('https://httpbin.org/3', false),
-        createItem('https://httpbin.org/4', true),
-        createItem('https://httpbin.org/5', false)
+    it('should filter out completed targets and use sessions 1:1', () => {
+      const targets = [
+        createTarget('https://httpbin.org/1', false),
+        createTarget('https://httpbin.org/2', true),
+        createTarget('https://httpbin.org/3', false),
+        createTarget('https://httpbin.org/4', true),
+        createTarget('https://httpbin.org/5', false)
       ];
-      const result = itemsToSessions(items, sessions);
-      expect(result).toHaveLength(3); // Only pending items, each with unique session
+      const result = itemsToSessions(targets, sessions);
+      expect(result).toHaveLength(3); // Only pending targets, each with unique session
       // Without site config, all sessions work, so it takes first available sessions
       expect(result[0]).toEqual({ url: 'https://httpbin.org/1', sessionId: 'session1' });
       expect(result[1]).toEqual({ url: 'https://httpbin.org/3', sessionId: 'session2' });
@@ -51,11 +51,11 @@ describe('distributor', () => {
     });
 
     it('should match sessions based on site configurations with 1:1 mapping', () => {
-      const items = [
-        createItem('https://api.httpbin.org/1'),
-        createItem('https://api.httpbin.org/2'),
-        createItem('https://test.httpbin.org/1'),
-        createItem('https://test.httpbin.org/2')
+      const targets = [
+        createTarget('https://api.httpbin.org/1'),
+        createTarget('https://api.httpbin.org/2'),
+        createTarget('https://test.httpbin.org/1'),
+        createTarget('https://test.httpbin.org/2')
       ];
       
       const siteConfigs: SiteConfigWithBlockedProxies[] = [
@@ -75,20 +75,20 @@ describe('distributor', () => {
         }
       ];
       
-      const result = itemsToSessions(items, sessions, siteConfigs);
+      const result = itemsToSessions(targets, sessions, siteConfigs);
       expect(result).toHaveLength(2); // Only 2 pairs because we need specific session types
       
-      // api.httpbin.org items should use datacenter US (session1), but only one URL gets it
+      // api.httpbin.org targets should use datacenter US (session1), but only one URL gets it
       expect(result[0]).toEqual({ url: 'https://api.httpbin.org/1', sessionId: 'session1' });
       
-      // test.httpbin.org items should use residential US (session2), but only one URL gets it
+      // test.httpbin.org targets should use residential US (session2), but only one URL gets it
       expect(result[1]).toEqual({ url: 'https://test.httpbin.org/1', sessionId: 'session2' });
     });
 
     it('should respect blocked proxy IDs', () => {
-      const items = [
-        createItem('https://httpbin.org/1'),
-        createItem('https://httpbin.org/2')
+      const targets = [
+        createTarget('https://httpbin.org/1'),
+        createTarget('https://httpbin.org/2')
       ];
       
       const siteConfigs: SiteConfigWithBlockedProxies[] = [
@@ -104,14 +104,14 @@ describe('distributor', () => {
       
       // Should skip session1 because its proxy is blocked
       // No other datacenter US proxy available, so no matches
-      const result = itemsToSessions(items, sessions, siteConfigs);
+      const result = itemsToSessions(targets, sessions, siteConfigs);
       expect(result).toHaveLength(0);
     });
 
     it('should match geo requirements with 1:1 mapping', () => {
-      const items = [
-        createItem('https://httpbin.org/uk/1'),
-        createItem('https://httpbin.org/uk/2')
+      const targets = [
+        createTarget('https://httpbin.org/uk/1'),
+        createTarget('https://httpbin.org/uk/2')
       ];
       
       const siteConfigs: SiteConfigWithBlockedProxies[] = [
@@ -124,7 +124,7 @@ describe('distributor', () => {
         }
       ];
       
-      const result = itemsToSessions(items, sessions, siteConfigs);
+      const result = itemsToSessions(targets, sessions, siteConfigs);
       expect(result).toHaveLength(1); // Only one datacenter UK session available
       
       // Should use session4 (datacenter UK) for first URL only
@@ -132,9 +132,9 @@ describe('distributor', () => {
     });
 
     it('should handle no proxy requirement with 1:1 mapping', () => {
-      const items = [
-        createItem('https://httpbin.org/no-proxy/1'),
-        createItem('https://httpbin.org/no-proxy/2')
+      const targets = [
+        createTarget('https://httpbin.org/no-proxy/1'),
+        createTarget('https://httpbin.org/no-proxy/2')
       ];
       
       const siteConfigs: SiteConfigWithBlockedProxies[] = [
@@ -147,7 +147,7 @@ describe('distributor', () => {
         }
       ];
       
-      const result = itemsToSessions(items, sessions, siteConfigs);
+      const result = itemsToSessions(targets, sessions, siteConfigs);
       expect(result).toHaveLength(1); // Only one no-proxy session available
       
       // Should use session3 (no proxy) for first URL only
@@ -155,7 +155,7 @@ describe('distributor', () => {
     });
 
     it('should handle datacenter-to-residential strategy', () => {
-      const items = [createItem('https://httpbin.org/flexible/1')];
+      const targets = [createTarget('https://httpbin.org/flexible/1')];
       
       const siteConfigs: SiteConfigWithBlockedProxies[] = [
         {
@@ -167,7 +167,7 @@ describe('distributor', () => {
         }
       ];
       
-      const result = itemsToSessions(items, sessions, siteConfigs);
+      const result = itemsToSessions(targets, sessions, siteConfigs);
       expect(result).toHaveLength(1);
       
       // Should use first matching session (datacenter US in this case)
@@ -175,7 +175,7 @@ describe('distributor', () => {
     });
 
     it('should handle no suitable sessions', () => {
-      const items = [createItem('https://httpbin.org/impossible/1')];
+      const targets = [createTarget('https://httpbin.org/impossible/1')];
       
       const siteConfigs: SiteConfigWithBlockedProxies[] = [
         {
@@ -187,14 +187,14 @@ describe('distributor', () => {
         }
       ];
       
-      const result = itemsToSessions(items, sessions, siteConfigs);
+      const result = itemsToSessions(targets, sessions, siteConfigs);
       expect(result).toHaveLength(0); // No matching sessions for FR geo
     });
 
     it('should handle URLs without matching site config with 1:1 mapping', () => {
-      const items = [
-        createItem('https://httpbin.org/unknown/1'),
-        createItem('https://httpbin.org/unknown/2')
+      const targets = [
+        createTarget('https://httpbin.org/unknown/1'),
+        createTarget('https://httpbin.org/unknown/2')
       ];
       
       const siteConfigs: SiteConfigWithBlockedProxies[] = [
@@ -207,7 +207,7 @@ describe('distributor', () => {
         }
       ];
       
-      const result = itemsToSessions(items, sessions, siteConfigs);
+      const result = itemsToSessions(targets, sessions, siteConfigs);
       expect(result).toHaveLength(2);
       
       // No site config found, so any session works (takes first available sessions)
@@ -216,9 +216,9 @@ describe('distributor', () => {
     });
 
     it('should handle www prefixes correctly with 1:1 mapping', () => {
-      const items = [
-        createItem('https://www.httpbin.org/1'),
-        createItem('https://httpbin.org/2')
+      const targets = [
+        createTarget('https://www.httpbin.org/1'),
+        createTarget('https://httpbin.org/2')
       ];
       
       const siteConfigs: SiteConfigWithBlockedProxies[] = [
@@ -231,7 +231,7 @@ describe('distributor', () => {
         }
       ];
       
-      const result = itemsToSessions(items, sessions, siteConfigs);
+      const result = itemsToSessions(targets, sessions, siteConfigs);
       expect(result).toHaveLength(1); // Only one residential UK session available
       
       // First URL should match and use residential UK (session5)
@@ -239,16 +239,16 @@ describe('distributor', () => {
     });
 
     it('should never reuse sessions', () => {
-      const items = [
-        createItem('https://httpbin.org/1'),
-        createItem('https://httpbin.org/2'),
-        createItem('https://httpbin.org/3'),
-        createItem('https://httpbin.org/4'),
-        createItem('https://httpbin.org/5'),
-        createItem('https://httpbin.org/6')
+      const targets = [
+        createTarget('https://httpbin.org/1'),
+        createTarget('https://httpbin.org/2'),
+        createTarget('https://httpbin.org/3'),
+        createTarget('https://httpbin.org/4'),
+        createTarget('https://httpbin.org/5'),
+        createTarget('https://httpbin.org/6')
       ];
       
-      const result = itemsToSessions(items, sessions);
+      const result = itemsToSessions(targets, sessions);
       expect(result).toHaveLength(5); // Max 5 because we only have 5 sessions
       
       // Verify all session IDs are unique

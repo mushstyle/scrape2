@@ -18,6 +18,11 @@
     "example:proper-layering": "tsx --no-warnings --env-file=.env examples/proper-layering.ts",
     "example:orchestration": "tsx --no-warnings --env-file=.env examples/orchestration-demo.ts",
     "example:double-pass": "tsx --no-warnings --env-file=.env examples/double-pass-demo.ts",
+    "example:pagination": "tsx --no-warnings --env-file=.env examples/pagination.ts",
+    "example:pagination-simple": "tsx --no-warnings --env-file=.env examples/pagination-simple.ts",
+    "example:pagination-multi": "tsx --no-warnings --env-file=.env examples/pagination-multi-site.ts",
+    "example:site-startpages": "tsx --no-warnings --env-file=.env examples/site-startpages.ts",
+    "example:distributor-pagination": "tsx --no-warnings --env-file=.env examples/distributor-pagination.ts",
     "scrape:urls": "SCRAPE_MODE=urls tsx --no-warnings --env-file=.env scripts/run-engine.ts",
     "scrape:items": "SCRAPE_MODE=items tsx --no-warnings --env-file=.env scripts/run-engine.ts"
   },

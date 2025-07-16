@@ -3,8 +3,8 @@ import type { Scraper } from './types.js';
 import type { Item, Size, Image } from '../types/item.js';
 // import playwright from 'playwright'; // Removed playwright
 import { formatItem } from '../db/db-utils.js';
-import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js';
-import { logger } from '../lib/logger.js';
+import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js';
+import { logger } from '../utils/logger.js';
 // import { getSiteConfig } from '../diagnostics/site-utils.js'; // Uncomment if needed
 
 export async function getItemUrls(page: Page): Promise<Set<string>> {

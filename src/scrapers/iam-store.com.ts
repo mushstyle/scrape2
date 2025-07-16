@@ -1,12 +1,11 @@
-import type { Page, Browser } from 'playwright';
-import { chromium } from 'playwright';
-import { Item, Image, Size, ItemSchema, ImageSchema, SizeSchema } from '../types/item.js';
+import type { Page } from 'playwright';
+import type { Item, Image, Size } from '../types/item.js';
 import * as Utils from "../db/db-utils.js";
-import { getSiteConfig } from "../providers/site-config.js";
+// Site config is now managed by SiteManager service
 import { uploadImageUrlToS3 } from '../providers/s3.js';
-import { uploadImagesToS3AndAddUrls } from '../lib/image-utils.js';
+import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js';
 import type { Scraper } from './types.js';
-import { logger } from '../lib/logger.js';
+import { logger } from '../utils/logger.js';
 
 const log = logger.createContext('iam-store.com');
 
