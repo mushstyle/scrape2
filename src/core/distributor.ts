@@ -1,4 +1,4 @@
-import type { ScrapeRunItem } from '../types/scrape-run.js';
+import type { ScrapeTarget } from '../types/scrape-target.js';
 import type { SiteConfig } from '../types/site-config-types.js';
 import { logger } from '../utils/logger.js';
 
@@ -32,21 +32,21 @@ export interface SiteConfigWithBlockedProxies extends SiteConfig {
  * - Mark session as used
  * - Return URL + Session pairs (max N pairs where N = number of sessions)
  * 
- * @param items - Array of ScrapeRunItems to distribute
+ * @param targets - Array of ScrapeTargets to distribute
  * @param sessions - Array of session info with proxy details
  * @param siteConfigs - Array of site configurations with proxy requirements and blocked proxy IDs
  * @returns Array of URL-Session pairs with unique sessions (max length = sessions.length)
  */
 export function itemsToSessions(
-  items: ScrapeRunItem[],
+  targets: ScrapeTarget[],
   sessions: SessionInfo[],
   siteConfigs: SiteConfigWithBlockedProxies[] = []
 ): UrlSessionPair[] {
-  // Filter out completed items (done === true)
-  const pendingItems = items.filter(item => !item.done);
+  // Filter out completed targets (done === true)
+  const pendingTargets = targets.filter(target => !target.done);
   
-  // If no sessions or no pending items, return empty array
-  if (sessions.length === 0 || pendingItems.length === 0) {
+  // If no sessions or no pending targets, return empty array
+  if (sessions.length === 0 || pendingTargets.length === 0) {
     return [];
   }
   
@@ -54,21 +54,21 @@ export function itemsToSessions(
   const usedSessionIds = new Set<string>();
   
   // Iterate through URLs
-  for (const item of pendingItems) {
+  for (const target of pendingTargets) {
     // Stop if we've used all sessions
     if (usedSessionIds.size >= sessions.length) {
       break;
     }
     
     // Find site config for this URL's domain
-    const urlDomain = extractDomain(item.url);
+    const urlDomain = extractDomain(target.url);
     const siteConfig = siteConfigs.find(config => config.domain === urlDomain);
     
     // Iterate through sessions to find first unused one that works
     for (const session of sessions) {
       if (!usedSessionIds.has(session.id) && sessionWorksForUrl(session, siteConfig)) {
         results.push({
-          url: item.url,
+          url: target.url,
           sessionId: session.id
         });
         usedSessionIds.add(session.id);
@@ -147,14 +147,14 @@ function extractDomain(url: string): string {
  * 2. Identify excess sessions and needed sessions
  * 3. Second pass: Match URLs to all sessions (including newly created ones)
  * 
- * @param items - Items to distribute
+ * @param targets - Targets to distribute
  * @param initialSessions - Initially available sessions
  * @param finalSessions - All sessions after creation/termination
  * @param siteConfigs - Site configurations with proxy requirements
  * @returns Object with first pass results, excess sessions, and final results
  */
 export function doublePassMatcher(
-  items: ScrapeRunItem[],
+  targets: ScrapeTarget[],
   initialSessions: SessionInfo[],
   finalSessions: SessionInfo[],
   siteConfigs: SiteConfigWithBlockedProxies[] = []
@@ -164,14 +164,14 @@ export function doublePassMatcher(
   finalMatched: UrlSessionPair[];
 } {
   // First pass with initial sessions
-  const firstPassMatched = itemsToSessions(items, initialSessions, siteConfigs);
+  const firstPassMatched = itemsToSessions(targets, initialSessions, siteConfigs);
   
   // Identify excess sessions (not used in first pass)
   const usedSessionIds = new Set(firstPassMatched.map(pair => pair.sessionId));
   const excessSessions = initialSessions.filter(session => !usedSessionIds.has(session.id));
   
   // Second pass with final sessions (after creation/termination)
-  const finalMatched = itemsToSessions(items, finalSessions, siteConfigs);
+  const finalMatched = itemsToSessions(targets, finalSessions, siteConfigs);
   
   return {
     firstPassMatched,

@@ -8,6 +8,7 @@ const log = logger.createContext('session-manager');
 interface SessionMetadata {
   session: Session;
   domain?: string;
+  proxy?: any;
   createdAt: Date;
   lastUsedAt: Date;
   isActive: boolean;
@@ -67,13 +68,19 @@ export class SessionManager {
       this.sessions.set(sessionId, {
         session,
         domain: options.domain,
+        proxy: options.proxy,
         createdAt: new Date(),
         lastUsedAt: new Date(),
         isActive: true,
         itemCount: 0
       });
       
-      log.normal(`Created ${this.provider} session ${sessionId}`);
+      // Create concise log with proxy info
+      const proxyInfo = options.proxy ? 
+        (options.proxy.type || 'proxy') : 
+        'no-proxy';
+      const domainInfo = options.domain ? ` for ${options.domain}` : '';
+      log.normal(`${this.provider}[${sessionId.substring(0, 8)}...] ${proxyInfo}${domainInfo}`);
       return session;
     } catch (error) {
       log.error(`Failed to create session`, { error });
@@ -111,7 +118,7 @@ export class SessionManager {
       // Remove from our tracking
       this.sessions.delete(sessionId);
       
-      log.normal(`Destroyed session ${sessionId}`);
+      log.normal(`Destroyed ${sessionId.substring(0, 8)}...`);
     } catch (error) {
       log.error(`Failed to destroy session ${sessionId}`, { error });
       // Remove from tracking even if cleanup failed

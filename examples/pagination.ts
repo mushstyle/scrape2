@@ -26,7 +26,7 @@ import { createBrowserFromSession } from '../src/drivers/browser.js';
 import { itemsToSessions } from '../src/core/distributor.js';
 import { logger } from '../src/utils/logger.js';
 import { loadScraper } from '../src/drivers/scraper-loader.js';
-import type { ScrapeRunItem } from '../src/types/scrape-run.js';
+import type { ScrapeTarget } from '../src/types/scrape-target.js';
 
 const log = logger.createContext('pagination-example');
 
@@ -59,10 +59,10 @@ async function paginateWithRetries(options: {
   const processedUrls = new Set<string>();
 
   // Start with the start URL
-  let currentBatch: ScrapeRunItem[] = [{ 
+  let currentBatch: ScrapeTarget[] = [{ 
     url: startUrl, 
     done: false, 
-    failed: 0, 
+    failed: false, 
     invalid: false 
   }];
 
