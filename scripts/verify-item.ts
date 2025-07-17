@@ -31,23 +31,10 @@ async function main() {
     log.normal(`Duration: ${(result.duration / 1000).toFixed(2)}s`);
     
     if (result.success && result.item) {
-      log.normal(`\nScraped ${result.scraperFields?.length || 0} fields:`);
+      log.normal(`\nScraped item (${result.scraperFields?.length || 0} fields):`);
       
-      // Display item data in a readable format
-      Object.entries(result.item).forEach(([key, value]) => {
-        if (value !== null && value !== undefined) {
-          const displayValue = typeof value === 'object' 
-            ? JSON.stringify(value, null, 2) 
-            : String(value);
-          
-          // Truncate long values
-          const truncated = displayValue.length > 100 
-            ? displayValue.substring(0, 100) + '...' 
-            : displayValue;
-          
-          log.normal(`  ${key}: ${truncated}`);
-        }
-      });
+      // Pretty print the entire item as JSON
+      console.log(JSON.stringify(result.item, null, 2));
     }
     
     if (result.error) {
