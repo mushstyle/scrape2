@@ -10,7 +10,7 @@ import { SiteManager } from '../services/site-manager.js';
 import { createBrowserFromSession } from '../drivers/browser.js';
 import { logger } from '../utils/logger.js';
 import { loadScraper } from '../drivers/scraper-loader.js';
-import { itemsToSessions } from '../core/distributor.js';
+import { targetsToSessions } from '../core/distributor.js';
 import { urlsToScrapeTargets } from '../utils/scrape-target-utils.js';
 import type { Session } from '../types/session.js';
 import type { SessionInfo } from '../core/distributor.js';
@@ -116,7 +116,7 @@ export class VerifyPaginateEngine {
       const maxPages = options.maxPages || 5;
       
       // Use distributor to match URLs to sessions
-      const pairs = itemsToSessions(
+      const pairs = targetsToSessions(
         targets,
         sessions.map(s => s.sessionInfo),
         [siteConfig]

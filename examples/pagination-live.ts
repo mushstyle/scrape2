@@ -19,7 +19,7 @@
 
 import { SiteManager } from '../src/services/site-manager.js';
 import { SessionManager } from '../src/services/session-manager.js';
-import { itemsToSessions } from '../src/core/distributor.js';
+import { targetsToSessions } from '../src/core/distributor.js';
 import { logger } from '../src/utils/logger.js';
 import { loadScraper } from '../src/drivers/scraper-loader.js';
 import { createBrowserFromSession } from '../src/drivers/browser.js';
@@ -137,7 +137,7 @@ async function main() {
       const targets = urlsToScrapeTargets(siteConfig.config.startPages);
       
       // Use distributor to match URLs to available sessions
-      const urlSessionPairs = itemsToSessions(
+      const urlSessionPairs = targetsToSessions(
         targets,
         sessions.map(s => s.sessionInfo),
         currentSiteConfig ? [currentSiteConfig] : []

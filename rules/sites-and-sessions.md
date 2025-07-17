@@ -81,7 +81,7 @@ Here's the correct way to paginate multiple sites:
 ```typescript
 import { SiteManager } from '../src/services/site-manager.js';
 import { SessionManager } from '../src/services/session-manager.js';
-import { itemsToSessions } from '../src/core/distributor.js';
+import { targetsToSessions } from '../src/core/distributor.js';
 import { urlsToScrapeTargets } from '../src/utils/scrape-target-utils.js';
 import { createBrowserFromSession } from '../src/drivers/browser.js';
 import { loadScraper } from '../src/drivers/scraper-loader.js';
@@ -137,7 +137,7 @@ async function paginateMultipleSites(sites: string[], instanceLimit: number) {
     const scraper = await loadScraper(site);
     
     // 6. Let distributor match work to sessions
-    const urlSessionPairs = itemsToSessions(
+    const urlSessionPairs = targetsToSessions(
       targets,
       sessionData.map(s => s.sessionInfo),
       [siteConfig] // Pass site config so distributor can respect blocked proxies
@@ -288,10 +288,10 @@ const run = await siteManager.commitPartialRun('example.com');
 
 ## Distributor Usage
 
-The distributor (`itemsToSessions`) is the intelligent matchmaker:
+The distributor (`targetsToSessions`) is the intelligent matchmaker:
 
 ```typescript
-import { itemsToSessions } from '../src/core/distributor.js';
+import { targetsToSessions } from '../src/core/distributor.js';
 
 // Prepare inputs
 const targets = urlsToScrapeTargets(urls); // Convert URLs to ScrapeTargets
@@ -299,7 +299,7 @@ const sessionInfos = /* array of SessionInfo objects */;
 const siteConfigs = /* array of site configs with blockedProxies */;
 
 // Get matches
-const urlSessionPairs = itemsToSessions(targets, sessionInfos, siteConfigs);
+const urlSessionPairs = targetsToSessions(targets, sessionInfos, siteConfigs);
 
 // Each pair has: { url: string, sessionId: string }
 ```
@@ -445,7 +445,7 @@ These are real mistakes made during implementation that you should avoid:
 ### 1. Not Using the Distributor
 **Mistake**: Manually assigning URLs to sessions
 **Why it failed**: Missing proxy compatibility checks, blocked proxy filtering, and intelligent distribution logic
-**Lesson**: Always use `itemsToSessions()` - it handles all the complex matching logic
+**Lesson**: Always use `targetsToSessions()` - it handles all the complex matching logic
 
 ### 2. Creating Browsers Wrong
 **Mistake**: Expecting `createBrowserFromSession` to return `{ browser, context }`

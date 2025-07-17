@@ -230,7 +230,7 @@ Services expose high-level operations to engines:
 // Engine uses services for orchestration
 const sessions = await sessionManager.getActiveSessions();
 const items = await siteManager.getPendingItems(runId);
-const pairs = itemsToSessions(items, sessions, configs);
+const pairs = targetsToSessions(items, sessions, configs);
 ```
 
 ## Common Patterns
