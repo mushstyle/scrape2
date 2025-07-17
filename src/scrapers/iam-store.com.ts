@@ -1,5 +1,6 @@
 import type { Page } from 'playwright';
 import type { Item, Image, Size } from '../types/item.js';
+import { ItemSchema, ImageSchema, SizeSchema } from '../types/item.js';
 import * as Utils from "../db/db-utils.js";
 // Site config is now managed by SiteManager service
 import { uploadImageUrlToS3 } from '../providers/s3.js';
