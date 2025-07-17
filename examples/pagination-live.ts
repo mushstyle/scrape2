@@ -62,28 +62,39 @@ async function main() {
   log.normal('Loading site configurations...');
   await siteManager.loadSites();
   
-  // Create sessions up to the instance limit
-  const sessions: SessionWithBrowser[] = [];
+  // For session creation, we need to know which sites we're working with
+  // to get their proxy configurations
   log.normal(`Creating ${instanceLimit} sessions...`);
   
-  for (let i = 0; i < instanceLimit; i++) {
-    if (i > 0) {
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Rate limit
-    }
-    
-    // Create a generic session (not tied to a specific domain yet)
-    const session = await sessionManager.createSession();
-    
-    sessions.push({
-      session,
-      sessionInfo: {
-        id: `session-${i}`,
-        // Proxy info will be filled when session is actually used
-      }
-    });
-  }
+  // Build session options with proper proxies
+  const sessionOptions = await Promise.all(
+    Array.from({ length: instanceLimit }, async (_, i) => {
+      // For demo, rotate through sites for proxy selection
+      // In production, you might have a different strategy
+      const siteForProxy = sites[i % sites.length];
+      const proxy = await siteManager.getProxyForDomain(siteForProxy);
+      
+      return { domain: siteForProxy, proxy };
+    })
+  );
   
-  log.normal(`Created ${sessions.length} sessions`);
+  // Create all sessions in parallel using the new array syntax
+  const createdSessions = await sessionManager.createSession(sessionOptions) as Session[];
+  
+  // Build session data with SessionInfo for distributor
+  const sessions: SessionWithBrowser[] = createdSessions.map((session, i) => {
+    const options = sessionOptions[i];
+    const sessionInfo: SessionInfo = {
+      id: `session-${i}`,
+      proxyType: options.proxy?.type as any || 'none',
+      proxyId: options.proxy?.id,
+      proxyGeo: options.proxy?.geo
+    };
+    
+    return { session, sessionInfo };
+  });
+  
+  log.normal(`Created ${sessions.length} sessions in parallel`);
   
   // Process each site
   const results: Record<string, any> = {};

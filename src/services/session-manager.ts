@@ -43,49 +43,66 @@ export class SessionManager {
   }
   
   /**
-   * Create a new session and return the Session object
+   * Create one or more sessions
+   * @param options - Single options object or array of options
+   * @returns Single session or array of sessions
    */
-  async createSession(options: { domain?: string; proxy?: any } = {}): Promise<Session> {
-    // Check if we've reached the session limit
+  async createSession(options: { domain?: string; proxy?: any } | Array<{ domain?: string; proxy?: any }> = {}): Promise<Session | Session[]> {
+    // If single options object, convert to array for unified processing
+    const isArray = Array.isArray(options);
+    const optionsArray = isArray ? options : [options];
+    
+    // Check if we have capacity for all requested sessions
     const activeSessions = await this.getActiveSessions();
-    if (activeSessions.length >= this.sessionLimit) {
-      throw new Error(`Session limit (${this.sessionLimit}) reached`);
+    const availableSlots = this.sessionLimit - activeSessions.length;
+    if (optionsArray.length > availableSlots) {
+      throw new Error(`Cannot create ${optionsArray.length} sessions. Only ${availableSlots} slots available (limit: ${this.sessionLimit})`);
     }
     
-    try {
-      let session: Session;
-      
-      if (this.provider === 'browserbase') {
-        session = await createBrowserbaseSession({ proxy: options.proxy });
-      } else {
-        session = await createLocalSession({ proxy: options.proxy });
+    // Create all sessions in parallel
+    const sessionPromises = optionsArray.map(async (opt) => {
+      try {
+        let session: Session;
+        
+        if (this.provider === 'browserbase') {
+          session = await createBrowserbaseSession({ proxy: opt.proxy });
+        } else {
+          session = await createLocalSession({ proxy: opt.proxy });
+        }
+        
+        // Get session ID
+        const sessionId = this.getSessionId(session);
+        
+        // Store session with metadata
+        this.sessions.set(sessionId, {
+          session,
+          domain: opt.domain,
+          proxy: opt.proxy,
+          createdAt: new Date(),
+          lastUsedAt: new Date(),
+          isActive: true,
+          itemCount: 0
+        });
+        
+        // Create concise log with proxy info
+        const proxyInfo = opt.proxy ? 
+          (opt.proxy.type || 'proxy') : 
+          'no-proxy';
+        const domainInfo = opt.domain ? ` for ${opt.domain}` : '';
+        log.normal(`${this.provider}[${sessionId.substring(0, 8)}...] ${proxyInfo}${domainInfo}`);
+        
+        return session;
+      } catch (error) {
+        log.error(`Failed to create session`, { error });
+        throw error;
       }
-      
-      // Get session ID
-      const sessionId = this.getSessionId(session);
-      
-      // Store session with metadata
-      this.sessions.set(sessionId, {
-        session,
-        domain: options.domain,
-        proxy: options.proxy,
-        createdAt: new Date(),
-        lastUsedAt: new Date(),
-        isActive: true,
-        itemCount: 0
-      });
-      
-      // Create concise log with proxy info
-      const proxyInfo = options.proxy ? 
-        (options.proxy.type || 'proxy') : 
-        'no-proxy';
-      const domainInfo = options.domain ? ` for ${options.domain}` : '';
-      log.normal(`${this.provider}[${sessionId.substring(0, 8)}...] ${proxyInfo}${domainInfo}`);
-      return session;
-    } catch (error) {
-      log.error(`Failed to create session`, { error });
-      throw error;
-    }
+    });
+    
+    // Wait for all sessions to be created
+    const sessions = await Promise.all(sessionPromises);
+    
+    // Return single session or array based on input
+    return isArray ? sessions : sessions[0];
   }
   
   /**
