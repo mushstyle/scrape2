@@ -88,6 +88,31 @@ async function showCurrentStartPages(domain: string): Promise<void> {
   }
 }
 
+async function listSitesWithNoStartPages() {
+  try {
+    const response = await getSites();
+    const sites = response.sites || [];
+    
+    const sitesWithNoStartPages = sites.filter((site: any) => {
+      const startPageCount = site.scrapeConfig?.startPages?.length || 0;
+      return startPageCount === 0;
+    });
+    
+    if (sitesWithNoStartPages.length === 0) {
+      console.log('\nAll sites have at least one start page.');
+    } else {
+      console.log(`\nSites with 0 start pages (${sitesWithNoStartPages.length} total):`);
+      sitesWithNoStartPages
+        .sort((a: any, b: any) => a._id.localeCompare(b._id))
+        .forEach((site: any) => {
+          console.log(`  - ${site._id}`);
+        });
+    }
+  } catch (error) {
+    console.log(`Error listing sites: ${error.message}`);
+  }
+}
+
 async function main() {
   console.log('=== Site Configuration Manager ===\n');
   
@@ -100,9 +125,10 @@ async function main() {
     console.log('2. Replace all start pages for a site');
     console.log('3. Remove specific start pages from a site');
     console.log('4. View current start pages for a site');
-    console.log('5. Exit');
+    console.log('5. List sites with 0 start pages');
+    console.log('6. Exit');
     
-    const choice = await rl.question('\nEnter your choice (1-5): ');
+    const choice = await rl.question('\nEnter your choice (1-6): ');
     
     switch (choice) {
       case '1': {
@@ -211,12 +237,18 @@ async function main() {
       }
       
       case '5': {
+        // List sites with 0 start pages
+        await listSitesWithNoStartPages();
+        break;
+      }
+      
+      case '6': {
         continueRunning = false;
         break;
       }
       
       default: {
-        console.log('Invalid choice. Please enter 1-5.');
+        console.log('Invalid choice. Please enter 1-6.');
       }
     }
     
