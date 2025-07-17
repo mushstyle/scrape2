@@ -30,6 +30,7 @@ export interface VerifyPaginateOptions {
   domain: string;
   maxIterations?: number;
   maxPages?: number;
+  useSingleSession?: boolean;
   sessionManager?: SessionManager;
   siteManager?: SiteManager;
 }
@@ -123,8 +124,14 @@ export class VerifyPaginateEngine {
       
       log.normal(`\nDistributor created ${pairs.length} URL-session pairs`);
       
+      // If useSingleSession is true, only use the first pair
+      const pairsToProcess = options.useSingleSession ? pairs.slice(0, 1) : pairs;
+      if (options.useSingleSession) {
+        log.normal(`Using single session mode - processing only first URL`);
+      }
+      
       // Process each pair - navigate once, then paginate on same page
-      await Promise.all(pairs.map(async (pair) => {
+      await Promise.all(pairsToProcess.map(async (pair) => {
         const sessionData = sessions.find(s => s.sessionInfo.id === pair.sessionId);
         if (!sessionData) {
           errors.push(`Session ${pair.sessionId} not found`);

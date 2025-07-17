@@ -17,7 +17,9 @@
     "scrape:items": "SCRAPE_MODE=items tsx --no-warnings --env-file=.env scripts/run-engine.ts",
     "verify:paginate": "tsx --no-warnings --env-file=.env scripts/verify-paginate.ts",
     "verify:item": "tsx --no-warnings --env-file=.env scripts/verify-item.ts",
-    "sites:manage": "tsx --no-warnings --env-file=.env src/scripts/manage-sites.ts"
+    "sites:manage": "tsx --no-warnings --env-file=.env src/scripts/manage-sites.ts",
+    "site:config:get": "tsx --no-warnings --env-file=.env src/scripts/get-site-config.ts",
+    "site:config:set": "tsx --no-warnings --env-file=.env src/scripts/set-site-config.ts"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

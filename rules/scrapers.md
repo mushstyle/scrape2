@@ -6,40 +6,131 @@ Look at the existing scrapers in [src/scrapers/](mdc:src/scrapers) to get an ide
 
 1.  **Initial Site Configuration via API:**
     *   The **first step** is to register the new site and its initial scraping configuration (scraper file name and start page URLs) with the remote API.
-    *   Use the `npm run set-scrape-config` script for this.
+    *   Use the `npm run site:config:set` script for this.
     *   **Ask the user for the `startPage(s)` (URLs only) if they haven't been provided.**
     *   **Usage:**
         ```bash
-        npm run set-scrape-config -- <domain> <scraper-file.ts> <startPage1[,startPage2,...]>
+        npm run site:config:set -- <domain> <scraper-file.ts> <startPage1[,startPage2,...]>
         ```
     *   **Example:**
         ```bash
-        npm run set-scrape-config -- yourdomain.com yourdomain.com.ts https://yourdomain.com/products,https://yourdomain.com/sale
+        npm run site:config:set -- yourdomain.com yourdomain.com.ts https://yourdomain.com/products,https://yourdomain.com/sale
         ```
-    *   This script calls the `PATCH /api/sites/{siteId}/scraping-config` endpoint using the `updateSiteScrapingConfig` function from `src/services/siteConfigApiService.ts`.
+    *   This script calls the `PATCH /api/sites/{siteId}/scraping-config` endpoint using the `updateSiteScrapingConfig` function from `src/providers/etl-api.ts`.
     *   **Check/Create Site Record:** The script should handle ensuring a site record for the `<domain>` exists. If there are issues, you might need to manually check or create it (e.g., via a `POST /api/sites` if available, providing at least the domain name).
-    *   To include browser configuration (headless, userAgent, headers, etc.), you will need to modify the `src/scripts/set-remote-scrape-config.ts` script or the payload sent by the `updateSiteScrapingConfig` function it calls.
+    *   To include browser configuration (headless, userAgent, headers, etc.), you will need to modify the `src/scripts/set-site-config.ts` script or the payload sent by the `updateSiteScrapingConfig` function it calls.
     *   To remove scraping configuration, send `{"scrapeConfig": null}`. This might require a separate script or modification to the existing one to handle a null payload.
-    *   **Verify:** After running the command, use `npm run get-scrape-config <domain>` to fetch the configuration from the API and confirm it was set correctly.
+    *   **Verify:** After running the command, use `npm run site:config:get -- <domain>` to fetch the configuration from the API and confirm it was set correctly.
 2.  Ask the user to provide the domain (if not already known for the config step).
 3.  Ask the user to provide the HTML for the product listing page(s).
 4.  Ask the user to provide the HTML for a single product page (provide examples for both regular and sale priced items if possible).
 5.  **Create the scraper file** (e.g., `src/scrapers/yourdomain.com.ts`) implementing the required functions (see below). Ensure the filename matches what was used in the `set-scrape-config` command.
 6.  **Register and Configure the Site via API:**
     *   **Check/Create Site Record:** Ensure a record for the `<domain>` exists in the remote database. If it doesn't, you may need to create it first using the appropriate API endpoint (e.g., potentially `POST /api/sites` if available, providing at least the domain name).
-    *   **Set Scraping Configuration:** Use the new `npm run set-scrape-config` script to set or update the scraping details (scraper file and start pages) via the API. 
+    *   **Set Scraping Configuration:** Use the `npm run site:config:set` script to set or update the scraping details (scraper file and start pages) via the API. 
         *   **Usage:**
             ```bash
-            npm run set-scrape-config -- <domain> <scraper-file.ts> <startPage1[,startPage2,...]>
+            npm run site:config:set -- <domain> <scraper-file.ts> <startPage1[,startPage2,...]>
             ```
         *   **Example:**
             ```bash
-            npm run set-scrape-config -- yourdomain.com yourdomain.com.ts https://yourdomain.com/products,https://yourdomain.com/sale
+            npm run site:config:set -- yourdomain.com yourdomain.com.ts https://yourdomain.com/products,https://yourdomain.com/sale
             ```
-        *   This script calls the `PATCH /api/sites/{siteId}/scraping-config` endpoint using the `updateSiteScrapingConfig` function from `src/services/siteConfigApiService.ts`.
-        *   To include browser configuration (headless, userAgent, headers, etc.), you will need to modify the `src/scripts/set-remote-scrape-config.ts` script or the payload sent by the `updateSiteScrapingConfig` function it calls.
+        *   This script calls the `PATCH /api/sites/{siteId}/scraping-config` endpoint using the `updateSiteScrapingConfig` function from `src/providers/etl-api.ts`.
+        *   To include browser configuration (headless, userAgent, headers, etc.), you will need to modify the `src/scripts/set-site-config.ts` script or the payload sent by the `updateSiteScrapingConfig` function it calls.
         *   To remove scraping configuration, send `{"scrapeConfig": null}`. This might require a separate script or modification to the existing one to handle a null payload.
-    *   **Verify:** Use `npm run get-scrape-config <domain>` to fetch the configuration from the API and confirm it was set correctly.
+    *   **Verify:** Use `npm run site:config:get -- <domain>` to fetch the configuration from the API and confirm it was set correctly.
+
+## Testing Your Scraper
+
+We provide verification scripts to test your scraper functions as you develop:
+
+### 1. Test Pagination and URL Extraction
+Use `npm run verify:paginate` to test your `getItemUrls` and `paginate` functions:
+
+```bash
+# Test with all configured start pages (respects session limits)
+npm run verify:paginate <domain>
+
+# Test with only the first start page (useful for quick tests)
+npm run verify:paginate <domain> --single
+```
+
+**What it does:**
+- Creates sessions based on your site's proxy configuration
+- Navigates to your start page(s)
+- Calls your `getItemUrls` function to extract product URLs
+- Calls your `paginate` function repeatedly (up to 5 pages by default)
+- Reports total URLs found, pages scraped, and any errors
+
+**Example output:**
+```
+Site: example.com
+Start pages: 2
+Session limit: 3
+Creating 2 sessions
+
+Distributor created 2 URL-session pairs
+Using single session mode - processing only first URL
+Navigating to https://example.com/products
+
+=== Verification Results ===
+Site: example.com
+Success: true
+Start pages: 2
+Total pages scraped: 5
+Total unique URLs: 120
+Iterations: 1
+Duration: 12.45s
+```
+
+### 2. Test Item Scraping
+Use `npm run verify:item` to test your `scrapeItem` function:
+
+```bash
+npm run verify:item <product-url>
+```
+
+**What it does:**
+- Creates a session for the domain
+- Navigates directly to the product URL
+- Calls your `scrapeItem` function
+- Displays the scraped item data as JSON
+
+**Example:**
+```bash
+npm run verify:item https://example.com/products/some-item
+
+=== Verification Results ===
+URL: https://example.com/products/some-item
+Domain: example.com
+Success: true
+Duration: 3.21s
+
+Scraped item (15 fields):
+{
+  "sourceUrl": "https://example.com/products/some-item",
+  "product_id": "12345",
+  "title": "Example Product",
+  "price": 99.99,
+  "sale_price": 79.99,
+  "currency": "USD",
+  "images": [
+    {
+      "url": "https://example.com/images/product.jpg",
+      "alt": "Example Product",
+      "mushUrl": "https://s3.amazonaws.com/..."
+    }
+  ],
+  ...
+}
+```
+
+### Testing Best Practices
+1. **Start with `--single`**: When first testing pagination, use the `--single` flag to quickly verify your functions work on one page
+2. **Test both regular and sale items**: Use `verify:item` on products with different price states
+3. **Check error handling**: Test with invalid URLs to ensure your scraper handles errors gracefully
+4. **Verify absolute URLs**: Ensure all URLs returned by `getItemUrls` are absolute, not relative
 
 ## Scraper Structure and Function Responsibilities
 
@@ -67,9 +158,9 @@ Scrapers **MUST** adhere to the functional pattern seen in `iam-store.com.ts`, e
     *   **IMPORTANT:** Use `page.evaluate` primarily to extract *raw text and attributes* from the DOM. Perform data parsing, cleaning, and transformation (e.g., using a local `parsePrice` function) *outside* of `page.evaluate`, back in the Node.js context.
     *   Extract title, price (and sale price), description, images, sizes (if available), currency, and product ID (or SKU).
     *   Handle price extraction carefully (see "Price Handling" section below).
-    *   Extract image URLs and alt text. Use the `uploadImagesToS3AndAddUrls` helper from [`src/lib/image-utils.js`](mdc:src/lib/image-utils.js) to upload images and get `mushUrl`.
-    *   Construct and return an `Item` object (defined in [`src/db/types.js`](mdc:src/db/types.js)). Use `Utils.formatItem` from [`src/db/db-utils.js`](mdc:src/db/db-utils.js) before returning.
-    *   **VERY IMPORTANT:** Do NOT add new fields to the `Item` type (defined in `src/db/types.js`) or attempt to scrape data for fields not already present in the `Item` type without explicit confirmation from the user. If you believe a new field is necessary, discuss it first.
+    *   Extract image URLs and alt text. Use the `uploadImagesToS3AndAddUrls` helper from [`src/utils/image-utils.ts`](mdc:src/utils/image-utils.ts) to upload images and get `mushUrl`.
+    *   Construct and return an `Item` object (defined in [`src/types/item.ts`](mdc:src/types/item.ts)). Use `formatItem` from [`src/db/db-utils.ts`](mdc:src/db/db-utils.ts) before returning.
+    *   **VERY IMPORTANT:** Do NOT add new fields to the `Item` type (defined in `src/types/item.ts`) or attempt to scrape data for fields not already present in the `Item` type without explicit confirmation from the user. If you believe a new field is necessary, discuss it first.
     *   The browser lifecycle (closing browser/context/page) is managed by the caller.
 
 The module **MUST** then export a default object conforming to the `Scraper` type, containing **ALL** three functions (`paginate`, `getItemUrls`, `scrapeItem`):
@@ -94,9 +185,9 @@ export default scraper;
 *   **Utility Functions:**
     *   Avoid importing general utility functions like `ensureValidUrl` from `src/utils/`. Instead, handle tasks like URL resolution directly within the relevant function (e.g., `getItemUrls`).
     *   For price parsing (`parsePrice`), if complex logic is needed, define a local helper function *within* the scraper file (e.g., `src/scrapers/leskizzo.com.ts` has an example). Do not import shared price parsing utilities unless strictly necessary and confirmed to be standard practice.
-    *   Use `uploadImagesToS3AndAddUrls` from [`src/lib/image-utils.js`](mdc:src/lib/image-utils.js) for handling image uploads.
-    *   Use `getSiteConfig` from [`src/diagnostics/site-utils.js`](mdc:src/diagnostics/site-utils.js). This function now fetches configuration from the remote API.
-    *   Use `Utils.formatItem` from [`src/db/db-utils.js`](mdc:src/db/db-utils.js).
+    *   Use `uploadImagesToS3AndAddUrls` from [`src/utils/image-utils.ts`](mdc:src/utils/image-utils.ts) for handling image uploads.
+    *   Use `getSiteConfig` from [`src/drivers/site-config.ts`](mdc:src/drivers/site-config.ts). This function fetches configuration from the remote API.
+    *   Use `formatItem` from [`src/db/db-utils.ts`](mdc:src/db/db-utils.ts).
 
 ## Price Handling (`price` vs `sale_price`)
 
@@ -178,7 +269,7 @@ const item: Item = {
   // ...
 };
 
-return Utils.formatItem(item);
+return formatItem(item);
 
 ```
 
