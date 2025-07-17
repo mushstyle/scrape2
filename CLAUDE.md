@@ -44,6 +44,7 @@
 - NO console.log - use `logger.createContext()` instead
 - NO `any` types unless absolutely necessary
 - Follow existing patterns in neighboring files
+- CLI parameters should match internal variable names (e.g., `instanceLimit` → `--instance-limit`)
 
 ## Commands
 - Scripts via `npm run <name>` (see package.json)

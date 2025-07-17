@@ -41,7 +41,7 @@ async function paginateSite(
   domain: string,
   siteManager: SiteManager,
   sessionManager: SessionManager,
-  maxSessionsOverride?: number
+  instanceLimitOverride?: number
 ): Promise<{ success: boolean; urls: string[]; error?: string }> {
   const collectedUrls: string[] = [];
   const sessions: SessionWithBrowser[] = [];
@@ -64,7 +64,7 @@ async function paginateSite(
     // Determine session limit
     const siteSessionLimit = await siteManager.getSessionLimitForDomain(domain);
     const effectiveLimit = Math.min(
-      maxSessionsOverride || sessionManager.getMaxSessions(),
+      instanceLimitOverride || sessionManager.getMaxSessions(),
       siteSessionLimit,
       siteConfig.config.startPages.length
     );
@@ -248,24 +248,24 @@ async function main() {
   // Parse command line arguments
   const args = process.argv.slice(2);
   const sitesArg = args.find(arg => arg.startsWith('--sites='));
-  const maxSessionsArg = args.find(arg => arg.startsWith('--max-sessions='));
+  const instanceLimitArg = args.find(arg => arg.startsWith('--instance-limit='));
   
   if (!sitesArg) {
-    console.error('Usage: npm run example:robust-pagination -- --sites=site1.com,site2.com [--max-sessions=5]');
+    console.error('Usage: npm run example:pagination:live -- --sites=site1.com,site2.com [--instance-limit=5]');
     process.exit(1);
   }
   
   const sites = sitesArg.replace('--sites=', '').split(',').map(s => s.trim());
-  const maxSessions = maxSessionsArg ? parseInt(maxSessionsArg.replace('--max-sessions=', '')) : undefined;
+  const instanceLimit = instanceLimitArg ? parseInt(instanceLimitArg.replace('--instance-limit=', '')) : undefined;
   
   log.normal(`Will paginate ${sites.length} sites: ${sites.join(', ')}`);
-  if (maxSessions) {
-    log.normal(`Max sessions override: ${maxSessions}`);
+  if (instanceLimit) {
+    log.normal(`Instance limit override: ${instanceLimit}`);
   }
   
   // Initialize managers
   const siteManager = new SiteManager();
-  const sessionManager = new SessionManager({ maxSessions: maxSessions || 10 });
+  const sessionManager = new SessionManager({ maxSessions: instanceLimit || 10 });
   
   // Load sites from ETL API
   log.normal('Loading site configurations...');
@@ -276,7 +276,7 @@ async function main() {
   
   for (const site of sites) {
     log.normal(`\n========== Processing ${site} ==========`);
-    const result = await paginateSite(site, siteManager, sessionManager, maxSessions);
+    const result = await paginateSite(site, siteManager, sessionManager, instanceLimit);
     results[site] = result;
     
     // Show blocked proxies after each site
