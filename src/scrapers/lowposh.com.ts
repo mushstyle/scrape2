@@ -31,6 +31,7 @@ export const SELECTORS = {
     // Size selectors
     sizesWrapper: '.selector-wrapper--fullwidth',
     sizeInputs: 'input[name="options[Size]"]',
+    styleInputs: 'input[name="options[Style]"]',
     sizeLabels: 'label[for^="template--"]',
     // Product data
     productDataScript: 'script[data-product-json]',
@@ -202,25 +203,74 @@ export async function scrapeItem(page: Page, options?: {
     try {
       // Get all size inputs and their corresponding labels
       const sizeData = await page.evaluate((selectors) => {
-        const inputs = document.querySelectorAll(selectors.sizeInputs);
+        // First check Size inputs
+        const sizeInputs = document.querySelectorAll(selectors.sizeInputs);
         const sizes: Array<{ size: string; is_available: boolean }> = [];
         
-        inputs.forEach(input => {
+        // Check if Size field has actual sizes (not "one size")
+        let hasRealSizes = false;
+        sizeInputs.forEach(input => {
           const inputEl = input as HTMLInputElement;
-          const labelEl = document.querySelector(`label[for="${inputEl.id}"]`);
-          if (labelEl) {
-            const sizeText = labelEl.textContent?.trim() || inputEl.value;
-            // Check if input is disabled to determine availability
-            const isAvailable = !inputEl.disabled;
-            sizes.push({
-              size: sizeText,
-              is_available: isAvailable
-            });
+          if (inputEl.value.toLowerCase() !== 'one size') {
+            hasRealSizes = true;
           }
         });
         
+        if (hasRealSizes || sizeInputs.length > 1) {
+          // Use Size field
+          sizeInputs.forEach(input => {
+            const inputEl = input as HTMLInputElement;
+            // Escape the ID for use in CSS selector
+          const escapedId = CSS.escape(inputEl.id);
+          const labelEl = document.querySelector(`label[for="${escapedId}"]`);
+            if (labelEl) {
+              const sizeText = labelEl.textContent?.trim() || inputEl.value;
+              const isAvailable = !inputEl.disabled;
+              sizes.push({
+                size: sizeText,
+                is_available: isAvailable
+              });
+            }
+          });
+        } else {
+          // Check Style field as it might contain the actual sizes
+          const styleInputs = document.querySelectorAll(selectors.styleInputs);
+          if (styleInputs.length > 0) {
+            styleInputs.forEach(input => {
+              const inputEl = input as HTMLInputElement;
+              // Escape the ID for use in CSS selector
+          const escapedId = CSS.escape(inputEl.id);
+          const labelEl = document.querySelector(`label[for="${escapedId}"]`);
+              if (labelEl) {
+                const sizeText = labelEl.textContent?.trim() || inputEl.value;
+                const isAvailable = !inputEl.disabled;
+                sizes.push({
+                  size: sizeText,
+                  is_available: isAvailable
+                });
+              }
+            });
+          } else if (sizeInputs.length > 0) {
+            // Fallback to Size field even if it's "one size"
+            sizeInputs.forEach(input => {
+              const inputEl = input as HTMLInputElement;
+              // Escape the ID for use in CSS selector
+          const escapedId = CSS.escape(inputEl.id);
+          const labelEl = document.querySelector(`label[for="${escapedId}"]`);
+              if (labelEl) {
+                const sizeText = labelEl.textContent?.trim() || inputEl.value;
+                const isAvailable = !inputEl.disabled;
+                sizes.push({
+                  size: sizeText,
+                  is_available: isAvailable
+                });
+              }
+            });
+          }
+        }
+        
         return sizes;
-      }, { sizeInputs: SELECTORS.product.sizeInputs, sizeLabels: SELECTORS.product.sizeLabels });
+      }, { sizeInputs: SELECTORS.product.sizeInputs, styleInputs: SELECTORS.product.styleInputs });
       
       formattedSizes = sizeData;
     } catch (error) {
