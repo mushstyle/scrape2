@@ -21,12 +21,14 @@ When creating a scrape run, we paginate through all startPages to collect URLs. 
 ```typescript
 interface PaginationState {
   startPageUrl: string;
-  status: 'pending' | 'paginating' | 'completed' | 'failed';
   collectedUrls: string[];
-  error?: string;
-  lastPageVisited?: string;
-  totalPages?: number;
-  currentPage?: number;
+  failureCount: number;
+  failureHistory: Array<{
+    timestamp: Date;
+    proxy: string;
+    error: string;
+  }>;
+  completed: boolean; // Explicitly track if pagination ran to completion
 }
 
 interface PartialScrapeRun {
@@ -35,6 +37,24 @@ interface PartialScrapeRun {
   totalUrlsCollected: number;
   createdAt: Date;
   committedToDb: boolean;
+}
+
+interface ProxyBlocklistEntry {
+  proxy: string;
+  failedAt: Date;
+  failureCount: number;
+  lastError: string;
+}
+
+interface SiteState {
+  // ... existing fields ...
+  proxyBlocklist: Map<string, ProxyBlocklistEntry>; // key is proxy string
+}
+
+// Update SiteConfig to include blocked proxies
+interface SiteConfig {
+  // ... existing fields ...
+  blockedProxies?: string[]; // Proxies to exclude for this site
 }
 ```
 
@@ -80,19 +100,34 @@ class SiteManager {
       throw new Error('No partial run to commit');
     }
     
-    // Collect all URLs from completed paginations
+    // Check if ANY pagination returned 0 URLs
+    const hasEmptyPagination = Array.from(this.partialRun.paginationStates.values())
+      .some(s => s.completed && s.collectedUrls.length === 0);
+    
+    if (hasEmptyPagination) {
+      throw new Error('Pagination returned 0 URLs - aborting entire run');
+    }
+    
+    // Check if all paginations completed successfully
+    const allCompleted = Array.from(this.partialRun.paginationStates.values())
+      .every(s => s.completed && s.collectedUrls.length > 0);
+    
+    if (!allCompleted) {
+      throw new Error('Not all paginations completed successfully');
+    }
+    
+    // Only if ALL paginations succeeded with URLs
     const allUrls = Array.from(this.partialRun.paginationStates.values())
-      .filter(s => s.status === 'completed')
       .flatMap(s => s.collectedUrls);
     
-    // Create scrape run via driver
-    const run = await this.scrapeRunsDriver.createRun(
-      this.partialRun.siteId,
-      allUrls
-    );
+    // Create scrape run via driver - only succeeds if no exceptions
+    const run = await this.scrapeRunsDriver.createRun({
+      siteId: this.partialRun.siteId,
+      urls: allUrls
+    });
     
     this.partialRun.committedToDb = true;
-    this.partialRun = undefined; // Clear after commit
+    this.partialRun = undefined; // Clear ONLY after successful DB write
     
     return run;
   }
@@ -116,46 +151,18 @@ class SiteManager {
 
 ## Network Failure Handling
 
-### Pagination Failures
-Track failures per URL and proxy usage:
+### Proxy Blocklist Management
 
 ```typescript
-interface PaginationState {
-  startPageUrl: string;
-  status: 'pending' | 'paginating' | 'completed' | 'failed';
-  collectedUrls: string[];
-  error?: string;
-  lastPageVisited?: string;
-  totalPages?: number;
-  currentPage?: number;
-  // New failure tracking
-  failureCount: number;
-  failureHistory: Array<{
-    timestamp: Date;
-    proxy: string;
-    error: string;
-  }>;
-}
-```
-
-### Proxy Blocklist (Per Site)
-Track datacenter proxies that fail, with cooldown:
-
-```typescript
-interface ProxyBlocklistEntry {
-  proxy: string;
-  failedAt: Date;
-  failureCount: number;
-  lastError: string;
-}
-
-interface SiteState {
-  // ... existing fields ...
-  proxyBlocklist: Map<string, ProxyBlocklistEntry>;
-}
-
 class SiteManager {
-  // Add proxy to blocklist
+  // Get cooldown period from proxy configuration
+  private getProxyCooldownMinutes(domain: string): number {
+    // Get from proxy strategy configuration
+    const strategy = getProxyStrategyForDomain(domain);
+    return strategy?.cooldownMinutes || 30; // Default 30 min
+  }
+  
+  // Add proxy to blocklist (datacenter only)
   addProxyToBlocklist(domain: string, proxy: string, error: string) {
     const site = this.getSite(domain);
     if (!site || !this.isDatacenterProxy(proxy)) return;
@@ -175,17 +182,22 @@ class SiteManager {
     }
   }
   
-  // Get blocked proxies (excluding cooled down ones)
-  getBlockedProxies(domain: string, cooldownMinutes: number = 30): string[] {
+  // Get blocked proxies and clean up expired entries
+  getBlockedProxies(domain: string): string[] {
     const site = this.getSite(domain);
     if (!site) return [];
     
     const now = new Date();
+    const cooldownMinutes = this.getProxyCooldownMinutes(domain);
     const blocked: string[] = [];
     
+    // Check each entry and remove if past cooldown
     for (const [proxy, entry] of site.proxyBlocklist) {
       const minutesSinceFailure = (now.getTime() - entry.failedAt.getTime()) / (1000 * 60);
-      if (minutesSinceFailure < cooldownMinutes) {
+      if (minutesSinceFailure >= cooldownMinutes) {
+        // Remove from blocklist entirely
+        site.proxyBlocklist.delete(proxy);
+      } else {
         blocked.push(proxy);
       }
     }
@@ -193,44 +205,44 @@ class SiteManager {
     return blocked;
   }
   
-  // Clean up old entries
-  cleanupBlocklist(domain: string, maxAgeMinutes: number = 1440) { // 24 hours
-    const site = this.getSite(domain);
-    if (!site) return;
-    
-    const now = new Date();
-    for (const [proxy, entry] of site.proxyBlocklist) {
-      const minutesSinceFailure = (now.getTime() - entry.failedAt.getTime()) / (1000 * 60);
-      if (minutesSinceFailure > maxAgeMinutes) {
-        site.proxyBlocklist.delete(proxy);
+  /**
+   * Get site configurations, optionally including blocked proxies
+   * @param includeBlockedProxies - Whether to include blockedProxies field (default: true)
+   * @returns Array of site configs, with blockedProxies field if requested
+   */
+  getSiteConfigs(includeBlockedProxies: boolean = true): SiteConfig[] {
+    return Array.from(this.sites.values()).map(site => {
+      if (!includeBlockedProxies) {
+        return site.config;
       }
-    }
+      
+      return {
+        ...site.config,
+        blockedProxies: this.getBlockedProxies(site.domain)
+      };
+    });
   }
 }
 ```
 
-### Integration with Distributor
-Pass blocked proxies when requesting sessions:
+## Key Design Decisions
 
-```typescript
-// When getting proxy for pagination
-async getProxyForPagination(domain: string): Promise<Proxy | null> {
-  const blockedProxies = this.getBlockedProxies(domain);
-  
-  // Pass to distributor to exclude these proxies
-  return selectProxyForDomain(domain, { 
-    excludeProxies: blockedProxies 
-  });
-}
-```
+1. **Partial Run State**: Track pagination progress per startPage in memory
+2. **Atomic Commits**: Only flush to DB when ALL paginations complete successfully
+3. **Zero URLs = Abort**: If any pagination returns 0 URLs, abort entire run
+4. **Network Errors = Retry**: Allow retries for network failures
+5. **Proxy Blocklist**: Only for datacenter proxies (residential rotate anyway)
+6. **Auto-cleanup**: Proxies removed from blocklist after cooldown expires
+7. **Cooldown from Config**: Get cooldown period from proxy strategy configuration
+8. **getSiteConfigs Enhancement**: Returns blocked proxies by default for distributor
 
 ## Implementation Steps
 1. [ ] Add PartialScrapeRun and PaginationState types with failure tracking
 2. [ ] Extend SiteManager with partial run tracking
-3. [ ] Add proxy blocklist to SiteState
+3. [ ] Add proxy blocklist to SiteState (Map<string, ProxyBlocklistEntry>)
 4. [ ] Implement proxy failure tracking (datacenter only)
-5. [ ] Add cooldown logic for blocked proxies
-6. [ ] Update pagination logic to use new state tracking
-7. [ ] Modify distributor to accept excluded proxy list
-8. [ ] Ensure atomic commit via scrape-runs driver
-9. [ ] Add guards against committing incomplete runs
+5. [ ] Add auto-cleanup logic for expired blocked proxies
+6. [ ] Get cooldown period from proxy strategy configuration
+7. [ ] Update getSiteConfigs to include blockedProxies field
+8. [ ] Add validation in commitPartialRun (check for 0 URLs, all complete)
+9. [ ] Ensure partial run only cleared after successful DB flush
