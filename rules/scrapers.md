@@ -6,40 +6,40 @@ Look at the existing scrapers in [src/scrapers/](mdc:src/scrapers) to get an ide
 
 1.  **Initial Site Configuration via API:**
     *   The **first step** is to register the new site and its initial scraping configuration (scraper file name and start page URLs) with the remote API.
-    *   Use the `npm run site:config:set` script for this.
+    *   Use the `npm run sites:config:set` script for this.
     *   **Ask the user for the `startPage(s)` (URLs only) if they haven't been provided.**
     *   **Usage:**
         ```bash
-        npm run site:config:set -- <domain> <scraper-file.ts> <startPage1[,startPage2,...]>
+        npm run sites:config:set -- <domain> <scraper-file.ts> <startPage1[,startPage2,...]>
         ```
     *   **Example:**
         ```bash
-        npm run site:config:set -- yourdomain.com yourdomain.com.ts https://yourdomain.com/products,https://yourdomain.com/sale
+        npm run sites:config:set -- yourdomain.com yourdomain.com.ts https://yourdomain.com/products,https://yourdomain.com/sale
         ```
     *   This script calls the `PATCH /api/sites/{siteId}/scraping-config` endpoint using the `updateSiteScrapingConfig` function from `src/providers/etl-api.ts`.
     *   **Check/Create Site Record:** The script should handle ensuring a site record for the `<domain>` exists. If there are issues, you might need to manually check or create it (e.g., via a `POST /api/sites` if available, providing at least the domain name).
     *   To include browser configuration (headless, userAgent, headers, etc.), you will need to modify the `src/scripts/set-site-config.ts` script or the payload sent by the `updateSiteScrapingConfig` function it calls.
     *   To remove scraping configuration, send `{"scrapeConfig": null}`. This might require a separate script or modification to the existing one to handle a null payload.
-    *   **Verify:** After running the command, use `npm run site:config:get -- <domain>` to fetch the configuration from the API and confirm it was set correctly.
+    *   **Verify:** After running the command, use `npm run sites:config:get -- <domain>` to fetch the configuration from the API and confirm it was set correctly.
 2.  Ask the user to provide the domain (if not already known for the config step).
 3.  Ask the user to provide the HTML for the product listing page(s).
 4.  Ask the user to provide the HTML for a single product page (provide examples for both regular and sale priced items if possible).
 5.  **Create the scraper file** (e.g., `src/scrapers/yourdomain.com.ts`) implementing the required functions (see below). Ensure the filename matches what was used in the `set-scrape-config` command.
 6.  **Register and Configure the Site via API:**
     *   **Check/Create Site Record:** Ensure a record for the `<domain>` exists in the remote database. If it doesn't, you may need to create it first using the appropriate API endpoint (e.g., potentially `POST /api/sites` if available, providing at least the domain name).
-    *   **Set Scraping Configuration:** Use the `npm run site:config:set` script to set or update the scraping details (scraper file and start pages) via the API. 
+    *   **Set Scraping Configuration:** Use the `npm run sites:config:set` script to set or update the scraping details (scraper file and start pages) via the API. 
         *   **Usage:**
             ```bash
-            npm run site:config:set -- <domain> <scraper-file.ts> <startPage1[,startPage2,...]>
+            npm run sites:config:set -- <domain> <scraper-file.ts> <startPage1[,startPage2,...]>
             ```
         *   **Example:**
             ```bash
-            npm run site:config:set -- yourdomain.com yourdomain.com.ts https://yourdomain.com/products,https://yourdomain.com/sale
+            npm run sites:config:set -- yourdomain.com yourdomain.com.ts https://yourdomain.com/products,https://yourdomain.com/sale
             ```
         *   This script calls the `PATCH /api/sites/{siteId}/scraping-config` endpoint using the `updateSiteScrapingConfig` function from `src/providers/etl-api.ts`.
         *   To include browser configuration (headless, userAgent, headers, etc.), you will need to modify the `src/scripts/set-site-config.ts` script or the payload sent by the `updateSiteScrapingConfig` function it calls.
         *   To remove scraping configuration, send `{"scrapeConfig": null}`. This might require a separate script or modification to the existing one to handle a null payload.
-    *   **Verify:** Use `npm run site:config:get -- <domain>` to fetch the configuration from the API and confirm it was set correctly.
+    *   **Verify:** Use `npm run sites:config:get -- <domain>` to fetch the configuration from the API and confirm it was set correctly.
 
 ## Testing Your Scraper
 
