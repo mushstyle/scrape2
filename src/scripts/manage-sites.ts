@@ -28,9 +28,14 @@ async function selectDomain(): Promise<string | null> {
       return null;
     }
     
+    // Sort sites alphabetically by domain
+    const sortedSites = sites.sort((a: any, b: any) => {
+      return a._id.localeCompare(b._id);
+    });
+    
     // Show sites with numbers
     console.log('\nAvailable sites:');
-    sites.forEach((site: any, index: number) => {
+    sortedSites.forEach((site: any, index: number) => {
       const domain = site._id;
       const startPageCount = site.scrapeConfig?.startPages?.length || 0;
       console.log(`${index + 1}. ${domain} (${startPageCount} start pages)`);
@@ -47,7 +52,7 @@ async function selectDomain(): Promise<string | null> {
       return null;
     }
     
-    return sites[index]._id;
+    return sortedSites[index]._id;
   } catch (error) {
     log.error('Failed to get sites', { error });
     return null;
