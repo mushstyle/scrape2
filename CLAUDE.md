@@ -26,6 +26,7 @@
 - Use `vitest` for testing instead of Bun test
 
 ## Rules to Follow
+- `rules/sites-and-sessions.md`: how to use SiteManager, SessionManager, and distributor
 - `rules/testing.md`: how to test
 - `rules/types.md`: how to use and create types
 - `rules/plans.md`: how to create plans
