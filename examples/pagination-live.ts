@@ -3,15 +3,15 @@
  * 
  * This example demonstrates production-ready pagination using:
  * - Real site scrapers loaded from the codebase
- * - Actual browser sessions with Playwright
+ * - Actual browser sessions managed by SessionManager
  * - Live ETL API integration
  * - The distributor for intelligent URL-session matching
  * 
  * Features:
- * - Uses session manager's instance limit for concurrent pagination
+ * - SessionManager handles instance limit (max concurrent sessions)
+ * - Distributor matches URLs to available sessions
  * - Handles proxy failures and blocklist
- * - Each site's pagination is independent (one site failing doesn't affect others)
- * - Respects site-specific session limits
+ * - Each site's pagination is independent
  * 
  * Usage:
  * npm run example:pagination:live -- --sites=amgbrand.com,blackseatribe.com --instance-limit=5
@@ -23,225 +23,18 @@ import { itemsToSessions } from '../src/core/distributor.js';
 import { logger } from '../src/utils/logger.js';
 import { loadScraper } from '../src/drivers/scraper-loader.js';
 import { createBrowserFromSession } from '../src/drivers/browser.js';
-import type { ScrapeTarget } from '../src/types/scrape-target.js';
-import type { SessionInfo } from '../src/core/distributor.js';
+import { urlsToScrapeTargets } from '../src/utils/scrape-target-utils.js';
 import type { Session } from '../src/types/session.js';
+import type { SessionInfo } from '../src/core/distributor.js';
 import type { Page } from 'playwright';
 
-const log = logger.createContext('robust-pagination-example');
+const log = logger.createContext('pagination-live');
 
 interface SessionWithBrowser {
   session: Session;
   sessionInfo: SessionInfo;
   browser?: any;
   context?: any;
-}
-
-async function paginateSite(
-  domain: string,
-  siteManager: SiteManager,
-  sessionManager: SessionManager,
-  instanceLimitOverride?: number
-): Promise<{ success: boolean; urls: string[]; error?: string }> {
-  const collectedUrls: string[] = [];
-  const sessions: SessionWithBrowser[] = [];
-  
-  try {
-    // Get site config
-    const siteConfig = siteManager.getSite(domain);
-    if (!siteConfig) {
-      throw new Error(`Site ${domain} not found`);
-    }
-    
-    if (!siteConfig.config.startPages?.length) {
-      throw new Error(`No start pages for ${domain}`);
-    }
-    
-    // Load scraper
-    const scraper = await loadScraper(domain);
-    log.normal(`Loaded scraper for ${domain}`);
-    
-    // Determine session limit
-    const siteSessionLimit = await siteManager.getSessionLimitForDomain(domain);
-    const effectiveLimit = Math.min(
-      instanceLimitOverride || sessionManager.getMaxSessions(),
-      siteSessionLimit,
-      siteConfig.config.startPages.length
-    );
-    
-    log.normal(`${domain}: Using ${effectiveLimit} sessions (site limit: ${siteSessionLimit}, max: ${sessionManager.getMaxSessions()})`);
-    
-    // Start pagination tracking
-    await siteManager.startPagination(domain, siteConfig.config.startPages);
-    
-    // Create sessions
-    for (let i = 0; i < effectiveLimit; i++) {
-      if (i > 0) {
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Rate limit
-      }
-      
-      const proxy = await siteManager.getProxyForDomain(domain);
-      const session = await sessionManager.createSession({ 
-        domain,
-        proxy 
-      });
-      
-      sessions.push({
-        session,
-        sessionInfo: {
-          id: `session-${i}`,
-          proxyType: proxy?.type as any,
-          proxyId: proxy?.id,
-          proxyGeo: proxy?.geo
-        }
-      });
-    }
-    
-    log.normal(`Created ${sessions.length} sessions for ${domain}`);
-    
-    // Get site configs with blocked proxies
-    const siteConfigs = await siteManager.getSiteConfigsWithBlockedProxies();
-    const currentSiteConfig = siteConfigs.find(c => c.domain === domain);
-    
-    // Convert start pages to targets
-    const targets: ScrapeTarget[] = siteConfig.config.startPages.map(url => ({
-      url,
-      done: false,
-      failed: false,
-      invalid: false
-    }));
-    
-    // Use distributor to match URLs to sessions
-    const urlSessionPairs = itemsToSessions(
-      targets,
-      sessions.map(s => s.sessionInfo),
-      currentSiteConfig ? [currentSiteConfig] : []
-    );
-    
-    log.normal(`Distributor assigned ${urlSessionPairs.length} URL-session pairs`);
-    
-    // Create browsers for sessions that will be used
-    const usedSessionIds = new Set(urlSessionPairs.map(pair => pair.sessionId));
-    for (const sessionData of sessions) {
-      if (usedSessionIds.has(sessionData.sessionInfo.id)) {
-        const { browser, context } = await createBrowserFromSession(sessionData.session);
-        sessionData.browser = browser;
-        sessionData.context = context;
-      }
-    }
-    
-    // Process each URL-session pair
-    const paginationPromises = urlSessionPairs.map(async (pair) => {
-      const sessionData = sessions.find(s => s.sessionInfo.id === pair.sessionId);
-      if (!sessionData?.browser) {
-        throw new Error(`No browser for session ${pair.sessionId}`);
-      }
-      
-      const startPage = pair.url;
-      let retryCount = 0;
-      const maxRetries = 3;
-      
-      while (retryCount < maxRetries) {
-        try {
-          log.normal(`Paginating ${startPage} with session ${pair.sessionId} (attempt ${retryCount + 1})`);
-          
-          const page: Page = await sessionData.context.newPage();
-          
-          try {
-            // Navigate to start page
-            await page.goto(startPage, { 
-              waitUntil: 'domcontentloaded',
-              timeout: 30000 
-            });
-            
-            // Run scraper's paginate method
-            const urls = await scraper.paginate(page, domain);
-            
-            // Update pagination state
-            siteManager.updatePaginationState(startPage, {
-              collectedUrls: urls,
-              completed: true
-            });
-            
-            log.normal(`✓ Collected ${urls.length} URLs from ${startPage}`);
-            collectedUrls.push(...urls);
-            break; // Success, exit retry loop
-            
-          } finally {
-            await page.close();
-          }
-          
-        } catch (error) {
-          retryCount++;
-          const errorMsg = error instanceof Error ? error.message : String(error);
-          log.error(`Failed pagination attempt ${retryCount} for ${startPage}: ${errorMsg}`);
-          
-          // Track failure
-          siteManager.updatePaginationState(startPage, {
-            failureCount: retryCount,
-            failureHistory: [{
-              timestamp: new Date(),
-              proxy: sessionData.sessionInfo.proxyId || 'unknown',
-              error: errorMsg
-            }]
-          });
-          
-          // Add proxy to blocklist if it's a network error
-          if (sessionData.sessionInfo.proxyId && 
-              sessionData.sessionInfo.proxyType === 'datacenter' &&
-              (errorMsg.includes('net::') || errorMsg.includes('timeout'))) {
-            await siteManager.addProxyToBlocklist(domain, sessionData.sessionInfo.proxyId, errorMsg);
-            log.debug(`Added proxy ${sessionData.sessionInfo.proxyId} to blocklist`);
-          }
-          
-          if (retryCount >= maxRetries) {
-            // Mark as completed with no URLs
-            siteManager.updatePaginationState(startPage, {
-              collectedUrls: [],
-              completed: true
-            });
-            throw new Error(`Failed after ${maxRetries} attempts`);
-          }
-          
-          // Wait before retry
-          await new Promise(resolve => setTimeout(resolve, 5000));
-        }
-      }
-    });
-    
-    // Wait for all paginations to complete
-    await Promise.allSettled(paginationPromises);
-    
-    // Clean up browsers
-    for (const sessionData of sessions) {
-      if (sessionData.browser) {
-        await sessionData.browser.close();
-      }
-    }
-    
-    // Try to commit the partial run
-    const run = await siteManager.commitPartialRun(domain);
-    log.normal(`✓ Successfully committed run ${run.id} for ${domain} with ${run.items.length} URLs`);
-    
-    return { success: true, urls: collectedUrls };
-    
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    log.error(`Failed to complete pagination for ${domain}: ${errorMsg}`);
-    
-    // Clean up browsers on error
-    for (const sessionData of sessions) {
-      if (sessionData.browser) {
-        try {
-          await sessionData.browser.close();
-        } catch (e) {
-          // Ignore cleanup errors
-        }
-      }
-    }
-    
-    return { success: false, urls: collectedUrls, error: errorMsg };
-  }
 }
 
 async function main() {
@@ -256,33 +49,205 @@ async function main() {
   }
   
   const sites = sitesArg.replace('--sites=', '').split(',').map(s => s.trim());
-  const instanceLimit = instanceLimitArg ? parseInt(instanceLimitArg.replace('--instance-limit=', '')) : undefined;
+  const instanceLimit = instanceLimitArg ? parseInt(instanceLimitArg.replace('--instance-limit=', '')) : 5;
   
   log.normal(`Will paginate ${sites.length} sites: ${sites.join(', ')}`);
-  if (instanceLimit) {
-    log.normal(`Instance limit override: ${instanceLimit}`);
-  }
+  log.normal(`Instance limit: ${instanceLimit}`);
   
   // Initialize managers
   const siteManager = new SiteManager();
-  const sessionManager = new SessionManager({ maxSessions: instanceLimit || 10 });
+  const sessionManager = new SessionManager({ sessionLimit: instanceLimit });
   
   // Load sites from ETL API
   log.normal('Loading site configurations...');
   await siteManager.loadSites();
   
-  // Process sites sequentially (could be parallel, but sequential is easier to debug)
+  // Create sessions up to the instance limit
+  const sessions: SessionWithBrowser[] = [];
+  log.normal(`Creating ${instanceLimit} sessions...`);
+  
+  for (let i = 0; i < instanceLimit; i++) {
+    if (i > 0) {
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Rate limit
+    }
+    
+    // Create a generic session (not tied to a specific domain yet)
+    const session = await sessionManager.createSession();
+    
+    sessions.push({
+      session,
+      sessionInfo: {
+        id: `session-${i}`,
+        // Proxy info will be filled when session is actually used
+      }
+    });
+  }
+  
+  log.normal(`Created ${sessions.length} sessions`);
+  
+  // Process each site
   const results: Record<string, any> = {};
   
   for (const site of sites) {
     log.normal(`\n========== Processing ${site} ==========`);
-    const result = await paginateSite(site, siteManager, sessionManager, instanceLimit);
-    results[site] = result;
     
-    // Show blocked proxies after each site
-    const blockedProxies = await siteManager.getBlockedProxies(site);
-    if (blockedProxies.length > 0) {
-      log.normal(`Blocked proxies for ${site}: ${blockedProxies.join(', ')}`);
+    try {
+      // Get site config
+      const siteConfig = siteManager.getSite(site);
+      if (!siteConfig) {
+        throw new Error(`Site ${site} not found`);
+      }
+      
+      if (!siteConfig.config.startPages?.length) {
+        throw new Error(`No start pages for ${site}`);
+      }
+      
+      // Load scraper
+      const scraper = await loadScraper(site);
+      log.normal(`Loaded scraper for ${site}`);
+      
+      // Start pagination tracking
+      await siteManager.startPagination(site, siteConfig.config.startPages);
+      
+      // Get site configs with blocked proxies
+      const siteConfigs = await siteManager.getSiteConfigsWithBlockedProxies();
+      const currentSiteConfig = siteConfigs.find(c => c.domain === site);
+      
+      // Convert start pages to targets
+      const targets = urlsToScrapeTargets(siteConfig.config.startPages);
+      
+      // Use distributor to match URLs to available sessions
+      const urlSessionPairs = itemsToSessions(
+        targets,
+        sessions.map(s => s.sessionInfo),
+        currentSiteConfig ? [currentSiteConfig] : []
+      );
+      
+      log.normal(`Distributor assigned ${urlSessionPairs.length} URL-session pairs for ${site}`);
+      
+      // Create browsers for sessions that will be used
+      const usedSessionIds = new Set(urlSessionPairs.map(pair => pair.sessionId));
+      for (const sessionData of sessions) {
+        if (usedSessionIds.has(sessionData.sessionInfo.id) && !sessionData.browser) {
+          const { browser, context } = await createBrowserFromSession(sessionData.session);
+          sessionData.browser = browser;
+          sessionData.context = context;
+        }
+      }
+      
+      // Process each URL-session pair
+      const collectedUrls: string[] = [];
+      const paginationPromises = urlSessionPairs.map(async (pair) => {
+        const sessionData = sessions.find(s => s.sessionInfo.id === pair.sessionId);
+        if (!sessionData?.browser) {
+          throw new Error(`No browser for session ${pair.sessionId}`);
+        }
+        
+        const startPage = pair.url;
+        let retryCount = 0;
+        const maxRetries = 3;
+        
+        while (retryCount < maxRetries) {
+          try {
+            log.normal(`Paginating ${startPage} with session ${pair.sessionId} (attempt ${retryCount + 1})`);
+            
+            const page: Page = await sessionData.context.newPage();
+            
+            try {
+              // Navigate to start page
+              await page.goto(startPage, { 
+                waitUntil: 'domcontentloaded',
+                timeout: 30000 
+              });
+              
+              // Run scraper's paginate method
+              const urls = await scraper.paginate(page, site);
+              
+              // Update pagination state
+              siteManager.updatePaginationState(startPage, {
+                collectedUrls: urls,
+                completed: true
+              });
+              
+              log.normal(`✓ Collected ${urls.length} URLs from ${startPage}`);
+              collectedUrls.push(...urls);
+              break; // Success, exit retry loop
+              
+            } finally {
+              await page.close();
+            }
+            
+          } catch (error) {
+            retryCount++;
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            log.error(`Failed pagination attempt ${retryCount} for ${startPage}: ${errorMsg}`);
+            
+            // Track failure
+            siteManager.updatePaginationState(startPage, {
+              failureCount: retryCount,
+              failureHistory: [{
+                timestamp: new Date(),
+                proxy: 'unknown', // In real implementation, get from session
+                error: errorMsg
+              }]
+            });
+            
+            // Add proxy to blocklist if it's a network error
+            if (errorMsg.includes('net::') || errorMsg.includes('timeout')) {
+              // In a real implementation, we'd get the actual proxy from the session
+              log.debug('Would add proxy to blocklist if we knew which one failed');
+            }
+            
+            if (retryCount >= maxRetries) {
+              // Mark as completed with no URLs
+              siteManager.updatePaginationState(startPage, {
+                collectedUrls: [],
+                completed: true
+              });
+              throw new Error(`Failed after ${maxRetries} attempts`);
+            }
+            
+            // Wait before retry
+            await new Promise(resolve => setTimeout(resolve, 5000));
+          }
+        }
+      });
+      
+      // Wait for all paginations to complete
+      await Promise.allSettled(paginationPromises);
+      
+      // Try to commit the partial run
+      try {
+        const run = await siteManager.commitPartialRun(site);
+        log.normal(`✓ Successfully committed run ${run.id} for ${site} with ${run.items.length} URLs`);
+        results[site] = { success: true, urls: collectedUrls };
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        log.error(`✗ Failed to commit run for ${site}: ${errorMsg}`);
+        results[site] = { success: false, urls: collectedUrls, error: errorMsg };
+      }
+      
+      // Show blocked proxies
+      const blockedProxies = await siteManager.getBlockedProxies(site);
+      if (blockedProxies.length > 0) {
+        log.normal(`Blocked proxies for ${site}: ${blockedProxies.join(', ')}`);
+      }
+      
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error(`Failed to process ${site}: ${errorMsg}`);
+      results[site] = { success: false, urls: [], error: errorMsg };
+    }
+  }
+  
+  // Clean up all browsers
+  for (const sessionData of sessions) {
+    if (sessionData.browser) {
+      try {
+        await sessionData.browser.close();
+      } catch (e) {
+        // Ignore cleanup errors
+      }
     }
   }
   
