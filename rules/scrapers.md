@@ -1,6 +1,12 @@
 
 # Rules for Creating New Scrapers
 
+## CRITICAL: Check for Existing Scraper FIRST
+**BEFORE DOING ANYTHING ELSE**, always check if a scraper already exists for the domain:
+1. Run `ls src/scrapers/` and look for the domain file (e.g., `example.com.ts`)
+2. If a scraper exists, read it first to understand what needs to be fixed or updated
+3. Only create a new scraper if one doesn't already exist
+
 ## Getting Started
 Look at the existing scrapers in [src/scrapers/](mdc:src/scrapers) to get an idea of how to structure your new scraper. The scraper for `iam-store.com.ts` ([src/scrapers/iam-store.com.ts](mdc:src/scrapers/iam-store.com.ts)) is a good reference for the current standard structure.
 
