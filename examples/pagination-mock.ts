@@ -1,14 +1,14 @@
 /**
- * Simplified example: Robust pagination with failure handling
+ * Mock example: Robust pagination with simulated failures
  * 
- * This example shows the core robust pagination features:
+ * This example shows the core robust pagination features with mock data:
  * - Multiple sites paginating independently
- * - Failure handling and retries
+ * - Failure handling and retries with simulated network errors
  * - Proxy blocklist in action
  * - Partial run commits
  * 
  * Usage:
- * npm run example:robust-pagination-simple
+ * npm run example:pagination:mock
  */
 
 import { SiteManager } from '../src/services/site-manager.js';

@@ -1,17 +1,20 @@
 /**
- * Example: Robust pagination for multiple sites using distributor
+ * Live example: Robust pagination with real scrapers and sites
  * 
- * This example demonstrates how to use the robust scrape runs functionality
- * to paginate multiple sites concurrently, handling failures gracefully.
+ * This example demonstrates production-ready pagination using:
+ * - Real site scrapers loaded from the codebase
+ * - Actual browser sessions with Playwright
+ * - Live ETL API integration
+ * - The distributor for intelligent URL-session matching
  * 
  * Features:
  * - Uses session manager's instance limit for concurrent pagination
  * - Handles proxy failures and blocklist
  * - Each site's pagination is independent (one site failing doesn't affect others)
- * - Uses the distributor for URL-session matching
+ * - Respects site-specific session limits
  * 
  * Usage:
- * npm run example:robust-pagination -- --sites=amgbrand.com,blackseatribe.com --max-sessions=5
+ * npm run example:pagination:live -- --sites=amgbrand.com,blackseatribe.com --instance-limit=5
  */
 
 import { SiteManager } from '../src/services/site-manager.js';
