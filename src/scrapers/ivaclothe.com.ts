@@ -21,17 +21,17 @@ export const SELECTORS = {
     pattern: 'page={n}'
   },
   product: {
-    infoContainer: '.product__info-container',
-    title: '.product__info-container h1', // Simplified selector
-    priceContainer: '.price',
+    infoContainer: '.wt-product__main',
+    title: 'h1.wt-product__name', 
+    priceContainer: '.wt-product__price',
     price: '.price__regular .price-item--regular',
-    salePrice: '.price--on-sale .price-item--sale',
-    comparePrice: '.price--on-sale s.price-item--regular',
-    images: '.product__media-item img',
-    description: '.product__description',
-    vendor: '.product__text.caption-with-letter-spacing a',
-    productId: 'input[name="id"]',
-    variantDataScript: 'variant-selects script[type="application/json"]',
+    salePrice: '.price__sale .price-item--sale',
+    comparePrice: '.price__sale s.price-item--regular',
+    images: 'gallery-section img.wt-product__img',
+    description: '.wt-collapse__target--text',
+    vendor: '.wt-product__brand__name',
+    productId: 'input[name="product-id"]',
+    variantDataScript: 'variant-options script[type="application/json"]',
     sizeInputs: 'input[name="Size"]',
   }
 };
@@ -167,8 +167,23 @@ export async function scrapeItem(page: Page, options?: {
 }): Promise<Item> {
   const sourceUrl = page.url();
   try {
-    // Page is already at sourceUrl. Caller should ensure networkidle if needed.
-    // await page.goto(sourceUrl, { waitUntil: 'networkidle' }); // Removed goto
+    // Wait for product info to load
+    await page.waitForSelector('.wt-product__main', { timeout: 10000 });
+    
+    // Try to expand the description section if it exists
+    try {
+      const triggers = await page.$$('.wt-collapse__trigger');
+      for (const trigger of triggers) {
+        const titleText = await trigger.$eval('.wt-collapse__trigger__title', el => el.textContent?.trim());
+        if (titleText === 'Опис') {
+          await trigger.click();
+          await page.waitForTimeout(500); // Wait for expansion animation
+          break;
+        }
+      }
+    } catch (e) {
+      // Ignore if can't expand
+    }
 
     // Extract product details from the page
     // Define an intermediate type for clarity before S3 processing
@@ -177,116 +192,158 @@ export async function scrapeItem(page: Page, options?: {
     };
 
     const itemData: ScrapedData = await page.evaluate(() => {
-      // Product ID - extract from variant data or URL
-      const productIdMatch = window.location.pathname.match(/\/products\/[^/]+-(\d+)/) || [];
-      const productId = document.querySelector('input[name="product-id"]')?.getAttribute('value') || productIdMatch[1] || '';
+      // Product ID - extract from input field
+      const productId = document.querySelector('input[name="product-id"]')?.getAttribute('value') || '';
 
       // Title
-      const title = document.querySelector('h1')?.textContent?.trim() ||
-        document.querySelector('.product__title h2')?.textContent?.trim() || '';
+      const title = document.querySelector('h1.wt-product__name')?.textContent?.trim() || '';
 
-      // Price and Sale Price (extracting logic from the original evaluate block)
+      // Price and Sale Price handling
       let price = 0;
-      let salePrice = undefined;
-      const onSaleDiv = document.querySelector('.price--on-sale');
-      if (onSaleDiv) {
-        const strikethroughPriceElement = document.querySelector('.price__sale s.price-item--regular');
-        if (strikethroughPriceElement) {
-          const regularPriceText = strikethroughPriceElement.textContent?.trim() || '';
-          const regularPriceMatch = regularPriceText.match(/₴([\d,]+(\.\d+)?)/) || [];
-          if (regularPriceMatch[1]) {
-            price = Number(regularPriceMatch[1].replace(/,/g, ''));
+      let salePrice: number | undefined = undefined;
+      
+      // Check if product is on sale
+      const priceContainer = document.querySelector('.price');
+      const hasOnSale = priceContainer?.classList.contains('price--on-sale');
+      
+      if (hasOnSale) {
+        // Product is on sale - get original price from strikethrough
+        const comparePriceElement = document.querySelector('.price__sale s.price-item--regular');
+        if (comparePriceElement) {
+          const comparePriceText = comparePriceElement.textContent?.trim() || '';
+          const priceMatch = comparePriceText.match(/₴([\d,]+(\.\d+)?)/);
+          if (priceMatch) {
+            price = Number(priceMatch[1].replace(/,/g, ''));
           }
         }
-        const salePriceElement = document.querySelector('.price-item--sale');
+        
+        // Get sale price
+        const salePriceElement = document.querySelector('.price__sale .price-item--sale');
         if (salePriceElement) {
           const salePriceText = salePriceElement.textContent?.trim() || '';
-          const salePriceMatch = salePriceText.match(/₴([\d,]+(\.\d+)?)/) || [];
-          if (salePriceMatch[1]) {
+          const salePriceMatch = salePriceText.match(/₴([\d,]+(\.\d+)?)/);
+          if (salePriceMatch) {
             salePrice = Number(salePriceMatch[1].replace(/,/g, ''));
           }
         }
       } else {
-        const priceElement = document.querySelector('.price-item--regular');
+        // Product is not on sale - get regular price only
+        const priceElement = document.querySelector('.price__regular .price-item--regular');
         if (priceElement) {
           const priceText = priceElement.textContent?.trim() || '';
-          const priceMatch = priceText.match(/₴([\d,]+(\.\d+)?)/) || [];
-          if (priceMatch[1]) {
+          const priceMatch = priceText.match(/₴([\d,]+(\.\d+)?)/);
+          if (priceMatch) {
             price = Number(priceMatch[1].replace(/,/g, ''));
           }
         }
       }
-      const currency = 'UAH'; // Currency seems fixed
+      
+      const currency = 'UAH';
 
-      // Description
-      const description = document.querySelector('.product__description')?.textContent?.trim() || '';
+      // Description - get from collapsible section with "Опис" title or from the target content
+      let description = '';
+      const collapseElements = document.querySelectorAll('.wt-collapse');
+      for (const collapse of collapseElements) {
+        const titleElement = collapse.querySelector('.wt-collapse__trigger__title');
+        if (titleElement?.textContent?.trim() === 'Опис') {
+          // Try different selectors for description content
+          const descContent = collapse.querySelector('.wt-collapse__target--text .rte') || 
+                             collapse.querySelector('.wt-collapse__target .rte') ||
+                             collapse.querySelector('.wt-collapse__target--text');
+          if (descContent) {
+            description = descContent.textContent?.trim() || '';
+            break;
+          }
+        }
+      }
 
-      // Vendor
-      const vendor = document.querySelector('.product__text')?.textContent?.trim() || '';
+      // Vendor - get from meta tag or brand name
+      const vendor = document.querySelector('meta[itemprop="brand"]')?.getAttribute('content') || 
+                    document.querySelector('.wt-product__brand__name')?.textContent?.trim() || '';
 
-      // Images (extracting logic from the original evaluate block)
-      const imageElements = document.querySelectorAll('.product__media-item img');
+      // Images - get from gallery section
+      const imageElements = document.querySelectorAll('gallery-section img.wt-product__img');
       const uniqueImageUrls = new Set<string>();
-      // Define intermediate type for image data gathered here
       type IntermediateImage = { sourceUrl: string; alt_text: string };
 
       const images: IntermediateImage[] = Array.from(imageElements)
         .map(img => {
           const imgElement = img as HTMLImageElement;
-          const url = imgElement.src.split('?')[0];
+          // Get the src without query parameters
+          let url = imgElement.src;
+          
+          // Handle protocol-relative URLs
+          if (url.startsWith('//')) {
+            url = 'https:' + url;
+          }
+          
+          // Remove query parameters to get the base image URL
+          url = url.split('?')[0];
+          
           if (url && !uniqueImageUrls.has(url)) {
             uniqueImageUrls.add(url);
             return {
               sourceUrl: url,
-              alt_text: imgElement.alt || '' // Guaranteed string
+              alt_text: imgElement.alt || title || ''
             };
           }
           return null;
         })
-        // Filter out nulls using a type guard for the intermediate type
         .filter((img): img is IntermediateImage => img !== null);
 
-      // Sizes (extracting logic from the original evaluate block)
+      // Sizes - get from variant options
       const sizeInputs = document.querySelectorAll('input[name="Size"]');
-      const sizes: Size[] = Array.from(sizeInputs).map(input => {
+      const sizes: Size[] = [];
+      
+      // Get variant data to check availability
+      let variantData: any[] = [];
+      try {
+        const scriptContent = document.querySelector('variant-options script[type="application/json"]')?.textContent || '';
+        if (scriptContent) {
+          variantData = JSON.parse(scriptContent);
+        }
+      } catch (e) {
+        console.error('Error parsing variant data:', e);
+      }
+      
+      // Process size inputs
+      Array.from(sizeInputs).forEach(input => {
         const inputElement = input as HTMLInputElement;
-        const hasDisabledClass = inputElement.classList.contains('disabled');
-        let available = true;
-        try {
-          const scriptContent = document.querySelector('variant-selects script')?.textContent || '';
-          if (scriptContent) {
-            const jsonData = JSON.parse(scriptContent);
-            const variant = jsonData.find((v: any) => v.title.includes(inputElement.value) || v.options.includes(inputElement.value));
-            if (variant) { available = variant.available; }
-          }
-        } catch (e) { log.error(`Error parsing variant data: ${e}`); }
-        return {
-          size: inputElement.value,
-          is_available: !hasDisabledClass && available
-        };
+        const sizeValue = inputElement.value;
+        
+        // Find corresponding variant data
+        const variant = variantData.find(v => 
+          v.title === sizeValue || 
+          v.option1 === sizeValue || 
+          v.options?.includes(sizeValue)
+        );
+        
+        sizes.push({
+          size: sizeValue,
+          is_available: variant ? variant.available : true
+        });
       });
 
-      // Colors and Variants (extracting logic from the original evaluate block)
+      // Colors and Variants
       const colorInputs = document.querySelectorAll('input[name="Color"]');
       const colorLabels = Array.from(colorInputs).map(input => (input as HTMLInputElement).value);
       const selectedColor = document.querySelector('input[name="Color"]:checked')?.getAttribute('value') || colorLabels[0] || '';
       const variants = colorLabels.map(color => ({ name: color, url: null }));
 
-      // Construct the object matching ScrapedData type
+      // Construct the object
       return {
         sourceUrl: window.location.href,
         product_id: productId,
         title,
         description,
         vendor,
-        images, // Now correctly typed as IntermediateImage[] which matches Omit<Image, 'mushUrl'>[]
+        images,
         price,
         sale_price: salePrice,
         currency,
         color: selectedColor,
         sizes,
         variants,
-        // Type and Tags are not extracted in this version
         type: undefined,
         tags: [],
       };
