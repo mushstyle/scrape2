@@ -65,8 +65,14 @@ export class VerifyItemEngine {
       const scraper = await loadScraper(domain);
       log.normal(`Loaded scraper for ${domain}`);
       
+      // Get proxy for domain from SiteManager
+      const proxy = await this.siteManager.getProxyForDomain(domain);
+      
       // Create session
-      session = await this.sessionManager.createSession({ domain });
+      session = await this.sessionManager.createSession({ 
+        domain,
+        proxy 
+      });
       const { browser, createContext } = await createBrowserFromSession(session);
       const context = await createContext();
       const page = await context.newPage();

@@ -10,6 +10,7 @@ import {
   fetchRun
 } from '../drivers/scrape-runs.js';
 import { getSiteConfig } from '../drivers/site-config.js';
+import { getSessionLimitForDomain, selectProxyForDomain } from '../drivers/proxy.js';
 import type { SiteConfig } from '../types/site-config-types.js';
 import type {
   ScrapeRun,
@@ -17,6 +18,7 @@ import type {
   CreateScrapeRunRequest
 } from '../types/scrape-run.js';
 import type { ItemStats } from '../types/orchestration.js';
+import type { Proxy } from '../types/proxy.js';
 
 const log = logger.createContext('site-manager');
 
@@ -197,24 +199,42 @@ export class SiteManager {
   /**
    * Get start pages for a domain, respecting sessionLimit
    */
-  getStartPagesForDomain(domain: string): string[] {
+  async getStartPagesForDomain(domain: string): Promise<string[]> {
     const site = this.getSite(domain);
     if (!site || !site.config.startPages) {
       return [];
     }
 
-    const sessionLimit = site.config.proxy?.sessionLimit || 1;
+    const sessionLimit = await getSessionLimitForDomain(domain);
     return site.config.startPages.slice(0, sessionLimit);
+  }
+  
+  /**
+   * Get proxy for a domain based on its strategy
+   * @param domain - The domain to get proxy for
+   * @returns Selected proxy or null
+   */
+  async getProxyForDomain(domain: string): Promise<Proxy | null> {
+    return selectProxyForDomain(domain);
+  }
+  
+  /**
+   * Get session limit for a domain from its proxy strategy
+   * @param domain - The domain to get session limit for
+   * @returns The session limit
+   */
+  async getSessionLimitForDomain(domain: string): Promise<number> {
+    return getSessionLimitForDomain(domain);
   }
 
   /**
    * Get all start pages from all sites, respecting sessionLimit
    */
-  getAllStartPages(): Array<{ url: string; domain: string }> {
+  async getAllStartPages(): Promise<Array<{ url: string; domain: string }>> {
     const urls: Array<{ url: string; domain: string }> = [];
 
     for (const site of this.sites.values()) {
-      const startPages = this.getStartPagesForDomain(site.domain);
+      const startPages = await this.getStartPagesForDomain(site.domain);
       for (const url of startPages) {
         urls.push({ url, domain: site.domain });
       }

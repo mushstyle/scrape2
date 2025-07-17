@@ -76,8 +76,8 @@ export class VerifyPaginateEngine {
       const scraper = await loadScraper(options.domain);
       log.normal(`Loaded scraper for ${options.domain}`);
       
-      // Determine session limit
-      const sessionLimit = siteConfig.proxy?.sessionLimit || 1;
+      // Determine session limit from site manager (which uses proxy strategy)
+      const sessionLimit = await this.siteManager.getSessionLimitForDomain(options.domain);
       const sessionsToCreate = Math.min(sessionLimit, siteConfig.startPages.length);
       
       log.normal(`Site: ${options.domain}`);
@@ -92,7 +92,13 @@ export class VerifyPaginateEngine {
           await new Promise(resolve => setTimeout(resolve, 2000));
         }
         
-        const session = await this.sessionManager.createSession({ domain: options.domain });
+        // Get proxy for domain from SiteManager
+        const proxy = await this.siteManager.getProxyForDomain(options.domain);
+        
+        const session = await this.sessionManager.createSession({ 
+          domain: options.domain,
+          proxy 
+        });
         const { browser, createContext } = await createBrowserFromSession(session);
         const context = await createContext();
         
