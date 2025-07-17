@@ -25,6 +25,8 @@ export const SELECTORS = {
   product: {
     title: 'h1.product__title',
     price: '[data-product-price]',
+    originalPrice: '.product__price--old [data-compare-price]',
+    priceWrapper: '.product__price',
     images: 'img[data-product-image]',
     // Size selectors
     sizesWrapper: '.selector-wrapper--fullwidth',
@@ -127,10 +129,29 @@ export async function scrapeItem(page: Page, options?: {
     // Extract title
     const title = await page.$eval(SELECTORS.product.title, el => el.textContent?.trim() || '');
 
-    // Extract price
+    // Extract price and check for sale
     const priceText = await page.$eval(SELECTORS.product.price, el => el.textContent?.trim() || '');
-    const price = parseFloat(priceText.replace(/[^\d.,]/g, '').replace(/,/g, ''));
-    const currency = 'UAH';
+    const currentPrice = parseFloat(priceText.replace(/[^\d.,]/g, '').replace(/,/g, ''));
+    
+    // Detect currency from price text
+    let currency = 'USD'; // Default
+    if (priceText.includes('₴')) {
+      currency = 'UAH';
+    } else if (priceText.includes('€')) {
+      currency = 'EUR';
+    } else if (priceText.includes('$')) {
+      currency = 'USD';
+    }
+    
+    // Check if product is on sale by looking for compare_at_price in JSON
+    let price = currentPrice;
+    let sale_price: number | undefined = undefined;
+    
+    if (productJson?.compare_at_price && productJson.compare_at_price > productJson.price) {
+      // Product is on sale
+      price = productJson.compare_at_price / 100; // Original price (JSON prices are in cents)
+      sale_price = currentPrice; // Current price is the sale price
+    }
 
     // Extract images from DOM using data-bgset for high-res URLs
     let images: Image[] = await page.$$eval(SELECTORS.product.images, (els, pageTitle) => {
@@ -253,12 +274,11 @@ export async function scrapeItem(page: Page, options?: {
       title,
       images,
       price,
+      sale_price,
       currency,
       description,
       sizes: formattedSizes,
       color,
-      // No sale price on this product
-      sale_price: undefined,
       variants: undefined
     };
 
