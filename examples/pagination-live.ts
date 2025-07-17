@@ -99,9 +99,9 @@ async function main() {
   // Create browsers for ALL sessions upfront
   log.normal('Creating browsers for sessions...');
   await Promise.all(sessions.map(async (sessionData) => {
-    const { browser, context } = await createBrowserFromSession(sessionData.session);
+    const { browser, createContext } = await createBrowserFromSession(sessionData.session);
     sessionData.browser = browser;
-    sessionData.context = context;
+    sessionData.context = await createContext();
   }));
   log.normal('All browsers ready');
   
@@ -170,17 +170,38 @@ async function main() {
                 timeout: 30000 
               });
               
-              // Run scraper's paginate method
-              const urls = await scraper.paginate(page, site);
+              // Pagination loop - collect URLs from multiple pages
+              const pageUrls: string[] = [];
+              let currentPage = 1;
+              const maxPages = 5; // Limit for safety
+              
+              // Get URLs from first page
+              const firstPageUrls = await scraper.getItemUrls(page);
+              firstPageUrls.forEach(url => pageUrls.push(url));
+              log.normal(`Page 1: Found ${firstPageUrls.size} items`);
+              
+              // Navigate through additional pages
+              while (currentPage < maxPages) {
+                const hasMore = await scraper.paginate(page);
+                if (!hasMore) {
+                  log.normal(`No more pages after page ${currentPage}`);
+                  break;
+                }
+                
+                currentPage++;
+                const urls = await scraper.getItemUrls(page);
+                urls.forEach(url => pageUrls.push(url));
+                log.normal(`Page ${currentPage}: Found ${urls.size} items`);
+              }
               
               // Update pagination state
               siteManager.updatePaginationState(startPage, {
-                collectedUrls: urls,
+                collectedUrls: pageUrls,
                 completed: true
               });
               
-              log.normal(`✓ Collected ${urls.length} URLs from ${startPage}`);
-              collectedUrls.push(...urls);
+              log.normal(`✓ Collected ${pageUrls.length} total URLs from ${startPage} (${currentPage} pages)`);
+              collectedUrls.push(...pageUrls);
               break; // Success, exit retry loop
               
             } finally {
