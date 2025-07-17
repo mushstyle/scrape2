@@ -23,6 +23,11 @@ export interface ScrapeRun {
 export interface CreateScrapeRunRequest {
   domain: string;
   urls?: string[];
+  items?: Array<{ url: string }>;
+  source?: string;
+  metadata?: {
+    started_at?: string;
+  };
 }
 
 export interface CreateScrapeRunResponse {

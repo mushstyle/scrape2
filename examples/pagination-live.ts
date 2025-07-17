@@ -250,7 +250,7 @@ async function main() {
       // Try to commit the partial run
       try {
         const run = await siteManager.commitPartialRun(site);
-        log.normal(`✓ Successfully committed run ${run.id} for ${site} with ${run.items.length} URLs`);
+        log.normal(`✓ Successfully committed run ${run.id} for ${site} with ${collectedUrls.length} URLs`);
         results[site] = { success: true, urls: collectedUrls };
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);

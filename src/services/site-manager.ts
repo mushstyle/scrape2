@@ -345,10 +345,12 @@ export class SiteManager {
     const request: CreateScrapeRunRequest = { domain };
     if (urls && urls.length > 0) {
       request.urls = urls;
+      log.debug(`Adding ${urls.length} URLs to CreateScrapeRunRequest`);
     }
     
     try {
       const run = await createRun(request);
+      log.debug(`Received run response with ${run.items?.length || 0} items`);
       log.normal(`Created run ${run.id} for domain ${domain} with ${run.items.length} items`);
       
       // Update site state with the new run
