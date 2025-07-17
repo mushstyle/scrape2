@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx --env-file=.env
 
 /**
- * CLI wrapper for VerifyPaginateEngine
+ * CLI wrapper for VerifyPaginateEngine (using distributor)
  * Usage: npm run verify:paginate <SITE>
  */
 
@@ -21,7 +21,10 @@ async function main() {
   
   try {
     const engine = new VerifyPaginateEngine();
-    const result = await engine.verify({ domain });
+    const result = await engine.verify({ 
+      domain,
+      maxPages: 5 // Limit for demo
+    });
     
     // Display results
     log.normal('\n=== Verification Results ===');
@@ -30,13 +33,8 @@ async function main() {
     log.normal(`Start pages: ${result.startPagesCount}`);
     log.normal(`Total pages scraped: ${result.totalPagesScraped}`);
     log.normal(`Total unique URLs: ${result.totalUniqueUrls}`);
-    log.normal(`Failed workers: ${result.failedWorkers}`);
+    log.normal(`Iterations: ${result.iterations}`);
     log.normal(`Duration: ${(result.duration / 1000).toFixed(2)}s`);
-    
-    if (result.sampleUrls.length > 0) {
-      log.normal('\nSample URLs:');
-      result.sampleUrls.slice(0, 5).forEach(url => log.normal(`  - ${url}`));
-    }
     
     if (result.errors.length > 0) {
       log.normal('\nErrors:');

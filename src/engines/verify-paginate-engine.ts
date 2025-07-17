@@ -1,9 +1,8 @@
 /**
  * VerifyPaginateEngine
  * 
- * Core engine for verifying pagination functionality of a scraper.
- * Runs through all startPages of a site respecting sessionLimit.
- * Designed to be callable from CLI scripts or API endpoints.
+ * Core engine for verifying pagination functionality using the distributor.
+ * Uses the distributor for URL-session matching and properly handles pagination.
  */
 
 import { SessionManager } from '../services/session-manager.js';
@@ -11,25 +10,26 @@ import { SiteManager } from '../services/site-manager.js';
 import { createBrowserFromSession } from '../drivers/browser.js';
 import { logger } from '../utils/logger.js';
 import { loadScraper } from '../drivers/scraper-loader.js';
+import { itemsToSessions } from '../core/distributor.js';
+import { urlsToScrapeTargets } from '../utils/scrape-target-utils.js';
 import type { Session } from '../types/session.js';
-import type { Page } from 'playwright';
+import type { SessionInfo } from '../core/distributor.js';
+import type { ScrapeTarget } from '../types/scrape-target.js';
+import type { Page, Browser, BrowserContext } from 'playwright';
 
 const log = logger.createContext('verify-paginate-engine');
 
-interface PaginateWorker {
-  startUrl: string;
+interface SessionWithBrowser {
   session: Session;
-  page: Page;
-  scraper: any;
-  urls: Set<string>;
-  pageCount: number;
-  done: boolean;
-  error?: string;
+  sessionInfo: SessionInfo;
+  browser?: Browser;
+  context?: BrowserContext;
 }
 
 export interface VerifyPaginateOptions {
   domain: string;
   maxIterations?: number;
+  maxPages?: number;
   sessionManager?: SessionManager;
   siteManager?: SiteManager;
 }
@@ -40,10 +40,9 @@ export interface VerifyPaginateResult {
   startPagesCount: number;
   totalPagesScraped: number;
   totalUniqueUrls: number;
-  failedWorkers: number;
-  sampleUrls: string[];
   errors: string[];
   duration: number;
+  iterations: number;
 }
 
 export class VerifyPaginateEngine {
@@ -57,8 +56,11 @@ export class VerifyPaginateEngine {
   
   async verify(options: VerifyPaginateOptions): Promise<VerifyPaginateResult> {
     const startTime = Date.now();
-    const workers: PaginateWorker[] = [];
     const errors: string[] = [];
+    const allUrls = new Set<string>();
+    const sessions: SessionWithBrowser[] = [];
+    let totalPagesScraped = 0;
+    let iterations = 0;
     
     try {
       // Initialize
@@ -76,7 +78,7 @@ export class VerifyPaginateEngine {
       const scraper = await loadScraper(options.domain);
       log.normal(`Loaded scraper for ${options.domain}`);
       
-      // Determine session limit from site manager (which uses proxy strategy)
+      // Get session limit and create sessions
       const sessionLimit = await this.siteManager.getSessionLimitForDomain(options.domain);
       const sessionsToCreate = Math.min(sessionLimit, siteConfig.startPages.length);
       
@@ -85,98 +87,109 @@ export class VerifyPaginateEngine {
       log.normal(`Session limit: ${sessionLimit}`);
       log.normal(`Creating ${sessionsToCreate} sessions`);
       
-      // Create workers for parallel execution
+      // Create sessions
       for (let i = 0; i < sessionsToCreate; i++) {
-        // Add delay between session creation to avoid rate limits
         if (i > 0) {
           await new Promise(resolve => setTimeout(resolve, 2000));
         }
         
-        // Get proxy for domain from SiteManager
         const proxy = await this.siteManager.getProxyForDomain(options.domain);
-        
         const session = await this.sessionManager.createSession({ 
           domain: options.domain,
           proxy 
         });
-        const { browser, createContext } = await createBrowserFromSession(session);
-        const context = await createContext();
         
-        // Distribute start pages across workers
-        for (let j = i; j < siteConfig.startPages.length; j += sessionsToCreate) {
-          const page = await context.newPage();
-          workers.push({
-            startUrl: siteConfig.startPages[j],
-            session,
-            page,
-            scraper,
-            urls: new Set(),
-            pageCount: 0,
-            done: false
-          });
-        }
+        // Create SessionInfo for distributor
+        const sessionInfo: SessionInfo = {
+          id: `session-${i}`,
+          proxyType: proxy?.type as any || 'none',
+          proxyId: proxy?.id,
+          proxyGeo: proxy?.geo
+        };
+        
+        sessions.push({ session, sessionInfo });
       }
       
-      log.normal(`\nStarting pagination verification with ${workers.length} workers...`);
+      // Start with initial URLs as ScrapeTargets
+      const targets = urlsToScrapeTargets(siteConfig.startPages);
+      const maxPages = options.maxPages || 5;
       
-      // Navigate to start pages
-      await Promise.all(workers.map(async (worker) => {
+      // Use distributor to match URLs to sessions
+      const pairs = itemsToSessions(
+        targets,
+        sessions.map(s => s.sessionInfo),
+        [siteConfig]
+      );
+      
+      log.normal(`\nDistributor created ${pairs.length} URL-session pairs`);
+      
+      // Process each pair - navigate once, then paginate on same page
+      await Promise.all(pairs.map(async (pair) => {
+        const sessionData = sessions.find(s => s.sessionInfo.id === pair.sessionId);
+        if (!sessionData) {
+          errors.push(`Session ${pair.sessionId} not found`);
+          return;
+        }
+        
         try {
-          log.normal(`Navigating to ${worker.startUrl}`);
-          await worker.page.goto(worker.startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-          worker.pageCount = 1;
+          // Create browser/context if needed
+          if (!sessionData.browser) {
+            const { browser, createContext } = await createBrowserFromSession(sessionData.session);
+            sessionData.browser = browser;
+            sessionData.context = await createContext();
+          }
+          
+          // Create page and navigate ONCE
+          const page = await sessionData.context!.newPage();
+          log.normal(`Navigating to ${pair.url}`);
+          await page.goto(pair.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          
+          let pageCount = 0;
+          let hasMore = true;
+          
+          // Pagination loop on the SAME page object
+          while (hasMore && pageCount < maxPages) {
+            pageCount++;
+            iterations++;
+            
+            // Get item URLs from current page state
+            const urls = await scraper.getItemUrls(page);
+            log.normal(`Page ${pageCount}: Found ${urls.size} items`);
+            urls.forEach(url => allUrls.add(url));
+            totalPagesScraped++;
+            
+            // Try to go to next page (scraper handles navigation internally)
+            if (pageCount < maxPages) {
+              hasMore = await scraper.paginate(page);
+              if (!hasMore) {
+                log.normal(`No more pages for ${pair.url} (scraped ${pageCount} pages)`);
+              }
+            }
+          }
+          
+          await page.close();
         } catch (error) {
-          worker.error = `Failed to navigate: ${error.message}`;
-          worker.done = true;
-          errors.push(`${worker.startUrl}: ${worker.error}`);
+          const errorMsg = `Error processing ${pair.url}: ${error.message}`;
+          log.error(errorMsg);
+          errors.push(errorMsg);
         }
       }));
       
-      // Paginate until all workers are done or we hit a limit
-      let iteration = 0;
-      const maxIterations = options.maxIterations || 10;
-      
-      while (workers.some(w => !w.done) && iteration < maxIterations) {
-        iteration++;
-        log.normal(`\n--- Pagination iteration ${iteration} ---`);
-        
-        // Run pagination for all active workers in parallel
-        const activeWorkers = workers.filter(w => !w.done);
-        await Promise.all(activeWorkers.map(worker => this.paginateWorker(worker)));
-        
-        // Brief pause between iterations
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-      
       // Compile results
-      const allUrls = new Set<string>();
-      let totalPages = 0;
-      let failedWorkers = 0;
-      
-      workers.forEach((worker) => {
-        worker.urls.forEach(url => allUrls.add(url));
-        totalPages += worker.pageCount;
-        if (worker.error) {
-          failedWorkers++;
-          errors.push(`${worker.startUrl}: ${worker.error}`);
-        }
-      });
-      
       const result: VerifyPaginateResult = {
-        success: failedWorkers === 0,
+        success: errors.length === 0,
         domain: options.domain,
         startPagesCount: siteConfig.startPages.length,
-        totalPagesScraped: totalPages,
+        totalPagesScraped,
         totalUniqueUrls: allUrls.size,
-        failedWorkers,
-        sampleUrls: Array.from(allUrls).slice(0, 10),
         errors,
-        duration: Date.now() - startTime
+        duration: Date.now() - startTime,
+        iterations
       };
       
       // Cleanup
-      log.normal('Cleaning up...');
-      await this.cleanup(workers);
+      log.normal('\nCleaning up...');
+      await this.cleanup(sessions);
       
       return result;
       
@@ -185,69 +198,31 @@ export class VerifyPaginateEngine {
       errors.push(`Fatal: ${error.message}`);
       
       // Cleanup on error
-      await this.cleanup(workers);
+      await this.cleanup(sessions);
       
       return {
         success: false,
         domain: options.domain,
         startPagesCount: 0,
-        totalPagesScraped: 0,
-        totalUniqueUrls: 0,
-        failedWorkers: workers.length,
-        sampleUrls: [],
+        totalPagesScraped,
+        totalUniqueUrls: allUrls.size,
         errors,
-        duration: Date.now() - startTime
+        duration: Date.now() - startTime,
+        iterations
       };
     }
   }
   
-  private async paginateWorker(worker: PaginateWorker): Promise<void> {
-    try {
-      // Get URLs from current page
-      const urls = await worker.scraper.getItemUrls(worker.page);
-      log.normal(`Page ${worker.pageCount}: Found ${urls.size} URLs (${worker.startUrl})`);
-      urls.forEach(url => worker.urls.add(url));
-      
-      // Try to go to next page
-      const hasMore = await worker.scraper.paginate(worker.page);
-      if (!hasMore) {
-        log.normal(`No more pages for ${worker.startUrl} (total: ${worker.pageCount} pages, ${worker.urls.size} URLs)`);
-        worker.done = true;
-        return;
+  private async cleanup(sessions: SessionWithBrowser[]): Promise<void> {
+    // Close all browsers
+    await Promise.all(sessions.map(async (s) => {
+      if (s.context) {
+        await s.context.close().catch(e => log.debug(`Failed to close context: ${e.message}`));
       }
-      
-      worker.pageCount++;
-    } catch (error) {
-      log.error(`Error during pagination: ${error.message} (${worker.startUrl})`);
-      worker.error = error.message;
-      worker.done = true;
-    }
-  }
-  
-  private async cleanup(workers: PaginateWorker[]): Promise<void> {
-    const cleanupPromises: Promise<void>[] = [];
-    
-    // Close all pages and contexts
-    const contexts = new Set<any>();
-    for (const worker of workers) {
-      if (worker.page) {
-        const context = worker.page.context();
-        contexts.add(context);
-        cleanupPromises.push(
-          worker.page.close().catch(e => log.debug(`Failed to close page: ${e.message}`))
-        );
+      if (s.browser) {
+        await s.browser.close().catch(e => log.debug(`Failed to close browser: ${e.message}`));
       }
-    }
-    
-    // Close contexts
-    for (const context of contexts) {
-      cleanupPromises.push(
-        context.close().catch(e => log.debug(`Failed to close context: ${e.message}`))
-      );
-    }
-    
-    // Wait for all cleanup
-    await Promise.all(cleanupPromises);
+    }));
     
     // Destroy all sessions
     await this.sessionManager.destroyAllSessions();
