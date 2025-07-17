@@ -32,7 +32,7 @@ export const SELECTORS = {
     vendor: '.wt-product__brand__name',
     productId: 'input[name="product-id"]',
     variantDataScript: 'variant-options script[type="application/json"]',
-    sizeInputs: 'input[name="Size"]',
+    sizeInputs: 'input[name="Size"], input[name="SIZE"]',
   }
 };
 
@@ -291,8 +291,8 @@ export async function scrapeItem(page: Page, options?: {
         })
         .filter((img): img is IntermediateImage => img !== null);
 
-      // Sizes - get from variant options
-      const sizeInputs = document.querySelectorAll('input[name="Size"]');
+      // Sizes - get from variant options (handle both "Size" and "SIZE" input names)
+      const sizeInputs = document.querySelectorAll('input[name="Size"], input[name="SIZE"]');
       const sizes: Size[] = [];
       
       // Get variant data to check availability
