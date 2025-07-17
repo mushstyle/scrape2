@@ -96,6 +96,15 @@ async function main() {
   
   log.normal(`Created ${sessions.length} sessions in parallel`);
   
+  // Create browsers for ALL sessions upfront
+  log.normal('Creating browsers for sessions...');
+  await Promise.all(sessions.map(async (sessionData) => {
+    const { browser, context } = await createBrowserFromSession(sessionData.session);
+    sessionData.browser = browser;
+    sessionData.context = context;
+  }));
+  log.normal('All browsers ready');
+  
   // Process each site
   const results: Record<string, any> = {};
   
@@ -135,16 +144,6 @@ async function main() {
       );
       
       log.normal(`Distributor assigned ${urlSessionPairs.length} URL-session pairs for ${site}`);
-      
-      // Create browsers for sessions that will be used
-      const usedSessionIds = new Set(urlSessionPairs.map(pair => pair.sessionId));
-      for (const sessionData of sessions) {
-        if (usedSessionIds.has(sessionData.sessionInfo.id) && !sessionData.browser) {
-          const { browser, context } = await createBrowserFromSession(sessionData.session);
-          sessionData.browser = browser;
-          sessionData.context = context;
-        }
-      }
       
       // Process each URL-session pair
       const collectedUrls: string[] = [];

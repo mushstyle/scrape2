@@ -88,13 +88,23 @@ async function paginateMultipleSites(sites: string[], instanceLimit: number) {
   
   const sessions = await sessionManager.createSession(sessionOptions) as Session[];
   
-  // 4. Build SessionInfo for distributor
-  const sessionInfos = sessions.map((session, i) => ({
-    id: `session-${i}`,
-    proxyType: sessionOptions[i].proxy?.type || 'none',
-    proxyId: sessionOptions[i].proxy?.id,
-    proxyGeo: sessionOptions[i].proxy?.geo
-  }));
+  // 4. Create browsers from sessions (CRITICAL STEP!)
+  const sessionData = await Promise.all(
+    sessions.map(async (session, i) => {
+      const { browser, context } = await createBrowserFromSession(session);
+      return {
+        session,
+        browser,
+        context,
+        sessionInfo: {
+          id: `session-${i}`,
+          proxyType: sessionOptions[i].proxy?.type || 'none',
+          proxyId: sessionOptions[i].proxy?.id,
+          proxyGeo: sessionOptions[i].proxy?.geo
+        }
+      };
+    })
+  );
   
   // 5. Process each site
   for (const site of sites) {
@@ -138,6 +148,41 @@ const sessions = await sessionManager.createSession([
   { domain: 'site2.com', proxy: proxy2 },
   { domain: 'site3.com', proxy: proxy3 }
 ]) as Session[];
+```
+
+### IMPORTANT: Sessions vs Browsers
+
+**SessionManager creates Session objects, NOT browsers!**
+
+A `Session` is just connection information:
+- For Browserbase: contains `connectUrl` to connect to remote browser
+- For local: contains a Playwright browser instance
+
+**You MUST create browsers from sessions:**
+
+```typescript
+import { createBrowserFromSession } from '../src/drivers/browser.js';
+
+// Create browser from session
+const { browser, context } = await createBrowserFromSession(session);
+
+// Now you can create pages
+const page = await context.newPage();
+```
+
+### Common Mistake: Forgetting to Create Browsers
+
+```typescript
+// ❌ WRONG - This will fail with "Cannot read properties of undefined"
+const sessions = await sessionManager.createSession(options);
+const page = await sessions[0].context.newPage(); // context doesn't exist!
+
+// ✅ RIGHT - Create browsers from sessions
+const sessions = await sessionManager.createSession(options);
+const browsers = await Promise.all(
+  sessions.map(session => createBrowserFromSession(session))
+);
+const page = await browsers[0].context.newPage(); // Now it works!
 ```
 
 ### Instance Limit
