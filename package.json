@@ -24,7 +24,9 @@
     "example:site-startpages": "tsx --no-warnings --env-file=.env examples/site-startpages.ts",
     "example:distributor-pagination": "tsx --no-warnings --env-file=.env examples/distributor-pagination.ts",
     "scrape:urls": "SCRAPE_MODE=urls tsx --no-warnings --env-file=.env scripts/run-engine.ts",
-    "scrape:items": "SCRAPE_MODE=items tsx --no-warnings --env-file=.env scripts/run-engine.ts"
+    "scrape:items": "SCRAPE_MODE=items tsx --no-warnings --env-file=.env scripts/run-engine.ts",
+    "verify:paginate": "tsx --no-warnings --env-file=.env scripts/verify-paginate.ts",
+    "verify:item": "tsx --no-warnings --env-file=.env scripts/verify-item.ts"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

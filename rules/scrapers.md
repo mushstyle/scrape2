@@ -52,8 +52,13 @@ Scrapers **MUST** adhere to the functional pattern seen in `iam-store.com.ts`, e
     *   Wait for relevant selectors to ensure the product grid/links are loaded before extraction.
 *   **`export async function paginate(page: Page): Promise<boolean>`** (REQUIRED):
     *   **Responsibility:** Advance to the *next* page of results if pagination exists.
-    *   Handle different pagination types (next button click, numbered links, infinite scroll).
-    *   Return `true` if navigation to a new page with products likely succeeded, `false` otherwise (e.g., end of results, no pagination, error).
+    *   **CRITICAL:** This function handles ALL navigation internally. The calling code will NOT track URLs or manage navigation between pages.
+    *   **How it works:** The function receives a Page object that is already on a listing page. It should:
+        - For numbered pagination: Click the next page button/link to navigate to the next page
+        - For infinite scroll: Scroll to trigger loading more items on the same page
+        - For load-more buttons: Click the button to load additional items
+    *   **The Page object persists:** The same Page instance is reused across multiple calls. After `paginate()` returns `true`, the page will be in the new state (either navigated to a new URL or with more items loaded).
+    *   Return `true` if more items are available (either by navigating to a new page or loading more items), `false` when no more items can be loaded.
     *   **IMPORTANT:** For sites with no pagination (all items on one page), this function **MUST** still be exported and should simply `return false;`.
 *   **`export async function scrapeItem(page: Page): Promise<Item>`** (REQUIRED):
     *   **Responsibility:** Scrape all details for a *single* product from its dedicated page. The `page` object is already navigated to the correct product URL.

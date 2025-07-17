@@ -1,60 +1,116 @@
-import { test, expect } from 'vitest';
-import { loadProxies, getProxyById, getDefaultProxy, formatProxyForPlaywright } from '../src/drivers/proxy.js';
-import type { ProxyStore } from '../src/types/proxy.js';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { 
+  getProxyStrategy, 
+  selectProxyForDomain, 
+  getSessionLimitForDomain,
+  clearCache 
+} from '../src/drivers/proxy.js';
 
-test('loadProxies - loads proxies from JSON', async () => {
-  const store = await loadProxies();
-  
-  expect(store).toBeDefined();
-  expect(store.proxies).toBeInstanceOf(Array);
-  expect(store.proxies.length).toBeGreaterThan(0);
-  expect(store.default).toBeDefined();
-  expect(typeof store.default).toBe('string');
-});
+describe('Proxy Driver', () => {
+  beforeEach(() => {
+    // Clear cache before each test
+    clearCache();
+  });
 
-test('loadProxies - caches result', async () => {
-  const store1 = await loadProxies();
-  const store2 = await loadProxies();
-  
-  // Should be the same object reference
-  expect(store1).toBe(store2);
-});
+  describe('getProxyStrategy', () => {
+    it('should return strategy for known domain', async () => {
+      const strategy = await getProxyStrategy('amgbrand.com');
+      expect(strategy).toBeDefined();
+      expect(strategy.strategy).toBe('residential-rotating');
+      expect(strategy.geo).toBe('US');
+      expect(strategy.sessionLimit).toBe(4);
+    });
 
-test('getProxyById - returns proxy when found', async () => {
-  const store = await loadProxies();
-  const proxy = getProxyById(store, 'oxylabs-us-datacenter-1');
-  
-  expect(proxy).toBeDefined();
-  expect(proxy?.id).toBe('oxylabs-us-datacenter-1');
-  expect(proxy?.provider).toBe('oxylabs');
-  expect(proxy?.type).toBe('datacenter');
-});
+    it('should return default strategy for unknown domain', async () => {
+      const strategy = await getProxyStrategy('unknown-domain.com');
+      expect(strategy).toBeDefined();
+      expect(strategy.strategy).toBe('datacenter');
+      expect(strategy.geo).toBe('US');
+      expect(strategy.sessionLimit).toBe(3);
+    });
 
-test('getProxyById - returns null when not found', async () => {
-  const store = await loadProxies();
-  const proxy = getProxyById(store, 'non-existent-proxy');
-  
-  expect(proxy).toBeNull();
-});
+    it('should return iam-store.com strategy', async () => {
+      const strategy = await getProxyStrategy('iam-store.com');
+      expect(strategy).toBeDefined();
+      expect(strategy.strategy).toBe('residential-rotating');
+      expect(strategy.sessionLimit).toBe(3);
+    });
+  });
 
-test('getDefaultProxy - returns default proxy', async () => {
-  const store = await loadProxies();
-  const proxy = getDefaultProxy(store);
-  
-  expect(proxy).toBeDefined();
-  expect(proxy?.id).toBe(store.default);
-});
+  describe('selectProxyForDomain', () => {
+    it('should select datacenter proxy for default strategy', async () => {
+      const proxy = await selectProxyForDomain('unknown-domain.com');
+      expect(proxy).toBeDefined();
+      expect(proxy?.type).toBe('datacenter');
+      expect(proxy?.geo).toBe('US');
+    });
 
-test('formatProxyForPlaywright - converts proxy format', async () => {
-  const store = await loadProxies();
-  const proxy = getProxyById(store, 'oxylabs-us-datacenter-1');
-  
-  expect(proxy).toBeDefined();
-  if (!proxy) return;
-  
-  const formatted = formatProxyForPlaywright(proxy);
-  
-  expect(formatted.server).toBe(proxy.url);
-  expect(formatted.username).toBe(proxy.username);
-  expect(formatted.password).toBe(proxy.password);
+    it('should select residential proxy for amgbrand.com', async () => {
+      const proxy = await selectProxyForDomain('amgbrand.com');
+      expect(proxy).toBeDefined();
+      expect(proxy?.type).toBe('residential');
+      expect(proxy?.geo).toBe('US');
+    });
+
+    it('should select residential proxy for iam-store.com', async () => {
+      const proxy = await selectProxyForDomain('iam-store.com');
+      expect(proxy).toBeDefined();
+      expect(proxy?.type).toBe('residential');
+      expect(proxy?.geo).toBe('US');
+      expect(proxy?.provider).toBe('oxylabs');
+    });
+
+    it('should select datacenter proxy for katimoclothes.com', async () => {
+      const proxy = await selectProxyForDomain('katimoclothes.com');
+      expect(proxy).toBeDefined();
+      expect(proxy?.type).toBe('datacenter');
+      expect(proxy?.geo).toBe('US');
+    });
+  });
+
+  describe('getSessionLimitForDomain', () => {
+    it('should return session limit for known domain', async () => {
+      const limit = await getSessionLimitForDomain('amgbrand.com');
+      expect(limit).toBe(4);
+    });
+
+    it('should return session limit for iam-store.com', async () => {
+      const limit = await getSessionLimitForDomain('iam-store.com');
+      expect(limit).toBe(3);
+    });
+
+    it('should return default session limit for unknown domain', async () => {
+      const limit = await getSessionLimitForDomain('unknown-domain.com');
+      expect(limit).toBe(3);
+    });
+  });
+
+  describe('proxy selection consistency', () => {
+    it('should use cached data on subsequent calls', async () => {
+      // First call loads from file
+      const strategy1 = await getProxyStrategy('amgbrand.com');
+      
+      // Second call should use cache
+      const strategy2 = await getProxyStrategy('amgbrand.com');
+      
+      expect(strategy1).toEqual(strategy2);
+    });
+
+    it('should select appropriate proxy type based on strategy', async () => {
+      // Test multiple domains to ensure correct proxy type selection
+      const testCases = [
+        { domain: 'amgbrand.com', expectedType: 'residential' },
+        { domain: 'iam-store.com', expectedType: 'residential' },
+        { domain: 'katimoclothes.com', expectedType: 'datacenter' },
+        { domain: 'ivaclothe.com', expectedType: 'datacenter' },
+        { domain: 'cos.com', expectedType: 'residential' }
+      ];
+
+      for (const { domain, expectedType } of testCases) {
+        const proxy = await selectProxyForDomain(domain);
+        expect(proxy).toBeDefined();
+        expect(proxy?.type).toBe(expectedType);
+      }
+    });
+  });
 });
