@@ -11,11 +11,16 @@ import { logger } from '../src/utils/logger.js';
 const log = logger.createContext('verify-paginate');
 
 async function main() {
-  const domain = process.argv[2];
+  const args = process.argv.slice(2);
+  const domain = args[0];
+  
+  // Parse optional --single flag to only use one session
+  const useSingleSession = args.includes('--single');
   
   if (!domain) {
-    console.log('Usage: npm run verify:paginate <SITE>');
+    console.log('Usage: npm run verify:paginate <SITE> [--single]');
     console.log('Example: npm run verify:paginate amgbrand.com');
+    console.log('Example: npm run verify:paginate amgbrand.com --single  # Only scrapes one start page');
     process.exit(1);
   }
   
@@ -23,7 +28,8 @@ async function main() {
     const engine = new VerifyPaginateEngine();
     const result = await engine.verify({ 
       domain,
-      maxPages: 5 // Limit for demo
+      maxPages: 5, // Limit for demo
+      useSingleSession
     });
     
     // Display results

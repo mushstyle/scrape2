@@ -41,6 +41,97 @@ Look at the existing scrapers in [src/scrapers/](mdc:src/scrapers) to get an ide
         *   To remove scraping configuration, send `{"scrapeConfig": null}`. This might require a separate script or modification to the existing one to handle a null payload.
     *   **Verify:** Use `npm run site:config:get -- <domain>` to fetch the configuration from the API and confirm it was set correctly.
 
+## Testing Your Scraper
+
+We provide verification scripts to test your scraper functions as you develop:
+
+### 1. Test Pagination and URL Extraction
+Use `npm run verify:paginate` to test your `getItemUrls` and `paginate` functions:
+
+```bash
+# Test with all configured start pages (respects session limits)
+npm run verify:paginate <domain>
+
+# Test with only the first start page (useful for quick tests)
+npm run verify:paginate <domain> --single
+```
+
+**What it does:**
+- Creates sessions based on your site's proxy configuration
+- Navigates to your start page(s)
+- Calls your `getItemUrls` function to extract product URLs
+- Calls your `paginate` function repeatedly (up to 5 pages by default)
+- Reports total URLs found, pages scraped, and any errors
+
+**Example output:**
+```
+Site: example.com
+Start pages: 2
+Session limit: 3
+Creating 2 sessions
+
+Distributor created 2 URL-session pairs
+Using single session mode - processing only first URL
+Navigating to https://example.com/products
+
+=== Verification Results ===
+Site: example.com
+Success: true
+Start pages: 2
+Total pages scraped: 5
+Total unique URLs: 120
+Iterations: 1
+Duration: 12.45s
+```
+
+### 2. Test Item Scraping
+Use `npm run verify:item` to test your `scrapeItem` function:
+
+```bash
+npm run verify:item <product-url>
+```
+
+**What it does:**
+- Creates a session for the domain
+- Navigates directly to the product URL
+- Calls your `scrapeItem` function
+- Displays the scraped item data as JSON
+
+**Example:**
+```bash
+npm run verify:item https://example.com/products/some-item
+
+=== Verification Results ===
+URL: https://example.com/products/some-item
+Domain: example.com
+Success: true
+Duration: 3.21s
+
+Scraped item (15 fields):
+{
+  "sourceUrl": "https://example.com/products/some-item",
+  "product_id": "12345",
+  "title": "Example Product",
+  "price": 99.99,
+  "sale_price": 79.99,
+  "currency": "USD",
+  "images": [
+    {
+      "url": "https://example.com/images/product.jpg",
+      "alt": "Example Product",
+      "mushUrl": "https://s3.amazonaws.com/..."
+    }
+  ],
+  ...
+}
+```
+
+### Testing Best Practices
+1. **Start with `--single`**: When first testing pagination, use the `--single` flag to quickly verify your functions work on one page
+2. **Test both regular and sale items**: Use `verify:item` on products with different price states
+3. **Check error handling**: Test with invalid URLs to ensure your scraper handles errors gracefully
+4. **Verify absolute URLs**: Ensure all URLs returned by `getItemUrls` are absolute, not relative
+
 ## Scraper Structure and Function Responsibilities
 
 Scrapers **MUST** adhere to the functional pattern seen in `iam-store.com.ts`, exporting the following **REQUIRED** async functions both as **named exports** and as part of the **default export object**:
