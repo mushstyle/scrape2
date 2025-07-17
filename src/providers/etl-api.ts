@@ -148,7 +148,15 @@ function normalizeRunResponse(run: any): ScrapeRun {
     id: run.id || run._id,
     _id: run._id,
     domain: run.domain,
-    items: run.items || [],
+    items: (run.items || []).map((item: any) => ({
+      url: item.url,
+      done: item.done === true,  // Convert null to false
+      failed: item.failed === true,  // Convert null to false
+      invalid: item.invalid === true,  // Convert null to false
+      failReason: item.failReason || item.failedReason,
+      created_at: item.created_at,
+      updated_at: item.updated_at
+    })),
     status: run.status || 'pending',
     created_at: run.created_at || run.createdAt,
     createdAt: run.createdAt,
