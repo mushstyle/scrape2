@@ -58,8 +58,8 @@ export class SiteManager {
   private loaded: boolean = false;
   // In-memory scrape runs not yet committed to ETL API
   private uncommittedRuns: Map<string, ScrapeRun> = new Map();
-  // Partial run tracking for robust pagination
-  private partialRun?: PartialScrapeRun;
+  // Partial run tracking for robust pagination - map by siteId
+  private partialRuns: Map<string, PartialScrapeRun> = new Map();
 
   constructor(private options: SiteManagerOptions = {}) {
     log.debug('SiteManager initialized');
@@ -718,7 +718,7 @@ export class SiteManager {
    * Start pagination tracking for a site
    */
   async startPagination(siteId: string, startPages: string[]): Promise<void> {
-    this.partialRun = {
+    const partialRun: PartialScrapeRun = {
       siteId,
       paginationStates: new Map(
         startPages.map(url => [url, {
@@ -733,6 +733,7 @@ export class SiteManager {
       createdAt: new Date(),
       committedToDb: false
     };
+    this.partialRuns.set(siteId, partialRun);
     log.debug(`Started pagination tracking for ${siteId} with ${startPages.length} start pages`);
   }
 
@@ -740,11 +741,20 @@ export class SiteManager {
    * Update individual pagination state
    */
   updatePaginationState(startPageUrl: string, update: Partial<PaginationState>): void {
-    if (!this.partialRun) {
-      throw new Error('No partial run in progress');
+    // Find which partial run contains this start page
+    let partialRun: PartialScrapeRun | undefined;
+    for (const [siteId, run] of this.partialRuns) {
+      if (run.paginationStates.has(startPageUrl)) {
+        partialRun = run;
+        break;
+      }
     }
     
-    const state = this.partialRun.paginationStates.get(startPageUrl);
+    if (!partialRun) {
+      throw new Error(`No partial run found containing start page ${startPageUrl}`);
+    }
+    
+    const state = partialRun.paginationStates.get(startPageUrl);
     if (!state) {
       throw new Error(`No pagination state found for ${startPageUrl}`);
     }
@@ -753,8 +763,8 @@ export class SiteManager {
     
     // Recalculate total URLs if collectedUrls was updated
     if (update.collectedUrls) {
-      this.partialRun.totalUrlsCollected = 
-        Array.from(this.partialRun.paginationStates.values())
+      partialRun.totalUrlsCollected = 
+        Array.from(partialRun.paginationStates.values())
           .reduce((sum, s) => sum + s.collectedUrls.length, 0);
     }
     
@@ -764,13 +774,14 @@ export class SiteManager {
   /**
    * Commit partial run to database
    */
-  async commitPartialRun(): Promise<ScrapeRun> {
-    if (!this.partialRun || this.partialRun.committedToDb) {
-      throw new Error('No partial run to commit');
+  async commitPartialRun(siteId: string): Promise<ScrapeRun> {
+    const partialRun = this.partialRuns.get(siteId);
+    if (!partialRun || partialRun.committedToDb) {
+      throw new Error(`No partial run to commit for site ${siteId}`);
     }
     
     // Check if ANY pagination returned 0 URLs
-    const hasEmptyPagination = Array.from(this.partialRun.paginationStates.values())
+    const hasEmptyPagination = Array.from(partialRun.paginationStates.values())
       .some(s => s.completed && s.collectedUrls.length === 0);
     
     if (hasEmptyPagination) {
@@ -778,7 +789,7 @@ export class SiteManager {
     }
     
     // Check if all paginations completed successfully
-    const allCompleted = Array.from(this.partialRun.paginationStates.values())
+    const allCompleted = Array.from(partialRun.paginationStates.values())
       .every(s => s.completed && s.collectedUrls.length > 0);
     
     if (!allCompleted) {
@@ -786,17 +797,31 @@ export class SiteManager {
     }
     
     // Only if ALL paginations succeeded with URLs
-    const allUrls = Array.from(this.partialRun.paginationStates.values())
+    const allUrls = Array.from(partialRun.paginationStates.values())
       .flatMap(s => s.collectedUrls);
     
     // Create scrape run via driver - only succeeds if no exceptions
-    const run = await this.createRun(this.partialRun.siteId, allUrls);
+    const run = await this.createRun(partialRun.siteId, allUrls);
     
-    this.partialRun.committedToDb = true;
-    this.partialRun = undefined; // Clear ONLY after successful DB write
+    partialRun.committedToDb = true;
+    this.partialRuns.delete(siteId); // Clear ONLY after successful DB write
     
     log.normal(`Committed partial run for ${run.domain} with ${allUrls.length} URLs`);
     return run;
+  }
+
+  /**
+   * Check if a partial run exists for a site
+   */
+  hasPartialRun(siteId: string): boolean {
+    return this.partialRuns.has(siteId);
+  }
+
+  /**
+   * Get all sites with partial runs in progress
+   */
+  getSitesWithPartialRuns(): string[] {
+    return Array.from(this.partialRuns.keys());
   }
 
   // ========== Proxy Blocklist Management ==========

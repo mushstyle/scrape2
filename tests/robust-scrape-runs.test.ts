@@ -98,7 +98,7 @@ describe('Robust Scrape Runs', () => {
     it('should throw error when updating state without starting pagination', () => {
       expect(() => {
         siteManager.updatePaginationState('https://test.com/page1', { completed: true });
-      }).toThrow('No partial run in progress');
+      }).toThrow('No partial run found containing start page https://test.com/page1');
     });
 
     it('should throw error when updating state for unknown start page', async () => {
@@ -106,7 +106,7 @@ describe('Robust Scrape Runs', () => {
       
       expect(() => {
         siteManager.updatePaginationState('https://unknown.com/page', { completed: true });
-      }).toThrow('No pagination state found for https://unknown.com/page');
+      }).toThrow('No partial run found containing start page https://unknown.com/page');
     });
 
     it('should commit partial run when all paginations complete successfully', async () => {
@@ -132,7 +132,7 @@ describe('Robust Scrape Runs', () => {
         completed: true
       });
       
-      const run = await siteManager.commitPartialRun();
+      const run = await siteManager.commitPartialRun('test.com');
       
       expect(mockCreateRun).toHaveBeenCalledWith({
         domain: 'test.com',
@@ -160,7 +160,7 @@ describe('Robust Scrape Runs', () => {
         completed: true
       });
       
-      await expect(siteManager.commitPartialRun()).rejects.toThrow('Pagination returned 0 URLs - aborting entire run');
+      await expect(siteManager.commitPartialRun('test.com')).rejects.toThrow('Pagination returned 0 URLs - aborting entire run');
     });
 
     it('should throw error when committing with incomplete paginations', async () => {
@@ -172,11 +172,64 @@ describe('Robust Scrape Runs', () => {
         completed: true
       });
       
-      await expect(siteManager.commitPartialRun()).rejects.toThrow('Not all paginations completed successfully');
+      await expect(siteManager.commitPartialRun('test.com')).rejects.toThrow('Not all paginations completed successfully');
     });
 
     it('should throw error when committing without partial run', async () => {
-      await expect(siteManager.commitPartialRun()).rejects.toThrow('No partial run to commit');
+      await expect(siteManager.commitPartialRun('test.com')).rejects.toThrow('No partial run to commit for site test.com');
+    });
+
+    it('should support multiple sites with independent partial runs', async () => {
+      // Add another site
+      siteManager.addSite('example.com', {
+        ...mockSiteConfig,
+        domain: 'example.com',
+        startPages: ['https://example.com/page1']
+      });
+
+      // Start pagination for both sites
+      await siteManager.startPagination('test.com', mockSiteConfig.startPages);
+      await siteManager.startPagination('example.com', ['https://example.com/page1']);
+
+      // Verify both sites have partial runs
+      expect(siteManager.hasPartialRun('test.com')).toBe(true);
+      expect(siteManager.hasPartialRun('example.com')).toBe(true);
+      expect(siteManager.getSitesWithPartialRuns()).toHaveLength(2);
+
+      // Complete test.com pagination
+      siteManager.updatePaginationState('https://test.com/page1', {
+        collectedUrls: ['https://test.com/item1'],
+        completed: true
+      });
+      siteManager.updatePaginationState('https://test.com/page2', {
+        collectedUrls: ['https://test.com/item2'],
+        completed: true
+      });
+
+      mockCreateRun.mockResolvedValue({
+        id: 'run-123',
+        domain: 'test.com',
+        status: 'pending',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        items: []
+      });
+
+      // Commit test.com
+      await siteManager.commitPartialRun('test.com');
+
+      // Verify test.com is committed but example.com still has partial run
+      expect(siteManager.hasPartialRun('test.com')).toBe(false);
+      expect(siteManager.hasPartialRun('example.com')).toBe(true);
+      expect(siteManager.getSitesWithPartialRuns()).toEqual(['example.com']);
+
+      // Example.com can still be updated independently
+      expect(() => {
+        siteManager.updatePaginationState('https://example.com/page1', {
+          collectedUrls: ['https://example.com/item1'],
+          completed: true
+        });
+      }).not.toThrow();
     });
   });
 
