@@ -1,6 +1,5 @@
 import type { Page } from 'playwright';
 import type { Item, Image, Size } from '../types/item.js';
-import { ItemSchema, ImageSchema, SizeSchema } from '../types/item.js';
 import * as Utils from "../db/db-utils.js";
 // Site config is now managed by SiteManager service
 import { uploadImageUrlToS3 } from '../providers/s3.js';
@@ -147,7 +146,7 @@ export const scrapeItem = async (page: Page, options?: {
           alt_text: (img as HTMLImageElement).alt
         }));
       }).catch(() => []);
-      const images: Image[] = rawImages.map(img => ImageSchema.parse(img));
+      const images: Image[] = rawImages;
       const validImages = images.filter(img => img.sourceUrl && !img.sourceUrl.startsWith('data:'));
 
       // --- Use the helper function for S3 Upload Logic --- 
@@ -168,14 +167,14 @@ export const scrapeItem = async (page: Page, options?: {
         is_available: !(option as HTMLOptionElement).disabled
       })).filter(o => o.size && o.size.toLowerCase() !== 'choose an option');
     }).catch(() => []);
-    const sizes: Size[] = rawSizes.map(size => SizeSchema.parse(size));
+    const sizes: Size[] = rawSizes;
 
     const description = await page.$$eval('.smart-tabs-content-block', blocks =>
       blocks.map(b => b.textContent?.trim()).filter(Boolean).join('\n\n')
     ).catch(() => '');
 
     // --- Construct Final Item ---
-    const item: Item = ItemSchema.parse({
+    const item: Item = {
       sourceUrl,
       product_id: productId,
       title,
@@ -186,7 +185,7 @@ export const scrapeItem = async (page: Page, options?: {
       currency,
       sizes: sizes.length > 0 ? sizes : undefined,
       vendor: 'iam-store',
-    });
+    };
 
     return Utils.formatItem(item);
   } finally {
