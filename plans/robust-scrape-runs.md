@@ -114,9 +114,123 @@ class SiteManager {
 - Can handle failures gracefully (skip failed start pages)
 - In-memory state can be inspected for debugging
 
+## Network Failure Handling
+
+### Pagination Failures
+Track failures per URL and proxy usage:
+
+```typescript
+interface PaginationState {
+  startPageUrl: string;
+  status: 'pending' | 'paginating' | 'completed' | 'failed';
+  collectedUrls: string[];
+  error?: string;
+  lastPageVisited?: string;
+  totalPages?: number;
+  currentPage?: number;
+  // New failure tracking
+  failureCount: number;
+  failureHistory: Array<{
+    timestamp: Date;
+    proxy: string;
+    error: string;
+  }>;
+}
+```
+
+### Proxy Blocklist (Per Site)
+Track datacenter proxies that fail, with cooldown:
+
+```typescript
+interface ProxyBlocklistEntry {
+  proxy: string;
+  failedAt: Date;
+  failureCount: number;
+  lastError: string;
+}
+
+interface SiteState {
+  // ... existing fields ...
+  proxyBlocklist: Map<string, ProxyBlocklistEntry>;
+}
+
+class SiteManager {
+  // Add proxy to blocklist
+  addProxyToBlocklist(domain: string, proxy: string, error: string) {
+    const site = this.getSite(domain);
+    if (!site || !this.isDatacenterProxy(proxy)) return;
+    
+    const existing = site.proxyBlocklist.get(proxy);
+    if (existing) {
+      existing.failureCount++;
+      existing.failedAt = new Date();
+      existing.lastError = error;
+    } else {
+      site.proxyBlocklist.set(proxy, {
+        proxy,
+        failedAt: new Date(),
+        failureCount: 1,
+        lastError: error
+      });
+    }
+  }
+  
+  // Get blocked proxies (excluding cooled down ones)
+  getBlockedProxies(domain: string, cooldownMinutes: number = 30): string[] {
+    const site = this.getSite(domain);
+    if (!site) return [];
+    
+    const now = new Date();
+    const blocked: string[] = [];
+    
+    for (const [proxy, entry] of site.proxyBlocklist) {
+      const minutesSinceFailure = (now.getTime() - entry.failedAt.getTime()) / (1000 * 60);
+      if (minutesSinceFailure < cooldownMinutes) {
+        blocked.push(proxy);
+      }
+    }
+    
+    return blocked;
+  }
+  
+  // Clean up old entries
+  cleanupBlocklist(domain: string, maxAgeMinutes: number = 1440) { // 24 hours
+    const site = this.getSite(domain);
+    if (!site) return;
+    
+    const now = new Date();
+    for (const [proxy, entry] of site.proxyBlocklist) {
+      const minutesSinceFailure = (now.getTime() - entry.failedAt.getTime()) / (1000 * 60);
+      if (minutesSinceFailure > maxAgeMinutes) {
+        site.proxyBlocklist.delete(proxy);
+      }
+    }
+  }
+}
+```
+
+### Integration with Distributor
+Pass blocked proxies when requesting sessions:
+
+```typescript
+// When getting proxy for pagination
+async getProxyForPagination(domain: string): Promise<Proxy | null> {
+  const blockedProxies = this.getBlockedProxies(domain);
+  
+  // Pass to distributor to exclude these proxies
+  return selectProxyForDomain(domain, { 
+    excludeProxies: blockedProxies 
+  });
+}
+```
+
 ## Implementation Steps
-1. [ ] Add PartialScrapeRun and PaginationState types
+1. [ ] Add PartialScrapeRun and PaginationState types with failure tracking
 2. [ ] Extend SiteManager with partial run tracking
-3. [ ] Update pagination logic to use new state tracking
-4. [ ] Ensure atomic commit via scrape-runs driver
-5. [ ] Add guards against committing incomplete runs
+3. [ ] Add proxy blocklist to SiteState
+4. [ ] Implement proxy failure tracking (datacenter only)
+5. [ ] Add cooldown logic for blocked proxies
+6. [ ] Update pagination logic to use new state tracking
+7. [ ] Modify distributor to accept excluded proxy list
+8. [ ] Ensure atomic commit via scrape-runs driver
+9. [ ] Add guards against committing incomplete runs
