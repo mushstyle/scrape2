@@ -99,3 +99,89 @@ export function getFirstStartPageUrl(config: SiteConfig): string {
     // Now correctly accesses the first element which is a string URL
     return config.startPages[0];
 }
+
+/**
+ * Add start pages to a site's configuration
+ * @param domain The domain to update
+ * @param urls URLs to add (duplicates will be ignored)
+ */
+export async function addStartPages(domain: string, urls: string[]): Promise<void> {
+    const cleanDomain = extractDomain(domain);
+    
+    try {
+        // Get current config
+        const currentConfig = await getSiteConfig(cleanDomain);
+        const existingUrls = new Set(currentConfig.startPages || []);
+        
+        // Add new URLs (avoid duplicates)
+        urls.forEach(url => existingUrls.add(url));
+        
+        // Update via API
+        const { updateSiteScrapingConfig } = await import('../providers/etl-api.js');
+        await updateSiteScrapingConfig(cleanDomain, {
+            scrapeConfig: {
+                startPages: Array.from(existingUrls)
+            }
+        });
+        
+        log.normal(`Added ${urls.length} start pages to ${cleanDomain}`);
+    } catch (error) {
+        log.error(`Failed to add start pages to ${cleanDomain}`, { error });
+        throw error;
+    }
+}
+
+/**
+ * Replace all start pages for a site
+ * @param domain The domain to update
+ * @param urls New URLs to set as start pages
+ */
+export async function replaceStartPages(domain: string, urls: string[]): Promise<void> {
+    const cleanDomain = extractDomain(domain);
+    
+    try {
+        // Update via API
+        const { updateSiteScrapingConfig } = await import('../providers/etl-api.js');
+        await updateSiteScrapingConfig(cleanDomain, {
+            scrapeConfig: {
+                startPages: urls
+            }
+        });
+        
+        log.normal(`Replaced start pages for ${cleanDomain} with ${urls.length} new URLs`);
+    } catch (error) {
+        log.error(`Failed to replace start pages for ${cleanDomain}`, { error });
+        throw error;
+    }
+}
+
+/**
+ * Remove specific start pages from a site
+ * @param domain The domain to update
+ * @param urlsToRemove URLs to remove
+ */
+export async function removeStartPages(domain: string, urlsToRemove: string[]): Promise<void> {
+    const cleanDomain = extractDomain(domain);
+    
+    try {
+        // Get current config
+        const currentConfig = await getSiteConfig(cleanDomain);
+        const existingUrls = new Set(currentConfig.startPages || []);
+        
+        // Remove specified URLs
+        urlsToRemove.forEach(url => existingUrls.delete(url));
+        
+        // Update via API
+        const { updateSiteScrapingConfig } = await import('../providers/etl-api.js');
+        await updateSiteScrapingConfig(cleanDomain, {
+            scrapeConfig: {
+                startPages: Array.from(existingUrls)
+            }
+        });
+        
+        log.normal(`Removed ${urlsToRemove.length} start pages from ${cleanDomain}`);
+    } catch (error) {
+        log.error(`Failed to remove start pages from ${cleanDomain}`, { error });
+        throw error;
+    }
+}
