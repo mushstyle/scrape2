@@ -19,6 +19,8 @@ import type {
 } from '../types/scrape-run.js';
 import type { ItemStats } from '../types/orchestration.js';
 import type { Proxy } from '../types/proxy.js';
+import type { PartialScrapeRun, PaginationState, ProxyBlocklistEntry } from '../types/robust-scrape-run.js';
+import { getProxyStrategy } from '../drivers/proxy.js';
 
 const log = logger.createContext('site-manager');
 
@@ -35,6 +37,8 @@ export interface SiteState {
   // URL retry tracking
   retryCount?: Map<string, number>;
   failedUrls?: Set<string>;
+  // Proxy blocklist
+  proxyBlocklist: Map<string, ProxyBlocklistEntry>; // key is proxy string
 }
 
 export interface SiteManagerOptions {
@@ -54,6 +58,8 @@ export class SiteManager {
   private loaded: boolean = false;
   // In-memory scrape runs not yet committed to ETL API
   private uncommittedRuns: Map<string, ScrapeRun> = new Map();
+  // Partial run tracking for robust pagination - map by siteId
+  private partialRuns: Map<string, PartialScrapeRun> = new Map();
 
   constructor(private options: SiteManagerOptions = {}) {
     log.debug('SiteManager initialized');
@@ -71,7 +77,9 @@ export class SiteManager {
     log.normal('Loading sites from ETL API...');
     
     const sitesResponse = await getSites();
-    const allSites = sitesResponse.data || sitesResponse.sites || [];
+    const allSites = Array.isArray(sitesResponse) 
+      ? sitesResponse 
+      : (sitesResponse.data || sitesResponse.sites || []);
     
     log.normal(`Found ${allSites.length} sites`);
 
@@ -105,7 +113,8 @@ export class SiteManager {
         this.sites.set(domain, {
           domain,
           config,
-          customData: {}
+          customData: {},
+          proxyBlocklist: new Map()
         });
         loadedCount++;
       }
@@ -251,6 +260,28 @@ export class SiteManager {
   }
 
   /**
+   * Get site configurations with blocked proxies
+   * @param includeBlockedProxies - Whether to include blockedProxies field (default: true)
+   */
+  async getSiteConfigsWithBlockedProxies(includeBlockedProxies: boolean = true): Promise<SiteConfig[]> {
+    const configs: SiteConfig[] = [];
+    
+    for (const site of this.sites.values()) {
+      if (!includeBlockedProxies) {
+        configs.push(site.config);
+      } else {
+        const blockedProxies = await this.getBlockedProxies(site.domain);
+        configs.push({
+          ...site.config,
+          blockedProxies
+        });
+      }
+    }
+    
+    return configs;
+  }
+
+  /**
    * Add or update a site manually
    */
   addSite(domain: string, config: SiteConfig, state?: Partial<SiteState>): void {
@@ -261,7 +292,8 @@ export class SiteManager {
       config,
       lastScraped: state?.lastScraped,
       activeSessionCount: state?.activeSessionCount,
-      customData: state?.customData || {}
+      customData: state?.customData || {},
+      proxyBlocklist: state?.proxyBlocklist || new Map()
     });
 
     log.debug(`Added/updated site: ${domain}`);
@@ -313,10 +345,12 @@ export class SiteManager {
     const request: CreateScrapeRunRequest = { domain };
     if (urls && urls.length > 0) {
       request.urls = urls;
+      log.debug(`Adding ${urls.length} URLs to CreateScrapeRunRequest`);
     }
     
     try {
       const run = await createRun(request);
+      log.debug(`Received run response with ${run.items?.length || 0} items`);
       log.normal(`Created run ${run.id} for domain ${domain} with ${run.items.length} items`);
       
       // Update site state with the new run
@@ -337,11 +371,14 @@ export class SiteManager {
    * Create a pending (uncommitted) run that can be built up before committing
    */
   createPendingRun(domain: string): ScrapeRun {
+    const now = new Date().toISOString();
     const pendingRun: ScrapeRun = {
       id: `pending-${domain}-${Date.now()}`,
       domain,
       status: 'pending',
-      createdAt: new Date().toISOString(),
+      created_at: now,
+      updated_at: now,
+      createdAt: now,
       items: []
     };
     
@@ -368,7 +405,8 @@ export class SiteManager {
     const newItems: ScrapeRunItem[] = urls.map(url => ({
       url,
       done: false,
-      failed: false
+      failed: false,
+      invalid: false
     }));
     
     pendingRun.items.push(...newItems);
@@ -458,7 +496,7 @@ export class SiteManager {
     
     try {
       const run = await fetchRun(runId);
-      const pendingItems = run.items.filter(item => !item.done);
+      const pendingItems = run.items.filter((item: ScrapeRunItem) => !item.done);
       log.debug(`Found ${pendingItems.length} pending items in run ${runId}`);
       return pendingItems;
     } catch (error) {
@@ -675,4 +713,191 @@ export class SiteManager {
       site.failedUrls = new Set();
     }
   }
+
+  // ========== Partial Run Tracking ==========
+
+  /**
+   * Start pagination tracking for a site
+   */
+  async startPagination(siteId: string, startPages: string[]): Promise<void> {
+    const partialRun: PartialScrapeRun = {
+      siteId,
+      paginationStates: new Map(
+        startPages.map(url => [url, {
+          startPageUrl: url,
+          collectedUrls: [],
+          failureCount: 0,
+          failureHistory: [],
+          completed: false
+        }])
+      ),
+      totalUrlsCollected: 0,
+      createdAt: new Date(),
+      committedToDb: false
+    };
+    this.partialRuns.set(siteId, partialRun);
+    log.debug(`Started pagination tracking for ${siteId} with ${startPages.length} start pages`);
+  }
+
+  /**
+   * Update individual pagination state
+   */
+  updatePaginationState(startPageUrl: string, update: Partial<PaginationState>): void {
+    // Find which partial run contains this start page
+    let partialRun: PartialScrapeRun | undefined;
+    for (const [siteId, run] of this.partialRuns) {
+      if (run.paginationStates.has(startPageUrl)) {
+        partialRun = run;
+        break;
+      }
+    }
+    
+    if (!partialRun) {
+      throw new Error(`No partial run found containing start page ${startPageUrl}`);
+    }
+    
+    const state = partialRun.paginationStates.get(startPageUrl);
+    if (!state) {
+      throw new Error(`No pagination state found for ${startPageUrl}`);
+    }
+    
+    Object.assign(state, update);
+    
+    // Recalculate total URLs if collectedUrls was updated
+    if (update.collectedUrls) {
+      partialRun.totalUrlsCollected = 
+        Array.from(partialRun.paginationStates.values())
+          .reduce((sum, s) => sum + s.collectedUrls.length, 0);
+    }
+    
+    log.debug(`Updated pagination state for ${startPageUrl}`, update);
+  }
+
+  /**
+   * Commit partial run to database
+   */
+  async commitPartialRun(siteId: string): Promise<ScrapeRun> {
+    const partialRun = this.partialRuns.get(siteId);
+    if (!partialRun || partialRun.committedToDb) {
+      throw new Error(`No partial run to commit for site ${siteId}`);
+    }
+    
+    // Check if ANY pagination returned 0 URLs
+    const hasEmptyPagination = Array.from(partialRun.paginationStates.values())
+      .some(s => s.completed && s.collectedUrls.length === 0);
+    
+    if (hasEmptyPagination) {
+      throw new Error('Pagination returned 0 URLs - aborting entire run');
+    }
+    
+    // Check if all paginations completed successfully
+    const allCompleted = Array.from(partialRun.paginationStates.values())
+      .every(s => s.completed && s.collectedUrls.length > 0);
+    
+    if (!allCompleted) {
+      throw new Error('Not all paginations completed successfully');
+    }
+    
+    // Only if ALL paginations succeeded with URLs
+    const allUrls = Array.from(partialRun.paginationStates.values())
+      .flatMap(s => s.collectedUrls);
+    
+    // Create scrape run via driver - only succeeds if no exceptions
+    const run = await this.createRun(partialRun.siteId, allUrls);
+    
+    partialRun.committedToDb = true;
+    this.partialRuns.delete(siteId); // Clear ONLY after successful DB write
+    
+    log.normal(`Committed partial run for ${run.domain} with ${allUrls.length} URLs`);
+    return run;
+  }
+
+  /**
+   * Check if a partial run exists for a site
+   */
+  hasPartialRun(siteId: string): boolean {
+    return this.partialRuns.has(siteId);
+  }
+
+  /**
+   * Get all sites with partial runs in progress
+   */
+  getSitesWithPartialRuns(): string[] {
+    return Array.from(this.partialRuns.keys());
+  }
+
+  // ========== Proxy Blocklist Management ==========
+
+  /**
+   * Check if a proxy is a datacenter proxy
+   */
+  private isDatacenterProxy(proxy: string): boolean {
+    // Datacenter proxies typically have a specific format or identifier
+    // This is a simplified check - adjust based on your proxy format
+    return !proxy.includes('residential');
+  }
+
+  /**
+   * Get cooldown period for a domain from proxy configuration
+   */
+  private async getProxyCooldownMinutes(domain: string): Promise<number> {
+    try {
+      const strategy = await getProxyStrategy(domain);
+      return strategy.cooldownMinutes || 30; // Default 30 min
+    } catch (error) {
+      log.debug(`Failed to get proxy strategy for ${domain}, using default cooldown`);
+      return 30;
+    }
+  }
+
+  /**
+   * Add proxy to blocklist (datacenter only)
+   */
+  async addProxyToBlocklist(domain: string, proxy: string, error: string): Promise<void> {
+    const site = this.getSite(domain);
+    if (!site || !this.isDatacenterProxy(proxy)) return;
+    
+    const existing = site.proxyBlocklist.get(proxy);
+    if (existing) {
+      existing.failureCount++;
+      existing.failedAt = new Date();
+      existing.lastError = error;
+    } else {
+      site.proxyBlocklist.set(proxy, {
+        proxy,
+        failedAt: new Date(),
+        failureCount: 1,
+        lastError: error
+      });
+    }
+    
+    log.debug(`Added proxy ${proxy} to blocklist for ${domain}`, { error });
+  }
+
+  /**
+   * Get blocked proxies and clean up expired entries
+   */
+  async getBlockedProxies(domain: string): Promise<string[]> {
+    const site = this.getSite(domain);
+    if (!site) return [];
+    
+    const now = new Date();
+    const cooldownMinutes = await this.getProxyCooldownMinutes(domain);
+    const blocked: string[] = [];
+    
+    // Check each entry and remove if past cooldown
+    for (const [proxy, entry] of site.proxyBlocklist) {
+      const minutesSinceFailure = (now.getTime() - entry.failedAt.getTime()) / (1000 * 60);
+      if (minutesSinceFailure >= cooldownMinutes) {
+        // Remove from blocklist entirely
+        site.proxyBlocklist.delete(proxy);
+        log.debug(`Removed proxy ${proxy} from blocklist for ${domain} (cooldown expired)`);
+      } else {
+        blocked.push(proxy);
+      }
+    }
+    
+    return blocked;
+  }
+
 }

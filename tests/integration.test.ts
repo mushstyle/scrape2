@@ -5,8 +5,7 @@ import { RequestCache } from '../src/drivers/cache.js';
 
 test('Integration - local browser + proxy + cache', async () => {
   // Load proxy
-  const proxyStore = await loadProxies();
-  const proxy = getProxyById(proxyStore, 'oxylabs-us-datacenter-1');
+  const proxy = await getProxyById('oxylabs-us-datacenter-1');
   expect(proxy).toBeDefined();
   if (!proxy) return;
 

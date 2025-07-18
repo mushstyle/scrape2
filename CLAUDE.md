@@ -26,6 +26,7 @@
 - Use `vitest` for testing instead of Bun test
 
 ## Rules to Follow
+- `rules/sites-and-sessions.md`: how to use SiteManager, SessionManager, and distributor
 - `rules/testing.md`: how to test
 - `rules/types.md`: how to use and create types
 - `rules/plans.md`: how to create plans
@@ -44,6 +45,7 @@
 - NO console.log - use `logger.createContext()` instead
 - NO `any` types unless absolutely necessary
 - Follow existing patterns in neighboring files
+- CLI parameters should match internal variable names (e.g., `instanceLimit` → `--instance-limit`)
 
 ## Commands
 - Scripts via `npm run <name>` (see package.json)

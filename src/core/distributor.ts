@@ -37,7 +37,7 @@ export interface SiteConfigWithBlockedProxies extends SiteConfig {
  * @param siteConfigs - Array of site configurations with proxy requirements and blocked proxy IDs
  * @returns Array of URL-Session pairs with unique sessions (max length = sessions.length)
  */
-export function itemsToSessions(
+export function targetsToSessions(
   targets: ScrapeTarget[],
   sessions: SessionInfo[],
   siteConfigs: SiteConfigWithBlockedProxies[] = []
@@ -164,14 +164,14 @@ export function doublePassMatcher(
   finalMatched: UrlSessionPair[];
 } {
   // First pass with initial sessions
-  const firstPassMatched = itemsToSessions(targets, initialSessions, siteConfigs);
+  const firstPassMatched = targetsToSessions(targets, initialSessions, siteConfigs);
   
   // Identify excess sessions (not used in first pass)
   const usedSessionIds = new Set(firstPassMatched.map(pair => pair.sessionId));
   const excessSessions = initialSessions.filter(session => !usedSessionIds.has(session.id));
   
   // Second pass with final sessions (after creation/termination)
-  const finalMatched = itemsToSessions(targets, finalSessions, siteConfigs);
+  const finalMatched = targetsToSessions(targets, finalSessions, siteConfigs);
   
   return {
     firstPassMatched,

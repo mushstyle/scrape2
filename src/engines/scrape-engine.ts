@@ -1,7 +1,7 @@
 import { logger } from '../utils/logger.js';
 import { SessionManager } from '../services/session-manager.js';
 import { SiteManager } from '../services/site-manager.js';
-import { itemsToSessions } from '../core/distributor.js';
+import { targetsToSessions } from '../core/distributor.js';
 import type { SiteConfig } from '../types/site-config-types.js';
 import type { ScrapeTarget } from '../types/scrape-target.js';
 import type { SessionInfo, SiteConfigWithBlockedProxies, UrlSessionPair } from '../core/distributor.js';
@@ -162,7 +162,7 @@ export class Engine {
     log.normal(`Found ${existingSessions.length} existing sessions`);
     
     // Step 2: First pass
-    let matched = itemsToSessions(scrapeTargets, sessionInfos, siteConfigs);
+    let matched = targetsToSessions(scrapeTargets, sessionInfos, siteConfigs);
     log.normal(`First pass matched: ${matched.length} URL-session pairs`);
     
     // Find excess sessions
@@ -204,7 +204,7 @@ export class Engine {
         log.normal('Running second pass...');
         const allSessions = await this.sessionManager.getActiveSessions();
         const allSessionInfos = this.sessionsToSessionInfo(allSessions);
-        matched = itemsToSessions(scrapeTargets, allSessionInfos, siteConfigs);
+        matched = targetsToSessions(scrapeTargets, allSessionInfos, siteConfigs);
         log.normal(`Second pass matched: ${matched.length} URL-session pairs`);
       }
     }

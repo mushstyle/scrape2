@@ -8,7 +8,7 @@
  */
 
 import { logger } from '../src/utils/logger.js';
-import { doublePassMatcher, itemsToSessions } from '../src/core/distributor.js';
+import { doublePassMatcher, targetsToSessions } from '../src/core/distributor.js';
 import { SessionManager } from '../src/services/session-manager.js';
 import { SiteManager } from '../src/services/site-manager.js';
 import type { SessionInfo, SiteConfigWithBlockedProxies } from '../src/core/distributor.js';
@@ -109,7 +109,7 @@ async function demonstrateDoublePassMatcher() {
 
   // 8. Compare efficiency
   log.normal('\n=== Efficiency Analysis ===');
-  log.normal(`Items to process: ${items.length}`);
+  log.normal(`Items to process: ${targets.length}`);
   log.normal(`Initial sessions: ${initialSessionInfos.length}`);
   log.normal(`Final sessions: ${finalSessionInfos.length}`);
   log.normal(`First pass efficiency: ${(result.firstPassMatched.length / initialSessionInfos.length * 100).toFixed(1)}%`);

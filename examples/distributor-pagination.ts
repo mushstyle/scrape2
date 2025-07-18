@@ -9,7 +9,7 @@
 
 import { SessionManager } from '../src/services/session-manager.js';
 import { SiteManager } from '../src/services/site-manager.js';
-import { itemsToSessions } from '../src/core/distributor.js';
+import { targetsToSessions } from '../src/core/distributor.js';
 import { createBrowserFromSession } from '../src/drivers/browser.js';
 import { loadScraper } from '../src/drivers/scraper-loader.js';
 import { logger } from '../src/utils/logger.js';
@@ -64,7 +64,7 @@ async function main() {
     
     // First pass - distribute URLs to empty session list to see how many we need
     log.normal('\n=== First Pass: URL Distribution ===');
-    const firstPassMatched = itemsToSessions(allTargets, [], siteConfigs);
+    const firstPassMatched = targetsToSessions(allTargets, [], siteConfigs);
     log.normal(`Matched ${firstPassMatched.length} URLs in first pass (no sessions yet)`);
     
     // Calculate how many sessions we need
@@ -94,7 +94,7 @@ async function main() {
     
     // Second pass - distribute URLs to sessions
     log.normal('\n=== Second Pass: Session Assignment ===');
-    const matched = itemsToSessions(allTargets, sessionInfos, siteConfigs);
+    const matched = targetsToSessions(allTargets, sessionInfos, siteConfigs);
     
     log.normal(`\nMatched ${matched.length} URL-session pairs`);
     log.normal('URL-Session assignments:');

@@ -26,6 +26,7 @@ export interface SiteConfig {
         sessionLimit: number;  // Max concurrent sessions per site
     };
     timeout?: number;  // Navigation timeout in milliseconds (default: 10000)
+    blockedProxies?: string[]; // Proxies to exclude for this site
 }
 
 export interface SitesConfig {
@@ -39,6 +40,9 @@ export interface ProxyStrategyConfig {
     failureThreshold: number;
     sessionLimit: number;
 }
+
+// Alias for backward compatibility
+export type ProxyStrategy = ProxyStrategyConfig;
 
 export interface ProxyStrategiesStore {
     [domain: string]: ProxyStrategyConfig;

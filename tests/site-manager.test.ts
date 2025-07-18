@@ -228,25 +228,25 @@ describe('SiteManager', () => {
       siteManager.addSite('nostart.com', mockSiteConfig3);
     });
 
-    it('should get start pages for domain respecting sessionLimit', () => {
-      const pages = siteManager.getStartPagesForDomain('example.com');
+    it('should get start pages for domain respecting sessionLimit', async () => {
+      const pages = await siteManager.getStartPagesForDomain('example.com');
       expect(pages).toHaveLength(2); // sessionLimit is 2
       expect(pages).toEqual(['https://example.com/page1', 'https://example.com/page2']);
     });
 
-    it('should get start pages when sessionLimit exceeds available pages', () => {
-      const pages = siteManager.getStartPagesForDomain('test.com');
+    it('should get start pages when sessionLimit exceeds available pages', async () => {
+      const pages = await siteManager.getStartPagesForDomain('test.com');
       expect(pages).toHaveLength(1); // Only 1 start page available
       expect(pages).toEqual(['https://test.com/start']);
     });
 
-    it('should return empty array for sites without start pages', () => {
-      const pages = siteManager.getStartPagesForDomain('nostart.com');
+    it('should return empty array for sites without start pages', async () => {
+      const pages = await siteManager.getStartPagesForDomain('nostart.com');
       expect(pages).toHaveLength(0);
     });
 
-    it('should get all start pages from all sites', () => {
-      const allPages = siteManager.getAllStartPages();
+    it('should get all start pages from all sites', async () => {
+      const allPages = await siteManager.getAllStartPages();
       expect(allPages).toHaveLength(3); // 2 from example.com + 1 from test.com
       expect(allPages).toContainEqual({ url: 'https://example.com/page1', domain: 'example.com' });
       expect(allPages).toContainEqual({ url: 'https://example.com/page2', domain: 'example.com' });

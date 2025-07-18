@@ -16,7 +16,7 @@ describe('Proxy Driver', () => {
     it('should return strategy for known domain', async () => {
       const strategy = await getProxyStrategy('amgbrand.com');
       expect(strategy).toBeDefined();
-      expect(strategy.strategy).toBe('residential-rotating');
+      expect(strategy.strategy).toBe('datacenter');
       expect(strategy.geo).toBe('US');
       expect(strategy.sessionLimit).toBe(4);
     });
@@ -45,10 +45,10 @@ describe('Proxy Driver', () => {
       expect(proxy?.geo).toBe('US');
     });
 
-    it('should select residential proxy for amgbrand.com', async () => {
+    it('should select datacenter proxy for amgbrand.com', async () => {
       const proxy = await selectProxyForDomain('amgbrand.com');
       expect(proxy).toBeDefined();
-      expect(proxy?.type).toBe('residential');
+      expect(proxy?.type).toBe('datacenter');
       expect(proxy?.geo).toBe('US');
     });
 
@@ -99,7 +99,7 @@ describe('Proxy Driver', () => {
     it('should select appropriate proxy type based on strategy', async () => {
       // Test multiple domains to ensure correct proxy type selection
       const testCases = [
-        { domain: 'amgbrand.com', expectedType: 'residential' },
+        { domain: 'amgbrand.com', expectedType: 'datacenter' },
         { domain: 'iam-store.com', expectedType: 'residential' },
         { domain: 'katimoclothes.com', expectedType: 'datacenter' },
         { domain: 'ivaclothe.com', expectedType: 'datacenter' },

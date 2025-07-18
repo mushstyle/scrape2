@@ -148,7 +148,15 @@ function normalizeRunResponse(run: any): ScrapeRun {
     id: run.id || run._id,
     _id: run._id,
     domain: run.domain,
-    items: run.items || [],
+    items: (run.items || []).map((item: any) => ({
+      url: item.url,
+      done: item.done === true,  // Convert null to false
+      failed: item.failed === true,  // Convert null to false
+      invalid: item.invalid === true,  // Convert null to false
+      failReason: item.failReason || item.failedReason,
+      created_at: item.created_at,
+      updated_at: item.updated_at
+    })),
     status: run.status || 'pending',
     created_at: run.created_at || run.createdAt,
     createdAt: run.createdAt,
@@ -165,6 +173,16 @@ export async function createScrapeRun(request: CreateScrapeRunRequest): Promise<
   const url = buildApiUrl(API_ENDPOINTS.scrapeRuns);
   const token = getApiBearerToken();
   
+  // Convert urls to items if needed
+  const apiRequest = { ...request };
+  if (request.urls && request.urls.length > 0 && !request.items) {
+    apiRequest.items = request.urls.map(url => ({ url }));
+    delete apiRequest.urls;
+  }
+  
+  const body = JSON.stringify(apiRequest);
+  log.debug(`Creating scrape run with request: ${body}`);
+  
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -172,7 +190,7 @@ export async function createScrapeRun(request: CreateScrapeRunRequest): Promise<
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify(request)
+      body
     });
 
     if (!response.ok) {
@@ -180,6 +198,7 @@ export async function createScrapeRun(request: CreateScrapeRunRequest): Promise<
     }
 
     const data = await response.json();
+    log.debug(`API returned scrape run: ${JSON.stringify(data)}`);
     log.normal(`Created scrape run ${data.id || data._id} for domain ${request.domain}`);
     
     return normalizeRunResponse(data);
