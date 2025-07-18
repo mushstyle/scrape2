@@ -12,6 +12,7 @@ import { stdin as input, stdout as output } from 'process';
 import { getSiteConfig, addStartPages, replaceStartPages, removeStartPages } from '../drivers/site-config.js';
 import { getSites } from '../providers/etl-api.js';
 import { listRuns } from '../drivers/scrape-runs.js';
+import type { ScrapeRun } from '../types/scrape-run.js';
 import { logger } from '../utils/logger.js';
 
 const log = logger.createContext('manage-sites');
@@ -114,15 +115,15 @@ async function listSitesWithNoStartPages() {
   }
 }
 
-async function listSitesWithOutstandingRuns() {
+async function listSitesWithOutstandingRuns(since?: Date) {
   try {
     // Get all sites
     const response = await getSites();
     const sites = response.sites || [];
     
     // Get all pending/processing runs
-    const pendingRunsResponse = await listRuns({ status: 'pending' });
-    const processingRunsResponse = await listRuns({ status: 'processing' });
+    const pendingRunsResponse = await listRuns({ status: 'pending', since });
+    const processingRunsResponse = await listRuns({ status: 'processing', since });
     
     const pendingRuns = pendingRunsResponse.runs || [];
     const processingRuns = processingRunsResponse.runs || [];
@@ -133,83 +134,100 @@ async function listSitesWithOutstandingRuns() {
       return;
     }
     
-    // Group runs by domain
-    const runsByDomain = new Map<string, { pending: number; processing: number; latestDate: string }>();
+    // Get the most recent outstanding run for each domain
+    const latestRunByDomain = new Map<string, ScrapeRun>();
     
     allOutstandingRuns.forEach(run => {
-      const current = runsByDomain.get(run.domain) || { pending: 0, processing: 0, latestDate: '' };
-      
-      if (run.status === 'pending') {
-        current.pending++;
-      } else if (run.status === 'processing') {
-        current.processing++;
-      }
-      
-      // Keep track of the most recent run date
+      const existing = latestRunByDomain.get(run.domain);
       const runDate = run.created_at || run.createdAt || '';
-      if (!current.latestDate || runDate > current.latestDate) {
-        current.latestDate = runDate;
-      }
+      const existingDate = existing ? (existing.created_at || existing.createdAt || '') : '';
       
-      runsByDomain.set(run.domain, current);
+      if (!existing || runDate > existingDate) {
+        latestRunByDomain.set(run.domain, run);
+      }
     });
     
-    // Create table data
+    // Create table data showing statistics from the most recent run
     const tableData: Array<{
       Domain: string;
-      'Pending Runs': number;
-      'Processing Runs': number;
-      'Total Outstanding': number;
-      'Latest Run Created': string;
+      Status: string;
+      'Total Items': number;
+      'Processed': number;
+      'Failed': number;
+      'Invalid': number;
+      'Remaining': number;
+      'Created': string;
     }> = [];
     
-    runsByDomain.forEach((runInfo, domain) => {
+    latestRunByDomain.forEach((run, domain) => {
+      const total = run.metadata?.totalItems || run.items?.length || 0;
+      const processed = run.metadata?.processedItems || 0;
+      const failed = run.metadata?.failedItems || 0;
+      const invalid = run.metadata?.invalidItems || 0;
+      const remaining = total - processed - failed - invalid;
+      
       tableData.push({
         Domain: domain,
-        'Pending Runs': runInfo.pending,
-        'Processing Runs': runInfo.processing,
-        'Total Outstanding': runInfo.pending + runInfo.processing,
-        'Latest Run Created': runInfo.latestDate ? new Date(runInfo.latestDate).toLocaleString() : 'Unknown'
+        Status: run.status,
+        'Total Items': total,
+        'Processed': processed,
+        'Failed': failed,
+        'Invalid': invalid,
+        'Remaining': remaining,
+        'Created': run.created_at || run.createdAt ? new Date(run.created_at || run.createdAt || '').toLocaleString() : 'Unknown'
       });
     });
     
-    // Sort by total outstanding runs (descending), then by domain name
+    // Sort by remaining items (descending), then by domain name
     tableData.sort((a, b) => {
-      const totalDiff = b['Total Outstanding'] - a['Total Outstanding'];
-      return totalDiff !== 0 ? totalDiff : a.Domain.localeCompare(b.Domain);
+      const remainingDiff = b['Remaining'] - a['Remaining'];
+      return remainingDiff !== 0 ? remainingDiff : a.Domain.localeCompare(b.Domain);
     });
     
-    console.log(`\nSites with outstanding scrape runs (${tableData.length} sites, ${allOutstandingRuns.length} total runs):\n`);
+    const filterText = since ? ` (since ${since.toISOString()})` : '';
+    console.log(`\nSites with outstanding scrape runs${filterText} (${tableData.length} sites):\n`);
     
     // Print table header
-    console.log('%-30s %-12s %-15s %-17s %-20s'.replace(
-      /%-(\d+)s/g,
-      (_, width) => ''.padEnd(Number(width))
-    ));
     console.log(
       'Domain'.padEnd(30) +
-      'Pending'.padEnd(12) +
-      'Processing'.padEnd(15) +
-      'Total Outstanding'.padEnd(17) +
-      'Latest Run Created'
+      'Status'.padEnd(12) +
+      'Total'.padEnd(8) +
+      'Processed'.padEnd(11) +
+      'Failed'.padEnd(8) +
+      'Invalid'.padEnd(9) +
+      'Remaining'.padEnd(11) +
+      'Created'
     );
-    console.log('-'.repeat(94));
+    console.log('-'.repeat(110));
     
     // Print table rows
     tableData.forEach(row => {
       console.log(
         row.Domain.padEnd(30) +
-        row['Pending Runs'].toString().padEnd(12) +
-        row['Processing Runs'].toString().padEnd(15) +
-        row['Total Outstanding'].toString().padEnd(17) +
-        row['Latest Run Created']
+        row.Status.padEnd(12) +
+        row['Total Items'].toString().padEnd(8) +
+        row['Processed'].toString().padEnd(11) +
+        row['Failed'].toString().padEnd(8) +
+        row['Invalid'].toString().padEnd(9) +
+        row['Remaining'].toString().padEnd(11) +
+        row['Created']
       );
     });
     
+    // Calculate summary statistics
+    const totalItems = tableData.reduce((sum, row) => sum + row['Total Items'], 0);
+    const totalProcessed = tableData.reduce((sum, row) => sum + row['Processed'], 0);
+    const totalFailed = tableData.reduce((sum, row) => sum + row['Failed'], 0);
+    const totalInvalid = tableData.reduce((sum, row) => sum + row['Invalid'], 0);
+    const totalRemaining = tableData.reduce((sum, row) => sum + row['Remaining'], 0);
+    
     console.log('\nSummary:');
-    console.log(`  Total pending runs: ${pendingRuns.length}`);
-    console.log(`  Total processing runs: ${processingRuns.length}`);
-    console.log(`  Total outstanding runs: ${allOutstandingRuns.length}`);
+    console.log(`  Sites with outstanding runs: ${tableData.length}`);
+    console.log(`  Total items across all runs: ${totalItems}`);
+    console.log(`  Total processed: ${totalProcessed}`);
+    console.log(`  Total failed: ${totalFailed}`);
+    console.log(`  Total invalid: ${totalInvalid}`);
+    console.log(`  Total remaining: ${totalRemaining}`);
     
   } catch (error) {
     console.log(`Error listing sites with outstanding runs: ${error.message}`);
@@ -217,6 +235,35 @@ async function listSitesWithOutstandingRuns() {
 }
 
 async function main() {
+  // Parse command line arguments
+  const args = process.argv.slice(2);
+  let since: Date | undefined;
+  
+  // Check for --help
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log('Usage: npm run sites:manage [options]');
+    console.log('\nOptions:');
+    console.log('  --since <date>  Filter scrape runs created after this date');
+    console.log('                  Date format: YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss');
+    console.log('\nExample:');
+    console.log('  npm run sites:manage --since 2024-01-15');
+    console.log('  npm run sites:manage --since 2024-01-15T10:30:00');
+    process.exit(0);
+  }
+  
+  // Check for --since parameter
+  const sinceIndex = args.findIndex(arg => arg === '--since');
+  if (sinceIndex !== -1 && args[sinceIndex + 1]) {
+    const sinceValue = args[sinceIndex + 1];
+    since = new Date(sinceValue);
+    if (isNaN(since.getTime())) {
+      console.error(`Invalid date format for --since: ${sinceValue}`);
+      console.log('Please use ISO format (YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss)');
+      process.exit(1);
+    }
+    console.log(`Filtering runs since: ${since.toISOString()}\n`);
+  }
+  
   console.log('=== Site Configuration Manager ===\n');
   
   let continueRunning = true;
@@ -348,7 +395,7 @@ async function main() {
       
       case '6': {
         // List sites with outstanding runs
-        await listSitesWithOutstandingRuns();
+        await listSitesWithOutstandingRuns(since);
         break;
       }
       
