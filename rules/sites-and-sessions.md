@@ -70,43 +70,60 @@ for (const target of targets) {
 
 ## Double-Pass Matcher Pattern
 
-For production scraping, use the double-pass matcher algorithm (see `docs/double-pass-matcher.md`):
+For production scraping, use the double-pass matcher algorithm (see `docs/double-pass-matcher.md` and `examples/pagination-live.ts`):
 
-### First Pass: Use Existing Sessions
+### The Problem It Solves
+- SessionManager might have a limit (e.g., 5 sessions max)
+- Creating all sessions upfront wastes resources if not all are needed
+- Existing sessions from previous runs should be reused
+- Different URLs need different proxy types
+
+### How It Works
+
+**Pass 1: Use What You Have**
+1. Get existing sessions from SessionManager
+2. Try to match URLs to existing sessions using the distributor
+3. Terminate any sessions that won't be used
+
+**Pass 2: Create What You Need**
+1. Calculate how many new sessions are needed (respecting limits)
+2. Analyze unmatched URLs to determine proxy requirements
+3. Create targeted sessions with the right proxy types
+4. Run distributor again with all sessions (existing + new)
+
+### Key Implementation Details
 ```typescript
-// Get existing sessions
-const existingSessions = await sessionManager.getActiveSessions();
+// IMPORTANT: Convert Sessions to SessionInfo for distributor
+const existingSessionData = existingSessions.map((session, i) => ({
+  session,
+  sessionInfo: {
+    id: `existing-${i}`,
+    proxyType: session.proxy?.type || 'none',
+    proxyId: session.proxy?.id,
+    proxyGeo: session.proxy?.geo
+  }
+}));
 
-// Try to match URLs to existing sessions
-const firstPassPairs = targetsToSessions(targets, existingSessions, siteConfigs);
-
-// Terminate any unused sessions
-const unusedSessions = existingSessions.filter(s => !isUsed(s));
-await Promise.all(unusedSessions.map(s => sessionManager.destroySession(s.id)));
-```
-
-### Second Pass: Create Targeted Sessions
-```typescript
-// Calculate how many new sessions needed
-const sessionsNeeded = instanceLimit - firstPassPairs.length;
-
-if (sessionsNeeded > 0) {
-  // Analyze unmatched URLs to determine proxy requirements
-  const unmatchedTargets = targets.filter(t => !isMatched(t));
-  
-  // Create sessions based on actual requirements
-  const newSessions = await createTargetedSessions(unmatchedTargets, sessionsNeeded);
-  
-  // Run distributor again with all sessions
-  const secondPassPairs = targetsToSessions(targets, allSessions, siteConfigs);
-}
+// IMPORTANT: Only create browsers for sessions that will be used
+const usedSessionIds = new Set(finalPairs.map(p => p.sessionId));
+await Promise.all(
+  Array.from(usedSessionIds).map(async sessionId => {
+    const sessionData = sessionDataMap.get(sessionId);
+    if (sessionData && !sessionData.browser) {
+      const { browser, createContext } = await createBrowserFromSession(sessionData.session);
+      sessionData.browser = browser;
+      sessionData.context = await createContext();
+    }
+  })
+);
 ```
 
 **Benefits**:
-- Zero wasted sessions
-- Smart proxy allocation
-- Maximum 2 distributor calls
-- Efficient resource usage
+- Reuses existing sessions (cost-efficient)
+- Only creates sessions that will be used
+- Respects all limits (SessionManager and instance limits)
+- Can scale up to instanceLimit over multiple runs
+- Zero wasted resources
 
 ## Common Mistakes to Avoid
 
@@ -124,27 +141,75 @@ for (const site of sites) {
 - Doesn't allow session reuse across sites
 - Ignores the instance limit parameter
 
-### ✅ DO: Create a session pool
+### ❌ DON'T: Create all sessions upfront (Old Pattern)
 ```typescript
-// RIGHT - Create a pool of sessions that can be used for any site
+// OLD PATTERN - Creates all sessions even if not needed
 const sessionOptions = await Promise.all(
   Array.from({ length: instanceLimit }, async (_, i) => {
-    // Rotate through sites or use a strategy for proxy selection
     const siteForProxy = sites[i % sites.length];
     const proxy = await siteManager.getProxyForDomain(siteForProxy);
     return { domain: siteForProxy, proxy };
   })
 );
+const sessions = await sessionManager.createSession(sessionOptions);
+```
 
-// Create all sessions in parallel
-const sessions = await sessionManager.createSession(sessionOptions) as Session[];
+**Why this is suboptimal**:
+- Creates sessions that might not be used
+- Doesn't reuse existing sessions
+- Can hit SessionManager limits unnecessarily
+- Wastes resources
+
+### ✅ DO: Use Double-Pass Matcher Pattern
+```typescript
+// BEST PRACTICE - Only create sessions as needed
+// Step 1: Get existing sessions
+const existingSessions = await sessionManager.getActiveSessions();
+
+// Step 2: Try to match URLs to existing sessions
+const firstPassPairs = targetsToSessions(targets, existingSessions, siteConfigs);
+
+// Step 3: Terminate unused sessions
+const usedSessionIds = new Set(firstPassPairs.map(p => p.sessionId));
+const unusedSessions = existingSessions.filter(s => !usedSessionIds.has(s.id));
+await Promise.all(unusedSessions.map(s => sessionManager.destroySession(s.id)));
+
+// Step 4: Only create new sessions if needed
+const sessionsNeeded = Math.min(
+  instanceLimit - firstPassPairs.length,
+  targets.length - firstPassPairs.length
+);
+
+if (sessionsNeeded > 0) {
+  // Analyze unmatched URLs to determine proxy requirements
+  const unmatchedTargets = targets.filter(
+    target => !firstPassPairs.find(pair => pair.url === target.url)
+  );
+  
+  // Create sessions based on actual requirements
+  const newSessionRequests = [];
+  for (const target of unmatchedTargets.slice(0, sessionsNeeded)) {
+    const domain = new URL(target.url).hostname;
+    const proxy = await siteManager.getProxyForDomain(domain);
+    newSessionRequests.push({ domain, proxy });
+  }
+  
+  const newSessions = await Promise.all(
+    newSessionRequests.map(req => sessionManager.createSession(req))
+  );
+  
+  // Run distributor again with all sessions
+  const allSessions = [...existingSessions, ...newSessions];
+  const finalPairs = targetsToSessions(targets, allSessions, siteConfigs);
+}
 ```
 
 **Why this is correct**:
-- Creates exactly `instanceLimit` sessions (respects resource limits)
-- Creates all sessions in parallel (fast)
-- Sessions can be reused for any compatible site
-- Proxy selection is distributed across sites for better coverage
+- Reuses existing sessions first (efficient)
+- Only creates sessions that will actually be used
+- Respects both SessionManager and instance limits
+- Can scale up to instanceLimit over multiple runs
+- Terminates excess sessions to free resources
 
 ### ❌ DON'T: Manually determine session limits
 ```typescript
@@ -163,11 +228,9 @@ const sessionManager = new SessionManager({ sessionLimit: instanceLimit });
 // It will throw if you try to create too many sessions
 ```
 
-## Complete Example: Multi-Site Pagination (Old Pattern)
+## Complete Example: Multi-Site Pagination
 
-**Note**: This example shows the basic pattern. For production use, see the double-pass matcher pattern above or `examples/pagination-live.ts`.
-
-Here's the basic way to paginate multiple sites:
+Here's the production-ready way to paginate multiple sites using the double-pass matcher pattern (see `examples/pagination-live.ts` for full implementation):
 
 ```typescript
 import { SiteManager } from '../src/services/site-manager.js';
@@ -180,90 +243,174 @@ import { loadScraper } from '../src/drivers/scraper-loader.js';
 async function paginateMultipleSites(sites: string[], instanceLimit: number) {
   // 1. Initialize managers
   const siteManager = new SiteManager();
-  const sessionManager = new SessionManager({ sessionLimit: instanceLimit });
+  const sessionManager = new SessionManager();
   
   // 2. Load site configurations
   await siteManager.loadSites();
   
-  // 3. Create session pool ONCE (not per site!)
-  const sessionOptions = await Promise.all(
-    Array.from({ length: instanceLimit }, async (_, i) => {
-      const siteForProxy = sites[i % sites.length];
-      const proxy = await siteManager.getProxyForDomain(siteForProxy);
-      return { domain: siteForProxy, proxy };
-    })
-  );
+  // 3. Collect all start page URLs with deduplication
+  const allTargets: ScrapeTarget[] = [];
+  const urlToSite = new Map<string, string>();
   
-  const sessions = await sessionManager.createSession(sessionOptions) as Session[];
-  
-  // 4. Create browsers from sessions (CRITICAL STEP!)
-  const sessionData = await Promise.all(
-    sessions.map(async (session, i) => {
-      const { browser, createContext } = await createBrowserFromSession(session);
-      const context = await createContext();
-      return {
-        session,
-        browser,
-        context,
-        sessionInfo: {
-          id: `session-${i}`,
-          proxyType: sessionOptions[i].proxy?.type || 'none',
-          proxyId: sessionOptions[i].proxy?.id,
-          proxyGeo: sessionOptions[i].proxy?.geo
-        }
-      };
-    })
-  );
-  
-  // 5. Process each site
   for (const site of sites) {
-    // Get site config with blocked proxies
-    const siteConfigs = await siteManager.getSiteConfigsWithBlockedProxies();
-    const siteConfig = siteConfigs.find(c => c.domain === site);
+    const siteConfig = siteManager.getSite(site);
+    if (!siteConfig?.config.startPages?.length) continue;
     
-    // Convert URLs to targets
-    const targets = urlsToScrapeTargets(siteConfig.startPages);
+    // Start pagination tracking
+    await siteManager.startPagination(site, siteConfig.config.startPages);
     
-    // Load scraper for the site
-    const scraper = await loadScraper(site);
-    
-    // 6. Let distributor match work to sessions
-    const urlSessionPairs = targetsToSessions(
-      targets,
-      sessionData.map(s => s.sessionInfo),
-      [siteConfig] // Pass site config so distributor can respect blocked proxies
+    // Deduplicate URLs across sites
+    const targets = urlsToScrapeTargets(siteConfig.config.startPages);
+    for (const target of targets) {
+      if (!urlToSite.has(target.url)) {
+        allTargets.push(target);
+        urlToSite.set(target.url, site);
+      }
+    }
+  }
+  
+  // 4. Double-pass matcher pattern
+  const existingSessions = await sessionManager.getActiveSessions();
+  const sessionDataMap = new Map<string, SessionWithBrowser>();
+  
+  // Convert existing sessions to proper format
+  const existingSessionData = existingSessions.map((session, i) => {
+    const sessionInfo = {
+      id: `existing-${i}`,
+      proxyType: session.proxy?.type || 'none',
+      proxyId: session.proxy?.id,
+      proxyGeo: session.proxy?.geo
+    };
+    const data = { session, sessionInfo };
+    sessionDataMap.set(sessionInfo.id, data);
+    return data;
+  });
+  
+  // First pass - match with existing sessions
+  const siteConfigs = await siteManager.getSiteConfigsWithBlockedProxies();
+  const relevantConfigs = siteConfigs.filter(c => sites.includes(c.domain));
+  const targetsToProcess = allTargets.slice(0, instanceLimit);
+  
+  const firstPassPairs = targetsToSessions(
+    targetsToProcess,
+    existingSessionData.map(s => s.sessionInfo),
+    relevantConfigs
+  );
+  
+  // Terminate unused sessions
+  const usedIds = new Set(firstPassPairs.map(p => p.sessionId));
+  const unusedSessions = existingSessionData.filter(s => !usedIds.has(s.sessionInfo.id));
+  await Promise.all(unusedSessions.map(s => sessionManager.destroySession(s.session.id)));
+  
+  // Create new sessions only if needed
+  const sessionsNeeded = Math.min(
+    instanceLimit - firstPassPairs.length,
+    targetsToProcess.length - firstPassPairs.length
+  );
+  
+  let finalPairs = firstPassPairs;
+  
+  if (sessionsNeeded > 0) {
+    // Analyze unmatched URLs
+    const unmatchedTargets = targetsToProcess.filter(
+      t => !firstPassPairs.find(p => p.url === t.url)
     );
     
-    // 7. Process the pairs
-    for (const pair of urlSessionPairs) {
-      const session = sessionData.find(s => s.sessionInfo.id === pair.sessionId);
-      const page = await session.context.newPage();
-      
-      // Navigate to start page
-      await page.goto(pair.url);
-      
-      // Pagination loop with proper deduplication
-      let pageCount = 1;
-      const maxPages = 5; // Limit for safety
-      const uniqueUrls = new Set<string>();
-      
-      // Get URLs from first page
-      const firstPageUrls = await scraper.getItemUrls(page);
-      firstPageUrls.forEach(url => uniqueUrls.add(url));
-      
-      // Navigate through additional pages
-      while (pageCount < maxPages) {
-        const hasMore = await scraper.paginate(page);
-        if (!hasMore) break;
-        
-        pageCount++;
-        const urls = await scraper.getItemUrls(page);
-        urls.forEach(url => uniqueUrls.add(url));
+    // Create sessions based on requirements
+    const newSessionRequests = [];
+    for (const target of unmatchedTargets.slice(0, sessionsNeeded)) {
+      const site = urlToSite.get(target.url);
+      const proxy = await siteManager.getProxyForDomain(site);
+      newSessionRequests.push({ domain: site, proxy });
+    }
+    
+    const newSessions = await Promise.all(
+      newSessionRequests.map(req => sessionManager.createSession(req))
+    );
+    
+    // Add to tracking
+    newSessions.forEach((session, i) => {
+      const req = newSessionRequests[i];
+      const sessionInfo = {
+        id: `new-${i}`,
+        proxyType: req.proxy?.type || 'none',
+        proxyId: req.proxy?.id,
+        proxyGeo: req.proxy?.geo
+      };
+      const data = { session, sessionInfo };
+      sessionDataMap.set(sessionInfo.id, data);
+      existingSessionData.push(data);
+    });
+    
+    // Second pass with all sessions
+    finalPairs = targetsToSessions(
+      targetsToProcess,
+      existingSessionData.map(s => s.sessionInfo),
+      relevantConfigs
+    );
+  }
+  
+  // 5. Create browsers only for sessions that will be used
+  const usedSessionIds = new Set(finalPairs.map(p => p.sessionId));
+  await Promise.all(
+    Array.from(usedSessionIds).map(async sessionId => {
+      const sessionData = sessionDataMap.get(sessionId);
+      if (sessionData && !sessionData.browser) {
+        const { browser, createContext } = await createBrowserFromSession(sessionData.session);
+        sessionData.browser = browser;
+        sessionData.context = await createContext();
       }
+    })
+  );
+  
+  // 6. Process URL-session pairs
+  await Promise.all(finalPairs.map(async (pair) => {
+    const sessionData = sessionDataMap.get(pair.sessionId);
+    const site = urlToSite.get(pair.url);
+    
+    const scraper = await loadScraper(site);
+    const page = await sessionData.context.newPage();
+    
+    await page.goto(pair.url, { waitUntil: 'domcontentloaded' });
+    
+    // Pagination with proper deduplication
+    const uniqueUrls = new Set<string>();
+    let currentPage = 1;
+    const maxPages = 5;
+    
+    // First page
+    const firstPageUrls = await scraper.getItemUrls(page);
+    firstPageUrls.forEach(url => uniqueUrls.add(url));
+    
+    // Additional pages
+    while (currentPage < maxPages) {
+      const hasMore = await scraper.paginate(page);
+      if (!hasMore) break;
       
-      const allUrls = Array.from(uniqueUrls);
-      
-      await page.close();
+      currentPage++;
+      const urls = await scraper.getItemUrls(page);
+      urls.forEach(url => uniqueUrls.add(url));
+    }
+    
+    // Update pagination state
+    siteManager.updatePaginationState(pair.url, {
+      collectedUrls: Array.from(uniqueUrls),
+      completed: true
+    });
+    
+    await page.close();
+  }));
+  
+  // 7. Commit partial runs
+  for (const site of new Set(urlToSite.values())) {
+    await siteManager.commitPartialRun(site);
+  }
+  
+  // 8. Cleanup
+  for (const sessionData of sessionDataMap.values()) {
+    if (sessionData.browser) {
+      await sessionData.context?.close();
+      await sessionData.browser.close();
     }
   }
 }
