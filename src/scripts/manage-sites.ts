@@ -11,6 +11,7 @@ import { createInterface } from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
 import { getSiteConfig, addStartPages, replaceStartPages, removeStartPages } from '../drivers/site-config.js';
 import { getSites } from '../providers/etl-api.js';
+import { listRuns } from '../drivers/scrape-runs.js';
 import { logger } from '../utils/logger.js';
 
 const log = logger.createContext('manage-sites');
@@ -113,6 +114,108 @@ async function listSitesWithNoStartPages() {
   }
 }
 
+async function listSitesWithOutstandingRuns() {
+  try {
+    // Get all sites
+    const response = await getSites();
+    const sites = response.sites || [];
+    
+    // Get all pending/processing runs
+    const pendingRunsResponse = await listRuns({ status: 'pending' });
+    const processingRunsResponse = await listRuns({ status: 'processing' });
+    
+    const pendingRuns = pendingRunsResponse.runs || [];
+    const processingRuns = processingRunsResponse.runs || [];
+    const allOutstandingRuns = [...pendingRuns, ...processingRuns];
+    
+    if (allOutstandingRuns.length === 0) {
+      console.log('\nNo sites have outstanding scrape runs.');
+      return;
+    }
+    
+    // Group runs by domain
+    const runsByDomain = new Map<string, { pending: number; processing: number; latestDate: string }>();
+    
+    allOutstandingRuns.forEach(run => {
+      const current = runsByDomain.get(run.domain) || { pending: 0, processing: 0, latestDate: '' };
+      
+      if (run.status === 'pending') {
+        current.pending++;
+      } else if (run.status === 'processing') {
+        current.processing++;
+      }
+      
+      // Keep track of the most recent run date
+      const runDate = run.created_at || run.createdAt || '';
+      if (!current.latestDate || runDate > current.latestDate) {
+        current.latestDate = runDate;
+      }
+      
+      runsByDomain.set(run.domain, current);
+    });
+    
+    // Create table data
+    const tableData: Array<{
+      Domain: string;
+      'Pending Runs': number;
+      'Processing Runs': number;
+      'Total Outstanding': number;
+      'Latest Run Created': string;
+    }> = [];
+    
+    runsByDomain.forEach((runInfo, domain) => {
+      tableData.push({
+        Domain: domain,
+        'Pending Runs': runInfo.pending,
+        'Processing Runs': runInfo.processing,
+        'Total Outstanding': runInfo.pending + runInfo.processing,
+        'Latest Run Created': runInfo.latestDate ? new Date(runInfo.latestDate).toLocaleString() : 'Unknown'
+      });
+    });
+    
+    // Sort by total outstanding runs (descending), then by domain name
+    tableData.sort((a, b) => {
+      const totalDiff = b['Total Outstanding'] - a['Total Outstanding'];
+      return totalDiff !== 0 ? totalDiff : a.Domain.localeCompare(b.Domain);
+    });
+    
+    console.log(`\nSites with outstanding scrape runs (${tableData.length} sites, ${allOutstandingRuns.length} total runs):\n`);
+    
+    // Print table header
+    console.log('%-30s %-12s %-15s %-17s %-20s'.replace(
+      /%-(\d+)s/g,
+      (_, width) => ''.padEnd(Number(width))
+    ));
+    console.log(
+      'Domain'.padEnd(30) +
+      'Pending'.padEnd(12) +
+      'Processing'.padEnd(15) +
+      'Total Outstanding'.padEnd(17) +
+      'Latest Run Created'
+    );
+    console.log('-'.repeat(94));
+    
+    // Print table rows
+    tableData.forEach(row => {
+      console.log(
+        row.Domain.padEnd(30) +
+        row['Pending Runs'].toString().padEnd(12) +
+        row['Processing Runs'].toString().padEnd(15) +
+        row['Total Outstanding'].toString().padEnd(17) +
+        row['Latest Run Created']
+      );
+    });
+    
+    console.log('\nSummary:');
+    console.log(`  Total pending runs: ${pendingRuns.length}`);
+    console.log(`  Total processing runs: ${processingRuns.length}`);
+    console.log(`  Total outstanding runs: ${allOutstandingRuns.length}`);
+    
+  } catch (error) {
+    console.log(`Error listing sites with outstanding runs: ${error.message}`);
+  }
+}
+
 async function main() {
   console.log('=== Site Configuration Manager ===\n');
   
@@ -126,9 +229,10 @@ async function main() {
     console.log('3. Remove specific start pages from a site');
     console.log('4. View current start pages for a site');
     console.log('5. List sites with 0 start pages');
-    console.log('6. Exit');
+    console.log('6. List sites with outstanding scrape runs');
+    console.log('7. Exit');
     
-    const choice = await rl.question('\nEnter your choice (1-6): ');
+    const choice = await rl.question('\nEnter your choice (1-7): ');
     
     switch (choice) {
       case '1': {
@@ -243,12 +347,18 @@ async function main() {
       }
       
       case '6': {
+        // List sites with outstanding runs
+        await listSitesWithOutstandingRuns();
+        break;
+      }
+      
+      case '7': {
         continueRunning = false;
         break;
       }
       
       default: {
-        console.log('Invalid choice. Please enter 1-6.');
+        console.log('Invalid choice. Please enter 1-7.');
       }
     }
     
