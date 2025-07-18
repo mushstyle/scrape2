@@ -61,46 +61,20 @@ Replace `tests/site-manager.test.ts` with enhanced version:
   - Retry tracking works correctly
   - Stats calculation is accurate
 
-### 3. Manager Integration Tests (NEW)
-Create `tests/managers-integration.test.ts`:
+### 3. NO Integration Tests - Unit Tests Only
+**We will NOT create integration tests**. All manager interactions will be tested through unit tests with mocks.
 
-#### Key Integration Properties:
-- **Double-Pass Matcher Pattern**
-  ```typescript
-  test('double-pass matcher minimizes session creation', async () => {
-    // Given: 3 existing sessions, 10 URLs, instance limit 5
-    // First pass: Match what we can with existing
-    // Second pass: Create only what's needed (2 more, not 5)
-    // Assert: Total 5 sessions used, not 8
-  });
-  ```
+#### Why No Integration Tests:
+- Manager interactions are deterministic given their contracts
+- Unit tests with mocks can verify all behavioral properties
+- Faster, more reliable, easier to maintain
+- Integration complexity belongs at the driver layer (existing `integration.test.ts`)
 
-- **Proxy Compatibility Flow**
-  ```typescript
-  test('respects proxy blocklist in session matching', async () => {
-    // Given: Session with proxy-1, proxy-1 blocked for site.com
-    // When: Try to match site.com URLs
-    // Then: Session not used, new session created
-  });
-  ```
-
-- **Resource Efficiency**
-  ```typescript
-  test('creates browsers only for used sessions', async () => {
-    // Given: 5 sessions available, 2 URLs to process
-    // When: Run distributor and create browsers
-    // Then: Only 2 browsers created, not 5
-  });
-  ```
-
-- **State Synchronization**
-  ```typescript
-  test('maintains consistent state between managers', async () => {
-    // Throughout double-pass matcher flow
-    // SessionManager active count matches actual sessions
-    // SiteManager partial runs reflect operations
-  });
-  ```
+#### Instead, Unit Tests Will Cover:
+- Mock SiteManager in SessionManager tests
+- Mock SessionManager in SiteManager tests
+- Test the contracts between them
+- Verify proper method calls and data flow
 
 ## Implementation Plan
 
@@ -118,14 +92,7 @@ Create `tests/managers-integration.test.ts`:
 5. Add concurrent operation tests
 6. NO backwards compatibility - clean slate
 
-### Phase 3: Integration Tests
-1. Create new integration test file
-2. Mock external APIs but test real manager interaction
-3. Focus on double-pass matcher pattern
-4. Test resource management properties
-5. Verify state consistency
-
-### Phase 4: Performance Tests (Optional)
+### Phase 3: Performance Tests (Optional)
 1. Test session creation at scale
 2. Test distributor performance with many URLs/sessions
 3. Test memory usage under load
@@ -142,10 +109,10 @@ Create `tests/managers-integration.test.ts`:
 
 - [ ] 100% unit test coverage for SessionManager
 - [ ] Enhanced SiteManager tests covering all new features
-- [ ] Comprehensive integration tests for manager interaction
 - [ ] All tests run in <5 seconds total
 - [ ] No flaky tests
 - [ ] Clear test names describing properties being tested
+- [ ] DELETE old test files before creating new ones
 
 ## Notes
 
