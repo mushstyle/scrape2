@@ -561,6 +561,262 @@ const urlSessionPairs = targetsToSessions(targets, sessionInfos, siteConfigs);
 5. **Each session is used at most once**
    - **Why**: Prevents race conditions and ensures parallel processing efficiency.
 
+## Caching for Performance
+
+### Why Use Caching?
+
+The framework includes a powerful request cache that can dramatically improve scraping performance:
+
+- **Reduce redundant requests**: Common resources (CSS, JS, images) are fetched once and reused
+- **Lower proxy costs**: Fewer requests = less bandwidth usage on paid proxies
+- **Faster scraping**: Cached responses are instant (0ms vs 100-1000ms network requests)
+- **Better resilience**: Can continue working if external resources become temporarily unavailable
+
+### How RequestCache Works
+
+The `RequestCache` is an in-memory, LRU (Least Recently Used) cache that intercepts HTTP requests at the Playwright level:
+
+```typescript
+import { RequestCache } from '../src/drivers/cache.js';
+
+// Create cache with 100MB limit
+const cache = new RequestCache({
+  maxSizeBytes: 100 * 1024 * 1024,  // 100MB
+  ttlSeconds: 300                    // Optional: 5 minute TTL
+});
+
+// Enable for a page - MUST be done before navigation
+await cache.enableForPage(page);
+
+// Now all GET requests are automatically cached
+await page.goto('https://example.com');
+
+// Check cache performance
+const stats = cache.getStats();
+console.log(`Cache hit rate: ${((stats.hits / (stats.hits + stats.misses)) * 100).toFixed(1)}%`);
+```
+
+### What Gets Cached?
+
+**Cached automatically:**
+- ✅ GET requests with 200-299 status codes
+- ✅ Static resources (CSS, JS, images, fonts)
+- ✅ API responses without authentication
+
+**NOT cached:**
+- ❌ POST, PUT, DELETE requests (may modify data)
+- ❌ Requests with Authorization or Cookie headers
+- ❌ Failed responses (4xx, 5xx status codes)
+- ❌ Responses explicitly marked as no-cache
+
+### Best Practices for Caching
+
+#### 1. Enable Early in the Page Lifecycle
+```typescript
+// ✅ RIGHT - Enable cache before ANY navigation
+const page = await context.newPage();
+await cache.enableForPage(page);
+await page.goto(url);
+
+// ❌ WRONG - Too late, initial requests already bypassed cache
+const page = await context.newPage();
+await page.goto(url);
+await cache.enableForPage(page);  // Missed the initial page load!
+```
+
+#### 2. Size Your Cache Appropriately
+```typescript
+// For single-site scraping: 50-100MB usually sufficient
+const cache = new RequestCache({ maxSizeBytes: 50 * 1024 * 1024 });
+
+// For multi-site scraping: 100-500MB for better cross-site reuse
+const cache = new RequestCache({ maxSizeBytes: 200 * 1024 * 1024 });
+
+// Monitor usage and adjust:
+const stats = cache.getStats();
+if (stats.evictions > 0) {
+  log.debug(`Cache too small: ${stats.evictions} items evicted`);
+}
+```
+
+#### 3. Use TTL for Time-Sensitive Data
+```typescript
+// Short TTL for dynamic content (5 minutes)
+const apiCache = new RequestCache({
+  maxSizeBytes: 50 * 1024 * 1024,
+  ttlSeconds: 300  
+});
+
+// No TTL for static resources (cache until evicted)
+const staticCache = new RequestCache({
+  maxSizeBytes: 100 * 1024 * 1024
+  // No ttlSeconds = cache forever
+});
+```
+
+#### 4. Share Cache Across Pages in Same Context
+```typescript
+// Create one cache per browser context
+const cache = new RequestCache({ maxSizeBytes: 100 * 1024 * 1024 });
+
+// Enable for all pages in the context
+const page1 = await context.newPage();
+await cache.enableForPage(page1);
+
+const page2 = await context.newPage();
+await cache.enableForPage(page2);  // Same cache instance!
+
+// Both pages share cached resources
+```
+
+#### 5. Clear Cache When Switching Sites
+```typescript
+// Option 1: Clear specific domain
+cache.clear('oldsite.com');
+
+// Option 2: Clear everything
+cache.clear();
+
+// Option 3: Create new cache per site (isolation)
+const siteCache = new RequestCache({ maxSizeBytes: 50 * 1024 * 1024 });
+```
+
+### Integration with Session/Site Pattern
+
+Here's how to properly integrate caching into the production scraping pattern:
+
+```typescript
+// Modified section of the double-pass matcher example
+// Step 5: Create browsers only for sessions that will be used
+const usedSessionIds = new Set(finalPairs.map(p => p.sessionId));
+
+// Create a shared cache for the entire scraping session
+const sharedCache = new RequestCache({
+  maxSizeBytes: 200 * 1024 * 1024,  // 200MB for multi-site
+  ttlSeconds: 600                    // 10 minute TTL
+});
+
+await Promise.all(
+  Array.from(usedSessionIds).map(async sessionId => {
+    const sessionData = sessionDataMap.get(sessionId);
+    if (sessionData && !sessionData.browser) {
+      const { browser, createContext } = await createBrowserFromSession(sessionData.session);
+      sessionData.browser = browser;
+      sessionData.context = await createContext();
+      // Store cache reference for later use
+      sessionData.cache = sharedCache;
+    }
+  })
+);
+
+// Step 6: Process URL-session pairs with caching
+await Promise.all(finalPairs.map(async (pair) => {
+  const sessionData = sessionDataMap.get(pair.sessionId);
+  const site = urlToSite.get(pair.url);
+  
+  const scraper = await loadScraper(site);
+  const page = await sessionData.context.newPage();
+  
+  // Enable cache BEFORE navigation
+  await sessionData.cache.enableForPage(page);
+  
+  await page.goto(pair.url, { waitUntil: 'domcontentloaded' });
+  
+  // ... rest of pagination logic ...
+  
+  await page.close();
+}));
+
+// After scraping, check cache performance
+log.normal(`Cache stats: ${JSON.stringify(sharedCache.getStats())}`);
+```
+
+### Cache Scenarios
+
+#### Scenario 1: Single Site, Multiple Pages
+Best for paginating through one site where pages share resources:
+```typescript
+const cache = new RequestCache({ maxSizeBytes: 50 * 1024 * 1024 });
+// All pages from same site will reuse CSS, JS, images
+```
+
+#### Scenario 2: Multiple Sites, Shared CDN Resources
+When sites use common CDNs (jQuery, Bootstrap, Google Fonts):
+```typescript
+const cache = new RequestCache({ maxSizeBytes: 200 * 1024 * 1024 });
+// Shared resources cached once, used by all sites
+```
+
+#### Scenario 3: API Scraping with Rate Limits
+Cache API responses to avoid hitting rate limits:
+```typescript
+const cache = new RequestCache({ 
+  maxSizeBytes: 50 * 1024 * 1024,
+  ttlSeconds: 3600  // 1 hour - respect API cache headers
+});
+```
+
+### Monitoring Cache Performance
+
+Always monitor your cache to ensure it's helping:
+
+```typescript
+const stats = cache.getStats();
+const hitRate = stats.hits / (stats.hits + stats.misses);
+
+log.normal(`Cache performance:
+  Hit rate: ${(hitRate * 100).toFixed(1)}%
+  Total requests: ${stats.hits + stats.misses}
+  Cache size: ${(stats.sizeBytes / 1024 / 1024).toFixed(1)}MB
+  Items: ${stats.itemCount}
+  Evictions: ${stats.evictions}`);
+
+// Good hit rate: >30% for multi-site, >50% for single site
+// If evictions > 0: Consider increasing cache size
+```
+
+### Common Caching Pitfalls
+
+#### ❌ DON'T: Enable cache after navigation
+```typescript
+await page.goto(url);
+await cache.enableForPage(page);  // Too late!
+```
+
+#### ❌ DON'T: Create new cache for every page
+```typescript
+// Wasteful - no sharing between pages
+for (const url of urls) {
+  const cache = new RequestCache({ maxSizeBytes: 50 * 1024 * 1024 });
+  const page = await context.newPage();
+  await cache.enableForPage(page);
+}
+```
+
+#### ❌ DON'T: Use cache for authentication-required sites
+```typescript
+// Cache will skip all authenticated requests
+// Not useful for sites requiring login
+```
+
+#### ✅ DO: Clear cache between different scraping sessions
+```typescript
+// Prevent stale data across runs
+cache.clear();
+// Or create new cache instance
+```
+
+### When NOT to Use Caching
+
+- **Real-time data**: Stock prices, live scores
+- **Authenticated content**: User-specific data
+- **Testing/debugging**: When you need fresh responses
+- **Memory constraints**: If running on limited memory systems
+
+### Cache Implementation Note
+
+**Important**: While the cache module is production-ready and well-tested, it's currently NOT used in any production scrapers. Consider it an optimization opportunity for improving performance once your scraping logic is working correctly.
+
 ## Proxy Management
 
 ### Getting Proxies
