@@ -6,7 +6,7 @@
 - **Integration**: No SessionManager + SiteManager integration tests
 
 ## Goals
-**DELETE ALL EXISTING TESTS** and replace with production-standard unit tests that focus on:
+**DELETE ALL EXISTING TESTS** for the managers, and replace with production-standard unit tests that focus on:
 1. Core behavioral properties
 2. Integration contracts between managers
 3. Error handling and edge cases
