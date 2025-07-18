@@ -19,6 +19,95 @@ SiteManager (sites & configs) + SessionManager (browser sessions) → Distributo
 3. **Sessions are shared resources** - Don't create site-specific sessions; let the distributor decide
    - **Why**: A session can scrape any compatible site. Locking sessions to sites reduces flexibility and efficiency. The distributor ensures proper matching based on proxy requirements.
 
+## URL Deduplication
+
+When paginating, proper URL deduplication is critical:
+
+### Within-Page Deduplication
+Scrapers return a `Set<string>` from `getItemUrls()`, which automatically handles duplicates on a single page.
+
+### Cross-Page Deduplication
+**YOU are responsible for deduplication across pages**:
+
+```typescript
+// ❌ WRONG - Accumulates duplicates
+const pageUrls: string[] = [];
+const firstPageUrls = await scraper.getItemUrls(page);
+firstPageUrls.forEach(url => pageUrls.push(url)); // 36 items
+
+await scraper.paginate(page);
+const secondPageUrls = await scraper.getItemUrls(page);  
+secondPageUrls.forEach(url => pageUrls.push(url)); // Now 72 items, but likely has duplicates!
+
+// ✅ RIGHT - Uses Set for automatic deduplication
+const uniqueUrls = new Set<string>();
+const firstPageUrls = await scraper.getItemUrls(page);
+firstPageUrls.forEach(url => uniqueUrls.add(url)); // 36 unique
+
+await scraper.paginate(page);
+const beforeCount = uniqueUrls.size;
+const secondPageUrls = await scraper.getItemUrls(page);
+secondPageUrls.forEach(url => uniqueUrls.add(url)); 
+const newItems = uniqueUrls.size - beforeCount; // Shows exactly how many new items
+```
+
+### Cross-Site Deduplication
+When processing multiple sites, check for shared URLs:
+
+```typescript
+const urlToSite = new Map<string, string>();
+
+for (const target of targets) {
+  if (!urlToSite.has(target.url)) {
+    urlToSite.set(target.url, site);
+    // Process this URL
+  } else {
+    // Skip - already assigned to another site
+    log.debug(`Duplicate URL ${target.url} already assigned to ${urlToSite.get(target.url)}`);
+  }
+}
+```
+
+## Double-Pass Matcher Pattern
+
+For production scraping, use the double-pass matcher algorithm (see `docs/double-pass-matcher.md`):
+
+### First Pass: Use Existing Sessions
+```typescript
+// Get existing sessions
+const existingSessions = await sessionManager.getActiveSessions();
+
+// Try to match URLs to existing sessions
+const firstPassPairs = targetsToSessions(targets, existingSessions, siteConfigs);
+
+// Terminate any unused sessions
+const unusedSessions = existingSessions.filter(s => !isUsed(s));
+await Promise.all(unusedSessions.map(s => sessionManager.destroySession(s.id)));
+```
+
+### Second Pass: Create Targeted Sessions
+```typescript
+// Calculate how many new sessions needed
+const sessionsNeeded = instanceLimit - firstPassPairs.length;
+
+if (sessionsNeeded > 0) {
+  // Analyze unmatched URLs to determine proxy requirements
+  const unmatchedTargets = targets.filter(t => !isMatched(t));
+  
+  // Create sessions based on actual requirements
+  const newSessions = await createTargetedSessions(unmatchedTargets, sessionsNeeded);
+  
+  // Run distributor again with all sessions
+  const secondPassPairs = targetsToSessions(targets, allSessions, siteConfigs);
+}
+```
+
+**Benefits**:
+- Zero wasted sessions
+- Smart proxy allocation
+- Maximum 2 distributor calls
+- Efficient resource usage
+
 ## Common Mistakes to Avoid
 
 ### ❌ DON'T: Create sessions per site
@@ -74,9 +163,11 @@ const sessionManager = new SessionManager({ sessionLimit: instanceLimit });
 // It will throw if you try to create too many sessions
 ```
 
-## Complete Example: Multi-Site Pagination
+## Complete Example: Multi-Site Pagination (Old Pattern)
 
-Here's the correct way to paginate multiple sites:
+**Note**: This example shows the basic pattern. For production use, see the double-pass matcher pattern above or `examples/pagination-live.ts`.
+
+Here's the basic way to paginate multiple sites:
 
 ```typescript
 import { SiteManager } from '../src/services/site-manager.js';
@@ -151,14 +242,14 @@ async function paginateMultipleSites(sites: string[], instanceLimit: number) {
       // Navigate to start page
       await page.goto(pair.url);
       
-      // Pagination loop
+      // Pagination loop with proper deduplication
       let pageCount = 1;
       const maxPages = 5; // Limit for safety
-      const allUrls = [];
+      const uniqueUrls = new Set<string>();
       
       // Get URLs from first page
       const firstPageUrls = await scraper.getItemUrls(page);
-      allUrls.push(...Array.from(firstPageUrls));
+      firstPageUrls.forEach(url => uniqueUrls.add(url));
       
       // Navigate through additional pages
       while (pageCount < maxPages) {
@@ -167,8 +258,10 @@ async function paginateMultipleSites(sites: string[], instanceLimit: number) {
         
         pageCount++;
         const urls = await scraper.getItemUrls(page);
-        allUrls.push(...Array.from(urls));
+        urls.forEach(url => uniqueUrls.add(url));
       }
+      
+      const allUrls = Array.from(uniqueUrls);
       
       await page.close();
     }

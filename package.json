@@ -13,7 +13,7 @@
     "test:integration": "vitest --run tests/integration.test.ts",
     "example:double-pass": "tsx --no-warnings --env-file=.env examples/double-pass-demo.ts",
     "example:distributor-pagination": "tsx --no-warnings --env-file=.env examples/distributor-pagination.ts",
-    "example:pagination:live": "tsx --no-warnings --env-file=.env examples/pagination-live.ts",
+    "example:pagination:live": "tsx --no-warnings --env-file=.env examples/pagination-live-v2.ts",
     "example:pagination:mock": "tsx --no-warnings --env-file=.env examples/pagination-mock.ts",
     "scrape:urls": "SCRAPE_MODE=urls tsx --no-warnings --env-file=.env scripts/run-engine.ts",
     "scrape:items": "SCRAPE_MODE=items tsx --no-warnings --env-file=.env scripts/run-engine.ts",
