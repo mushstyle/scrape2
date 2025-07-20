@@ -168,12 +168,20 @@ export async function scrapeItem(page: Page, options?: {
     const originalPriceText = await page.$eval('p.price del .woocommerce-Price-amount bdi', el => el.textContent?.trim()).catch(() => null);
     const salePriceText = await page.$eval('p.price ins .woocommerce-Price-amount bdi', el => el.textContent?.trim()).catch(() => null);
     const mainPriceText = await page.$eval('p.price > .woocommerce-Price-amount bdi', el => el.textContent?.trim()).catch(() => null); // Price when not on sale
+    
+    // Check for price range (variable products)
+    const priceRangeText = await page.$eval('p.price', el => el.textContent?.trim()).catch(() => null);
+    const priceRange = priceRangeText?.match(/(\d+)\s*[^\d]+\s*–\s*(\d+)/);
 
     let price: number;
     let sale_price: number | undefined = undefined;
     let priceTextForCurrency: string;
 
-    if (salePriceText && originalPriceText) {
+    if (priceRange) {
+      // Variable product with price range: use lowest price
+      price = parseFloat(priceRange[1]) || 0;
+      priceTextForCurrency = priceRangeText || '0';
+    } else if (salePriceText && originalPriceText) {
       // Sale case: <del>original</del> <ins>sale</ins>
       price = parseFloat(originalPriceText.replace(/[^\d.]/g, '')) || 0;
       sale_price = parseFloat(salePriceText.replace(/[^\d.]/g, '')) || 0;
@@ -208,7 +216,15 @@ export async function scrapeItem(page: Page, options?: {
     const imagesWithoutMushUrl: Image[] = await page.$$eval(SELECTORS.product.images, (imgs, title) =>
       imgs.map(img => {
         const imgEl = img as HTMLImageElement;
-        let url = imgEl.getAttribute('href') || imgEl.src; // Prioritize href for zoom
+        // Get the high-res image from data-large_image or data-src first, fallback to src
+        let url = imgEl.getAttribute('data-large_image') || imgEl.getAttribute('data-src') || imgEl.src;
+        
+        // Also check parent anchor for href
+        const parentAnchor = imgEl.closest('a');
+        if (parentAnchor && parentAnchor.href && !parentAnchor.href.includes('#')) {
+          url = parentAnchor.href;
+        }
+        
         if (url && url.startsWith('//')) url = 'https:' + url;
         return {
           sourceUrl: url || '',
