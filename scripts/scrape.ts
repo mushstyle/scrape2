@@ -55,7 +55,9 @@ interface ItemsOptions {
 
 async function runPaginate(options: PaginateOptions) {
   const siteManager = new SiteManager();
-  const sessionManager = new SessionManager();
+  const sessionManager = new SessionManager({
+    sessionLimit: options.instanceLimit || 10
+  });
   
   await siteManager.loadSites();
   
@@ -97,7 +99,9 @@ async function runPaginate(options: PaginateOptions) {
 
 async function runItems(options: ItemsOptions) {
   const siteManager = new SiteManager();
-  const sessionManager = new SessionManager();
+  const sessionManager = new SessionManager({
+    sessionLimit: options.instanceLimit || 10
+  });
   
   await siteManager.loadSites();
   
