@@ -218,12 +218,16 @@ export class PaginateEngine {
   private async getSitesToProcess(sites?: string[], since?: Date): Promise<string[]> {
     let sitesToProcess: string[];
     
+    log.debug('getSitesToProcess called with:', { sites, since });
+    
     if (sites && sites.length > 0) {
       sitesToProcess = sites;
+      log.debug('Using provided sites:', sitesToProcess);
     } else {
       // Get all sites with scraping enabled
       const allSites = this.siteManager.getSitesWithStartPages();
       sitesToProcess = allSites.map(site => site.domain);
+      log.debug('Using all sites with start pages:', sitesToProcess.length);
     }
     
     // If since is specified, filter out sites with recent runs

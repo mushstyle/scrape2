@@ -55,9 +55,18 @@ function parseArgs(args: string[]): { command: string; options: any } {
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
     
-    if (arg === '--sites' && i + 1 < args.length) {
+    if (arg.startsWith('--sites=')) {
+      options.sites = arg.replace('--sites=', '').split(',').map(s => s.trim());
+    } else if (arg === '--sites' && i + 1 < args.length) {
       options.sites = args[i + 1].split(',').map(s => s.trim());
       i++;
+    } else if (arg.startsWith('--since=')) {
+      try {
+        options.since = parseTimeDuration(arg.replace('--since=', ''));
+      } catch (error) {
+        console.error(`Error parsing --since: ${error.message}`);
+        process.exit(1);
+      }
     } else if (arg === '--since' && i + 1 < args.length) {
       try {
         options.since = parseTimeDuration(args[i + 1]);
@@ -66,20 +75,30 @@ function parseArgs(args: string[]): { command: string; options: any } {
         process.exit(1);
       }
       i++;
+    } else if (arg.startsWith('--instance-limit=')) {
+      options.instanceLimit = parseInt(arg.replace('--instance-limit=', ''), 10);
     } else if (arg === '--instance-limit' && i + 1 < args.length) {
       options.instanceLimit = parseInt(args[i + 1], 10);
       i++;
+    } else if (arg.startsWith('--max-pages=')) {
+      options.maxPages = parseInt(arg.replace('--max-pages=', ''), 10);
     } else if (arg === '--max-pages' && i + 1 < args.length) {
       options.maxPages = parseInt(args[i + 1], 10);
       i++;
+    } else if (arg.startsWith('--item-limit=')) {
+      options.itemLimit = parseInt(arg.replace('--item-limit=', ''), 10);
     } else if (arg === '--item-limit' && i + 1 < args.length) {
       options.itemLimit = parseInt(args[i + 1], 10);
       i++;
     } else if (arg === '--disable-cache') {
       options.disableCache = true;
+    } else if (arg.startsWith('--cache-size-mb=')) {
+      options.cacheSizeMB = parseInt(arg.replace('--cache-size-mb=', ''), 10);
     } else if (arg === '--cache-size-mb' && i + 1 < args.length) {
       options.cacheSizeMB = parseInt(args[i + 1], 10);
       i++;
+    } else if (arg.startsWith('--cache-ttl-seconds=')) {
+      options.cacheTTLSeconds = parseInt(arg.replace('--cache-ttl-seconds=', ''), 10);
     } else if (arg === '--cache-ttl-seconds' && i + 1 < args.length) {
       options.cacheTTLSeconds = parseInt(args[i + 1], 10);
       i++;
@@ -89,9 +108,13 @@ function parseArgs(args: string[]): { command: string; options: any } {
       options.localHeadless = true;
     } else if (arg === '--local-headed') {
       options.localHeaded = true;
+    } else if (arg.startsWith('--session-timeout=')) {
+      options.sessionTimeout = parseInt(arg.replace('--session-timeout=', ''), 10);
     } else if (arg === '--session-timeout' && i + 1 < args.length) {
       options.sessionTimeout = parseInt(args[i + 1], 10);
       i++;
+    } else if (arg.startsWith('--max-retries=')) {
+      options.maxRetries = parseInt(arg.replace('--max-retries=', ''), 10);
     } else if (arg === '--max-retries' && i + 1 < args.length) {
       options.maxRetries = parseInt(args[i + 1], 10);
       i++;
