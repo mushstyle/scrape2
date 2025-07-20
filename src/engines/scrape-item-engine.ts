@@ -109,91 +109,134 @@ export class ScrapeItemEngine {
       // Convert to ScrapeTargets
       const allTargets = urlsToScrapeTargets(urlsWithRunInfo.map(u => u.url));
       
-      // Limit targets to instance limit
-      const targetsToProcess = allTargets.slice(0, instanceLimit);
-      const urlsToProcess = urlsWithRunInfo.slice(0, instanceLimit);
+      // Process all items in batches
+      let processedCount = 0;
+      let batchNumber = 1;
+      let cacheStats: CacheStats | undefined;
+      const allScrapedItems: Item[] = []; // Collect all items for batch upload
       
-      // Step 2: Get existing sessions
-      const existingSessions = await this.sessionManager.getActiveSessions();
-      const sessionDataMap = new Map<string, SessionWithBrowser>();
-      
-      // Convert existing sessions to SessionWithBrowser format
-      const existingSessionData = this.convertSessionsToSessionData(existingSessions, sessionDataMap);
-      log.normal(`Found ${existingSessionData.length} existing sessions`);
-      
-      // Step 3: Get site configs with blocked proxies
-      const sitesToProcess = Array.from(new Set(urlsToProcess.map(u => u.domain)));
-      const siteConfigs = await this.siteManager.getSiteConfigsWithBlockedProxies();
-      const relevantSiteConfigs = siteConfigs.filter(config => 
-        sitesToProcess.includes(config.domain)
-      );
-      
-      // Step 4: First pass - match with existing sessions
-      const firstPassPairs = targetsToSessions(
-        targetsToProcess,
-        existingSessionData.map(s => s.sessionInfo),
-        relevantSiteConfigs
-      );
-      
-      log.normal(`First pass: Matched ${firstPassPairs.length} items to existing sessions`);
-      
-      // Mark used sessions
-      firstPassPairs.forEach(pair => {
-        const session = sessionDataMap.get(pair.sessionId);
-        if (session) session.inUse = true;
-      });
-      
-      // Step 5: Terminate excess sessions
-      const excessSessions = existingSessionData.filter(s => !s.inUse);
-      if (excessSessions.length > 0) {
-        log.normal(`Terminating ${excessSessions.length} excess sessions`);
-        await Promise.all(excessSessions.map(s => s.session.cleanup()));
-      }
-      
-      // Step 6: Calculate how many new sessions we need
-      const sessionsNeeded = Math.min(
-        instanceLimit - firstPassPairs.length, 
-        targetsToProcess.length - firstPassPairs.length
-      );
-      
-      let finalPairs = firstPassPairs;
-      
-      if (sessionsNeeded > 0) {
-        // Create new sessions and do second pass
-        await this.createNewSessions(
-          sessionsNeeded, 
-          targetsToProcess, 
-          firstPassPairs, 
-          urlToSite, 
-          sessionDataMap, 
-          existingSessionData,
-          options
+      while (processedCount < allTargets.length) {
+        const batchStart = processedCount;
+        const batchEnd = Math.min(processedCount + instanceLimit, allTargets.length);
+        const targetsToProcess = allTargets.slice(batchStart, batchEnd);
+        const urlsToProcess = urlsWithRunInfo.slice(batchStart, batchEnd);
+        
+        log.normal(`\nBatch ${batchNumber}: Processing items ${batchStart + 1}-${batchEnd} of ${allTargets.length}`);
+        
+        // Get existing sessions
+        const existingSessions = await this.sessionManager.getActiveSessions();
+        const sessionDataMap = new Map<string, SessionWithBrowser>();
+        
+        // Convert existing sessions to SessionWithBrowser format
+        const existingSessionData = this.convertSessionsToSessionData(existingSessions, sessionDataMap);
+        log.normal(`Found ${existingSessionData.length} existing sessions`);
+        
+        // Get site configs with blocked proxies
+        const sitesToProcess = Array.from(new Set(urlsToProcess.map(u => u.domain)));
+        const siteConfigs = await this.siteManager.getSiteConfigsWithBlockedProxies();
+        const relevantSiteConfigs = siteConfigs.filter(config => 
+          sitesToProcess.includes(config.domain)
         );
         
-        // Second pass with all sessions
-        finalPairs = targetsToSessions(
+        // First pass - match with existing sessions
+        const firstPassPairs = targetsToSessions(
           targetsToProcess,
           existingSessionData.map(s => s.sessionInfo),
           relevantSiteConfigs
         );
         
-        log.normal(`Second pass: Matched ${finalPairs.length} items total (limit: ${instanceLimit})`);
+        log.normal(`First pass: Matched ${firstPassPairs.length} items to existing sessions`);
+        
+        // Mark used sessions
+        firstPassPairs.forEach(pair => {
+          const session = sessionDataMap.get(pair.sessionId);
+          if (session) session.inUse = true;
+        });
+        
+        // Terminate excess sessions
+        const excessSessions = existingSessionData.filter(s => !s.inUse);
+        if (excessSessions.length > 0) {
+          log.normal(`Terminating ${excessSessions.length} excess sessions`);
+          await Promise.all(excessSessions.map(s => s.session.cleanup()));
+        }
+        
+        // Calculate how many new sessions we need
+        const sessionsNeeded = Math.min(
+          instanceLimit - firstPassPairs.length, 
+          targetsToProcess.length - firstPassPairs.length
+        );
+        
+        let finalPairs = firstPassPairs;
+        
+        if (sessionsNeeded > 0) {
+          // Create new sessions and do second pass
+          await this.createNewSessions(
+            sessionsNeeded, 
+            targetsToProcess, 
+            firstPassPairs, 
+            urlToSite, 
+            sessionDataMap, 
+            existingSessionData,
+            options
+          );
+          
+          // Second pass with all sessions
+          finalPairs = targetsToSessions(
+            targetsToProcess,
+            existingSessionData.map(s => s.sessionInfo),
+            relevantSiteConfigs
+          );
+          
+          log.normal(`Second pass: Matched ${finalPairs.length} items total (limit: ${instanceLimit})`);
+        }
+        
+        // Process URL-session pairs for this batch
+        const batchItems: Map<string, Item[]> = new Map();
+        const batchCacheStats = await this.processUrlSessionPairs(
+          finalPairs,
+          sessionDataMap,
+          urlsToProcess,
+          maxRetries,
+          options.disableCache ? undefined : { cacheSizeMB, cacheTTLSeconds },
+          batchItems,
+          errors,
+          true // Always skip save during batch processing, we'll save all at once later
+        );
+        
+        // Collect items from this batch
+        for (const [site, items] of batchItems) {
+          if (!itemsBySite.has(site)) {
+            itemsBySite.set(site, []);
+          }
+          itemsBySite.get(site)!.push(...items);
+          allScrapedItems.push(...items);
+        }
+        
+        // Merge cache stats
+        if (batchCacheStats) {
+          if (!cacheStats) {
+            cacheStats = batchCacheStats;
+          } else {
+            cacheStats.hits += batchCacheStats.hits;
+            cacheStats.misses += batchCacheStats.misses;
+            cacheStats.totalSizeMB = Math.max(cacheStats.totalSizeMB, batchCacheStats.totalSizeMB);
+            cacheStats.hitRate = (cacheStats.hits * 100) / (cacheStats.hits + cacheStats.misses);
+          }
+        }
+        
+        // Clean up browsers for this batch
+        await this.cleanupBrowsers(sessionDataMap);
+        
+        processedCount += targetsToProcess.length;
+        batchNumber++;
       }
       
-      // Step 7: Process URL-session pairs
-      const cacheStats = await this.processUrlSessionPairs(
-        finalPairs,
-        sessionDataMap,
-        urlsToProcess,
-        maxRetries,
-        options.disableCache ? undefined : { cacheSizeMB, cacheTTLSeconds },
-        itemsBySite,
-        errors,
-        options.noSave
-      );
-      
-      // Step 8: Clean up all browsers
-      await this.cleanupBrowsers(sessionDataMap);
+      // Batch upload all scraped items at once if not noSave
+      if (!options.noSave && allScrapedItems.length > 0) {
+        log.normal(`Uploading ${allScrapedItems.length} items to ETL API`);
+        const etlDriver = new ETLDriver();
+        await etlDriver.uploadItems(allScrapedItems);
+      }
       
       const totalItems = Array.from(itemsBySite.values()).reduce((sum, items) => sum + items.length, 0);
       

@@ -221,6 +221,31 @@ export class PaginateEngine {
         // Clean up browsers for this batch
         await this.cleanupBrowsers(sessionDataMap);
         
+        // Commit any completed runs after this batch if not noSave
+        if (!options.noSave) {
+          const completedSites = new Set<string>();
+          for (const site of allProcessedSites) {
+            const partialRun = this.getPartialRunForSite(site);
+            if (partialRun) {
+              // Check if all pagination states for this site are completed
+              const allStatesCompleted = Array.from(partialRun.paginationStates.values())
+                .every(state => state.isComplete);
+              if (allStatesCompleted) {
+                completedSites.add(site);
+              }
+            }
+          }
+          
+          if (completedSites.size > 0) {
+            log.normal(`Committing ${completedSites.size} completed runs after batch ${batchNumber}`);
+            await this.commitPartialRuns(completedSites, errors);
+            // Remove from allProcessedSites so we don't try to commit again
+            for (const site of completedSites) {
+              allProcessedSites.delete(site);
+            }
+          }
+        }
+        
         processedCount += targetsToProcess.length;
         batchNumber++;
       }
@@ -243,9 +268,9 @@ export class PaginateEngine {
         }
       }
       
-      // Step 10: Commit partial runs if not noSave
-      if (!options.noSave) {
-        // Commit runs for ALL sites we processed across all batches
+      // Step 10: Commit any remaining partial runs if not noSave
+      if (!options.noSave && allProcessedSites.size > 0) {
+        log.normal(`Committing ${allProcessedSites.size} remaining runs`);
         await this.commitPartialRuns(allProcessedSites, errors);
       }
       
