@@ -53,36 +53,72 @@ export async function getItemUrls(page: Page): Promise<Set<string>> {
 }
 
 /**
- * Advance to the next numbered page (`/page/{n}/`).
- * Returns `true` if the next page loaded AND appears to have at least
- * one product URL; otherwise returns `false` to signal the calling
- * script that pagination should stop.
+ * Attempts to load more products using infinite scroll.
+ * Returns `true` if more products were loaded, `false` if no more products to load.
  */
 export async function paginate(page: Page): Promise<boolean> {
-  const currentUrl = page.url();
-  const match = currentUrl.match(/\/page\/(\d+)/);
-  const currentPage = match ? parseInt(match[1], 10) : 1;
-  const nextPage = currentPage + 1;
-
-  // Build next‑page URL.
-  const nextUrl = match || currentUrl.includes('/page/')
-    ? currentUrl.replace(/(\/page\/)(\d+)/, `/page/${nextPage}`)
-    : (currentUrl.endsWith('/')
-      ? `${currentUrl}page/2/`
-      : `${currentUrl}/page/2/`);
-
+  const log = logger.createContext('deleganclothes.paginate');
+  
   try {
-    const response = await page.goto(nextUrl, {
-      waitUntil: 'domcontentloaded',
-      timeout: 10000 // Changed timeout
-    });
-    if (!response || !response.ok()) {
-      return false;
+    // Get initial product count
+    const initialCount = await page.evaluate((selector) => {
+      return document.querySelectorAll(selector).length;
+    }, SELECTORS.productLinks);
+
+    log.debug(`Current product count: ${initialCount}`);
+
+    // Multiple scroll attempts with different strategies
+    let newCount = initialCount;
+
+    // Strategy 1: Scroll to bottom
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(3000); // Wait for AJAX to load
+
+    newCount = await page.evaluate((selector) => {
+      return document.querySelectorAll(selector).length;
+    }, SELECTORS.productLinks);
+
+    // Strategy 2: If no new products, try scrolling up slightly then down again
+    if (newCount === initialCount) {
+      await page.evaluate(() => {
+        window.scrollTo(0, document.body.scrollHeight - 100);
+      });
+      await page.waitForTimeout(500);
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await page.waitForTimeout(2000);
+
+      newCount = await page.evaluate((selector) => {
+        return document.querySelectorAll(selector).length;
+      }, SELECTORS.productLinks);
     }
-    const urls = await getItemUrls(page);
-    return urls.size > 0;
-  } catch (_) {
-    return false; // treat navigation or selector errors as end‑of‑pagination
+
+    // Strategy 3: Check for loading indicators and wait if present
+    if (newCount === initialCount) {
+      const hasLoader = await page.evaluate(() => {
+        // Common loading indicator selectors
+        const loaders = document.querySelectorAll('.loading, .loader, [class*="load"], .spinner, .infinite-scroll-loader');
+        return loaders.length > 0;
+      });
+
+      if (hasLoader) {
+        log.debug('Found loading indicator, waiting...');
+        await page.waitForTimeout(3000);
+        newCount = await page.evaluate((selector) => {
+          return document.querySelectorAll(selector).length;
+        }, SELECTORS.productLinks);
+      }
+    }
+
+    if (newCount > initialCount) {
+      log.debug(`Loaded ${newCount - initialCount} more products via infinite scroll`);
+      return true; // More products were loaded
+    } else {
+      log.debug(`No more products to load via infinite scroll (stuck at ${initialCount} products)`);
+      return false; // No more products
+    }
+  } catch (error) {
+    log.error('Error during pagination:', error);
+    return false;
   }
 }
 
