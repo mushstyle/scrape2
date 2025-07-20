@@ -55,12 +55,23 @@ export class SessionManager {
     // Check if we have capacity for all requested sessions
     const activeSessions = await this.getActiveSessions();
     const availableSlots = this.sessionLimit - activeSessions.length;
-    if (optionsArray.length > availableSlots) {
-      throw new Error(`Cannot create ${optionsArray.length} sessions. Only ${availableSlots} slots available (limit: ${this.sessionLimit})`);
+    
+    // If requesting more than available, only create what we can
+    const sessionsToCreate = Math.min(optionsArray.length, availableSlots);
+    if (sessionsToCreate === 0) {
+      log.normal(`No available slots (${activeSessions.length}/${this.sessionLimit} in use)`);
+      return isArray ? [] : undefined as any;
     }
     
+    if (sessionsToCreate < optionsArray.length) {
+      log.normal(`Requested ${optionsArray.length} sessions but only ${availableSlots} slots available. Creating ${sessionsToCreate} sessions.`);
+    }
+    
+    // Only process the options we can actually create
+    const optionsToProcess = optionsArray.slice(0, sessionsToCreate);
+    
     // Create all sessions in parallel
-    const sessionPromises = optionsArray.map(async (opt) => {
+    const sessionPromises = optionsToProcess.map(async (opt) => {
       try {
         let session: Session;
         

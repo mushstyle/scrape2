@@ -4,6 +4,8 @@ import type { Session } from '../types/session.js';
 import { formatProxyForPlaywright } from './proxy.js';
 import { createSession as createBrowserbaseSessionProvider } from '../providers/browserbase.js';
 import { createSession as createLocalSessionProvider } from '../providers/local-browser.js';
+import { UnifiedRouteHandler } from './unified-route-handler.js';
+import type { RequestCache } from './cache.js';
 
 export interface BrowserFromSessionOptions {
   blockImages?: boolean; // Block image downloads, defaults to true
@@ -11,8 +13,13 @@ export interface BrowserFromSessionOptions {
 
 export interface BrowserFromSessionResult {
   browser: Browser;
-  createContext: (options?: any) => Promise<BrowserContext>;
+  createContext: (options?: BrowserContextOptions) => Promise<BrowserContext>;
   cleanup: () => Promise<void>;
+}
+
+export interface BrowserContextOptions {
+  cache?: RequestCache;
+  [key: string]: any;
 }
 
 /**
@@ -30,8 +37,17 @@ export async function createBrowserFromSession(
       throw new Error('Invalid session: missing browserbase data');
     }
     
-    // Connect to Browserbase via CDP
-    browser = await chromium.connectOverCDP(session.browserbase.connectUrl);
+    // Connect to Browserbase via CDP with better error handling
+    try {
+      browser = await chromium.connectOverCDP(session.browserbase.connectUrl);
+    } catch (error: any) {
+      // Add session ID to error message for better debugging
+      const sessionId = session.browserbase.id;
+      if (error.message?.includes('Could not find a running session')) {
+        throw new Error(`Browserbase session ${sessionId} not found or expired: ${error.message}`);
+      }
+      throw new Error(`Failed to connect to browserbase session ${sessionId}: ${error.message}`);
+    }
   } else if (session.provider === 'local') {
     if (!session.local) {
       throw new Error('Invalid session: missing local data');
@@ -56,14 +72,13 @@ export async function createBrowserFromSession(
     const context = await browser.newContext(contextOptions);
 
     // Add image blocking if requested
+    // Note: Cache handler is added separately and takes priority
     if (blockImages) {
-      await context.route('**/*', (route) => {
-        const request = route.request();
-        const resourceType = request.resourceType();
-        if (resourceType === 'image') {
-          route.abort();
-        } else {
-          route.continue();
+      await context.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico}', async (route) => {
+        try {
+          await route.abort();
+        } catch (error: any) {
+          // Ignore errors - route might be handled by another handler
         }
       });
     }

@@ -58,7 +58,8 @@ export async function createSession(options: SessionOptions = {}): Promise<Sessi
   const browserbaseSession: BrowserbaseSession = {
     id: sessionData.id,
     connectUrl: sessionData.connectUrl,
-    projectId
+    projectId,
+    proxy: options.proxy
   };
 
   return {

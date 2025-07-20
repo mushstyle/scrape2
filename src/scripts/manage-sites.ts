@@ -214,11 +214,8 @@ async function listSitesWithOutstandingRuns(since?: Date) {
       });
     });
     
-    // Sort by remaining items (descending), then by domain name
-    tableData.sort((a, b) => {
-      const remainingDiff = b['Remaining'] - a['Remaining'];
-      return remainingDiff !== 0 ? remainingDiff : a.Domain.localeCompare(b.Domain);
-    });
+    // Sort alphabetically by domain name for consistent display
+    tableData.sort((a, b) => a.Domain.localeCompare(b.Domain));
     
     const filterText = since ? ` (since ${since.toLocaleString()})` : '';
     console.log(`\nSites with outstanding scrape runs${filterText} (${tableData.length} sites):\n`);

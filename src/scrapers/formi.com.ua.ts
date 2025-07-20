@@ -1,5 +1,5 @@
 import type { Page } from 'playwright';
-import { Scraper, Item, Image } from './types.js';
+import type { Scraper, Item, Image } from './types.js';
 import { logger } from '../utils/logger.js';
 
 const log = logger.createContext('formi.com.ua');

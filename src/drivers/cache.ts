@@ -21,26 +21,27 @@ export class RequestCache {
    */
   async enableForPage(page: Page): Promise<void> {
     await page.route('**/*', async (route: Route) => {
-      const request = route.request();
-      const method = request.method();
-      const url = request.url();
+      try {
+        const request = route.request();
+        const method = request.method();
+        const url = request.url();
 
-      // Only cache GET requests
-      if (method !== 'GET') {
-        return route.continue();
-      }
+        // Only cache GET requests
+        if (method !== 'GET') {
+          return await route.continue();
+        }
 
-      // Skip requests with auth headers
-      const headers = await request.allHeaders();
-      if (headers.authorization || headers.cookie) {
-        return route.continue();
-      }
+        // Skip requests with auth headers
+        const headers = await request.allHeaders();
+        if (headers.authorization || headers.cookie) {
+          return await route.continue();
+        }
 
       // Check cache
       const cached = this.get(url);
       if (cached) {
         this.stats.hits++;
-        return route.fulfill({
+        return await route.fulfill({
           status: cached.status,
           headers: cached.headers,
           body: cached.response
@@ -59,38 +60,71 @@ export class RequestCache {
           const headers: Record<string, string> = {};
           
           // Convert headers to plain object
-        const responseHeaders = response.headers();
-        for (const [key, value] of Object.entries(responseHeaders)) {
-          headers[key] = value;
+          const responseHeaders = response.headers();
+          for (const [key, value] of Object.entries(responseHeaders)) {
+            headers[key] = value;
+          }
+
+          this.set(url, {
+            url,
+            response: body,
+            headers,
+            status: response.status(),
+            timestamp: Date.now(),
+            size: body.length
+          });
         }
 
-        this.set(url, {
-          url,
-          response: body,
-          headers,
-          status: response.status(),
-          timestamp: Date.now(),
-          size: body.length
+        return await route.fulfill({
+          response
         });
-      }
-
-      return route.fulfill({
-        response
-      });
       
       } catch (error) {
-        // Re-throw the error to let Playwright's retry logic handle it
-        // This is important for network errors like ECONNREFUSED
-        throw error;
+        // For network errors (DNS, connection failures), continue without caching
+        // This prevents crashes when external resources are unavailable
+        return await route.continue();
+      }
+      } catch (error) {
+        // If the page/context/browser is closed, just return silently
+        // This prevents the process from crashing when pages are closed
+        // The error will be: "Target page, context or browser has been closed"
+        if (error instanceof Error && error.message.includes('Target page, context or browser has been closed')) {
+          return;
+        }
+        // If route is already handled (by another handler), just return
+        if (error instanceof Error && error.message.includes('Route is already handled')) {
+          return;
+        }
+        // For other errors, try to continue without caching
+        try {
+          return await route.continue();
+        } catch (continueError) {
+          // If continue also fails, just return silently
+          return;
+        }
       }
     });
   }
 
 
   /**
+   * Increment hit counter
+   */
+  incrementHits(): void {
+    this.stats.hits++;
+  }
+
+  /**
+   * Increment miss counter
+   */
+  incrementMisses(): void {
+    this.stats.misses++;
+  }
+
+  /**
    * Get cached entry
    */
-  private get(url: string): CacheEntry | null {
+  get(url: string): CacheEntry | null {
     const entry = this.cache.get(url);
     if (!entry) return null;
 
@@ -110,7 +144,7 @@ export class RequestCache {
   /**
    * Store entry in cache with LRU eviction
    */
-  private set(url: string, entry: CacheEntry): void {
+  set(url: string, entry: CacheEntry): void {
     // If entry exists, remove old size
     const existing = this.cache.get(url);
     if (existing) {

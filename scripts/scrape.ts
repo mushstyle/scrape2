@@ -14,13 +14,16 @@ import { ScrapeItemEngine } from '../src/engines/scrape-item-engine.js';
 import { SiteManager } from '../src/services/site-manager.js';
 import { SessionManager } from '../src/services/session-manager.js';
 import { logger } from '../src/utils/logger.js';
-import { parseTimeDuration, formatDate } from '../src/utils/time-parser.js';
+import { formatDate } from '../src/utils/time-parser.js';
+import { parseArgs } from '../src/utils/cli-args.js';
 
 const log = logger.createContext('scrape-cli');
 
 interface PaginateOptions {
   sites?: string[];
+  exclude?: string[];
   since?: Date;
+  force?: boolean;
   instanceLimit?: number;
   maxPages?: number;
   disableCache?: boolean;
@@ -35,6 +38,7 @@ interface PaginateOptions {
 
 interface ItemsOptions {
   sites?: string[];
+  exclude?: string[];
   since?: Date;
   instanceLimit?: number;
   itemLimit?: number;
@@ -48,55 +52,21 @@ interface ItemsOptions {
   maxRetries?: number;
 }
 
-function parseArgs(args: string[]): { command: string; options: any } {
-  const command = args[0];
-  const options: any = {};
-  
-  for (let i = 1; i < args.length; i++) {
-    const arg = args[i];
-    
-    if (arg.startsWith('--sites=')) {
-      options.sites = arg.replace('--sites=', '').split(',').map(s => s.trim());
-    } else if (arg.startsWith('--since=')) {
-      try {
-        options.since = parseTimeDuration(arg.replace('--since=', ''));
-      } catch (error) {
-        console.error(`Error parsing --since: ${error.message}`);
-        process.exit(1);
-      }
-    } else if (arg.startsWith('--instance-limit=')) {
-      options.instanceLimit = parseInt(arg.replace('--instance-limit=', ''), 10);
-    } else if (arg.startsWith('--max-pages=')) {
-      options.maxPages = parseInt(arg.replace('--max-pages=', ''), 10);
-    } else if (arg.startsWith('--item-limit=')) {
-      options.itemLimit = parseInt(arg.replace('--item-limit=', ''), 10);
-    } else if (arg === '--disable-cache') {
-      options.disableCache = true;
-    } else if (arg.startsWith('--cache-size-mb=')) {
-      options.cacheSizeMB = parseInt(arg.replace('--cache-size-mb=', ''), 10);
-    } else if (arg.startsWith('--cache-ttl-seconds=')) {
-      options.cacheTTLSeconds = parseInt(arg.replace('--cache-ttl-seconds=', ''), 10);
-    } else if (arg === '--no-save') {
-      options.noSave = true;
-    } else if (arg === '--local-headless') {
-      options.localHeadless = true;
-    } else if (arg === '--local-headed') {
-      options.localHeaded = true;
-    } else if (arg.startsWith('--session-timeout=')) {
-      options.sessionTimeout = parseInt(arg.replace('--session-timeout=', ''), 10);
-    } else if (arg.startsWith('--max-retries=')) {
-      options.maxRetries = parseInt(arg.replace('--max-retries=', ''), 10);
-    }
-  }
-  
-  return { command, options };
-}
 
 async function runPaginate(options: PaginateOptions) {
   const siteManager = new SiteManager();
-  const sessionManager = new SessionManager();
+  const sessionManager = new SessionManager({
+    sessionLimit: options.instanceLimit || 10
+  });
   
   await siteManager.loadSites();
+  
+  // Default to 2d if no since provided and not forcing
+  if (!options.since && !options.force) {
+    const { parseTimeDuration } = await import('../src/utils/time-parser.js');
+    options.since = parseTimeDuration('2d');
+    log.normal('Using default --since value of 2d (use --force to override)');
+  }
   
   const engine = new PaginateEngine(siteManager, sessionManager);
   const result = await engine.paginate(options);
@@ -129,7 +99,9 @@ async function runPaginate(options: PaginateOptions) {
 
 async function runItems(options: ItemsOptions) {
   const siteManager = new SiteManager();
-  const sessionManager = new SessionManager();
+  const sessionManager = new SessionManager({
+    sessionLimit: options.instanceLimit || 10
+  });
   
   await siteManager.loadSites();
   
@@ -180,19 +152,21 @@ async function main() {
       console.log('  npm run scrape verify item <url>');
       console.log('');
       console.log('Options:');
-      console.log('  --sites=site1,site2       Sites to process (optional)');
-      console.log('  --since=1d                Only process sites/runs without activity since (1d, 48h, 1w, etc)');
-      console.log('  --instance-limit=N        Max concurrent sessions (default: 10)');
-      console.log('  --max-pages=N             Max pages to paginate (default: 5)');
-      console.log('  --item-limit=N            Max items per site (default: 100)');
+      console.log('  --sites site1,site2       Sites to process (optional)');
+      console.log('  --exclude site1,site2     Sites to exclude (takes precedence over --sites)');
+      console.log('  --since 1d                Only process sites without runs since (default: 2d for paginate)');
+      console.log('  --force                   Force pagination even if sites have recent runs (ignores --since)');
+      console.log('  --instance-limit N        Max concurrent sessions (default: 10)');
+      console.log('  --max-pages N             Max pages to paginate (default: 5)');
+      console.log('  --item-limit N            Max items per site (default: 100)');
       console.log('  --disable-cache           Disable request caching');
-      console.log('  --cache-size-mb=N         Cache size in MB (default: 100)');
-      console.log('  --cache-ttl-seconds=N     Cache TTL in seconds (default: 300)');
+      console.log('  --cache-size-mb N         Cache size in MB (default: 100)');
+      console.log('  --cache-ttl-seconds N     Cache TTL in seconds (default: 300)');
       console.log('  --no-save                 Skip saving to database');
       console.log('  --local-headless          Use local browser in headless mode');
       console.log('  --local-headed            Use local browser in headed mode');
-      console.log('  --session-timeout=N       Session timeout in seconds');
-      console.log('  --max-retries=N           Max retries for network errors (default: 2)');
+      console.log('  --session-timeout N       Session timeout in seconds');
+      console.log('  --max-retries N           Max retries for network errors (default: 2)');
       process.exit(1);
     }
     

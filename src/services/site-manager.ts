@@ -207,7 +207,9 @@ export class SiteManager {
   }
 
   /**
-   * Get start pages for a domain, respecting sessionLimit
+   * Get start pages for a domain
+   * NOTE: This returns ALL start pages. The sessionLimit should be applied
+   * during batch processing, not here!
    */
   async getStartPagesForDomain(domain: string): Promise<string[]> {
     const site = this.getSite(domain);
@@ -215,8 +217,8 @@ export class SiteManager {
       return [];
     }
 
-    const sessionLimit = await getSessionLimitForDomain(domain);
-    return site.config.startPages.slice(0, sessionLimit);
+    // Return ALL start pages - sessionLimit controls concurrent sessions, not total URLs
+    return site.config.startPages;
   }
   
   /**
@@ -238,7 +240,53 @@ export class SiteManager {
   }
 
   /**
-   * Get all start pages from all sites, respecting sessionLimit
+   * Get unprocessed start pages for all sites, respecting session limits
+   * This returns start pages that haven't been completed yet, up to the session limit per domain
+   */
+  async getUnprocessedStartPagesWithLimits(sites: string[]): Promise<Array<{ url: string; domain: string }>> {
+    const results: Array<{ url: string; domain: string }> = [];
+    
+    for (const domain of sites) {
+      const site = this.getSite(domain);
+      if (!site || !site.config.startPages?.length) {
+        continue;
+      }
+      
+      // Get session limit for this domain
+      const sessionLimit = await this.getSessionLimitForDomain(domain);
+      
+      // Get all start pages
+      const allStartPages = site.config.startPages;
+      
+      // Find which ones are not completed
+      const unprocessedPages: string[] = [];
+      for (const url of allStartPages) {
+        // Check if this URL has a pagination state and if it's completed
+        const partialRun = this.partialRuns.get(domain);
+        const state = partialRun?.paginationStates.get(url);
+        
+        // If no state exists or it's not completed, it's unprocessed
+        if (!state || !state.completed) {
+          unprocessedPages.push(url);
+          
+          // Stop if we've reached the session limit
+          if (unprocessedPages.length >= sessionLimit) {
+            break;
+          }
+        }
+      }
+      
+      // Add to results
+      for (const url of unprocessedPages) {
+        results.push({ url, domain });
+      }
+    }
+    
+    return results;
+  }
+
+  /**
+   * Get all start pages from all sites
    */
   async getAllStartPages(): Promise<Array<{ url: string; domain: string }>> {
     const urls: Array<{ url: string; domain: string }> = [];
@@ -721,6 +769,12 @@ export class SiteManager {
    * Start pagination tracking for a site
    */
   async startPagination(siteId: string, startPages: string[]): Promise<void> {
+    // Check if pagination already started for this site
+    if (this.partialRuns.has(siteId)) {
+      log.debug(`Pagination already started for ${siteId}, skipping initialization`);
+      return;
+    }
+    
     const partialRun: PartialScrapeRun = {
       siteId,
       paginationStates: new Map(

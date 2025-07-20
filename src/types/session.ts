@@ -12,6 +12,7 @@ export interface BrowserbaseSession {
   id: string;
   connectUrl: string;
   projectId: string;
+  proxy?: Proxy;
 }
 
 export interface LocalSession {
