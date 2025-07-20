@@ -171,15 +171,7 @@ export class PaginateEngine {
         options.disableCache ? undefined : { cacheSizeMB, cacheTTLSeconds }
       );
       
-      // Step 9: Commit partial runs if not noSave
-      if (!options.noSave) {
-        await this.commitPartialRuns(urlToSite, errors);
-      }
-      
-      // Step 10: Clean up all browsers
-      await this.cleanupBrowsers(sessionDataMap);
-      
-      // Collect results
+      // Step 9: Collect results BEFORE committing (while partial runs still exist)
       for (const site of sitesToProcess) {
         const siteData = this.siteManager.getSite(site);
         if (siteData) {
@@ -196,6 +188,14 @@ export class PaginateEngine {
           }
         }
       }
+      
+      // Step 10: Commit partial runs if not noSave
+      if (!options.noSave) {
+        await this.commitPartialRuns(urlToSite, errors);
+      }
+      
+      // Step 11: Clean up all browsers
+      await this.cleanupBrowsers(sessionDataMap);
       
       const totalUrls = Array.from(urlsBySite.values()).reduce((sum, urls) => sum + urls.length, 0);
       
