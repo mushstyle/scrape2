@@ -57,6 +57,13 @@ async function runPaginate(options: PaginateOptions) {
   
   await siteManager.loadSites();
   
+  // Default to 2d if no since provided and not forcing
+  if (!options.since && !options.force) {
+    const { parseTimeDuration } = await import('../src/utils/time-parser.js');
+    options.since = parseTimeDuration('2d');
+    log.normal('Using default --since value of 2d (use --force to override)');
+  }
+  
   const engine = new PaginateEngine(siteManager, sessionManager);
   const result = await engine.paginate(options);
   
@@ -140,7 +147,7 @@ async function main() {
       console.log('');
       console.log('Options:');
       console.log('  --sites site1,site2       Sites to process (optional)');
-      console.log('  --since 1d                Only process sites/runs without activity since (1d, 48h, 1w, etc)');
+      console.log('  --since 1d                Only process sites without runs since (default: 2d for paginate)');
       console.log('  --force                   Force pagination even if sites have recent runs (ignores --since)');
       console.log('  --instance-limit N        Max concurrent sessions (default: 10)');
       console.log('  --max-pages N             Max pages to paginate (default: 5)');
