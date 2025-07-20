@@ -21,6 +21,7 @@ const log = logger.createContext('scrape-cli');
 
 interface PaginateOptions {
   sites?: string[];
+  exclude?: string[];
   since?: Date;
   force?: boolean;
   instanceLimit?: number;
@@ -37,6 +38,7 @@ interface PaginateOptions {
 
 interface ItemsOptions {
   sites?: string[];
+  exclude?: string[];
   since?: Date;
   instanceLimit?: number;
   itemLimit?: number;
@@ -147,6 +149,7 @@ async function main() {
       console.log('');
       console.log('Options:');
       console.log('  --sites site1,site2       Sites to process (optional)');
+      console.log('  --exclude site1,site2     Sites to exclude (takes precedence over --sites)');
       console.log('  --since 1d                Only process sites without runs since (default: 2d for paginate)');
       console.log('  --force                   Force pagination even if sites have recent runs (ignores --since)');
       console.log('  --instance-limit N        Max concurrent sessions (default: 10)');

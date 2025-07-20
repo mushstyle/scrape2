@@ -17,6 +17,7 @@ const log = logger.createContext('scrape-item-engine');
 
 export interface ScrapeItemOptions {
   sites?: string[];  // If not specified, scrape all sites with pending items
+  exclude?: string[];  // Sites to exclude (takes precedence over sites)
   since?: Date;  // Only process runs created after this date
   instanceLimit?: number;  // Default: 10
   itemLimit?: number;  // Max items per site, default: 100
@@ -88,7 +89,8 @@ export class ScrapeItemEngine {
       const { urlsWithRunInfo, urlToSite } = await this.collectPendingItems(
         options.sites,
         itemLimit,
-        options.since
+        options.since,
+        options.exclude
       );
       
       if (urlsWithRunInfo.length === 0) {
@@ -213,7 +215,8 @@ export class ScrapeItemEngine {
   private async collectPendingItems(
     sites: string[] | undefined,
     itemLimit: number,
-    since?: Date
+    since?: Date,
+    exclude?: string[]
   ): Promise<{
     urlsWithRunInfo: UrlWithRunInfo[];
     urlToSite: Map<string, string>;
@@ -237,6 +240,13 @@ export class ScrapeItemEngine {
       if (since) {
         log.normal(`Processing runs created after ${since.toISOString()}: ${allRuns.length} active runs found`);
       }
+    }
+    
+    // Apply exclude filter (takes precedence)
+    if (exclude && exclude.length > 0) {
+      const excludeSet = new Set(exclude);
+      sitesToProcess = sitesToProcess.filter(site => !excludeSet.has(site));
+      log.normal(`Excluded ${exclude.length} sites: ${exclude.join(', ')}`);
     }
     
     // For each site, get pending items from active runs

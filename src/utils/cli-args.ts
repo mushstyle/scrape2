@@ -75,6 +75,10 @@ export function parseArgs(args: string[]): ParsedArgs {
       options.maxRetries = parseInt(arg.replace('--max-retries=', ''), 10);
     } else if (arg === '--max-retries' && i + 1 < args.length) {
       options.maxRetries = parseInt(args[++i], 10);
+    } else if (arg.startsWith('--exclude=')) {
+      options.exclude = arg.replace('--exclude=', '').split(',').map(s => s.trim());
+    } else if (arg === '--exclude' && i + 1 < args.length) {
+      options.exclude = args[++i].split(',').map(s => s.trim());
     }
   }
   

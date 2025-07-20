@@ -15,6 +15,7 @@ const log = logger.createContext('paginate-engine');
 
 export interface PaginateOptions {
   sites?: string[];  // If not specified, paginate all sites with scraping enabled
+  exclude?: string[];  // Sites to exclude (takes precedence over sites)
   since?: Date;  // Only paginate sites without runs since this date
   force?: boolean;  // Force pagination even if sites have recent runs (ignores since)
   instanceLimit?: number;  // Default: 10
@@ -75,7 +76,7 @@ export class PaginateEngine {
     
     try {
       // Step 1: Get sites to process
-      const sitesToProcess = await this.getSitesToProcess(options.sites, options.since, options.force);
+      const sitesToProcess = await this.getSitesToProcess(options.sites, options.since, options.force, options.exclude);
       log.normal(`Will paginate ${sitesToProcess.length} sites`);
       
       if (sitesToProcess.length === 0) {
@@ -239,10 +240,10 @@ export class PaginateEngine {
     }
   }
   
-  private async getSitesToProcess(sites?: string[], since?: Date, force?: boolean): Promise<string[]> {
+  private async getSitesToProcess(sites?: string[], since?: Date, force?: boolean, exclude?: string[]): Promise<string[]> {
     let sitesToProcess: string[];
     
-    log.debug('getSitesToProcess called with:', { sites, since, force });
+    log.debug('getSitesToProcess called with:', { sites, since, force, exclude });
     
     if (sites && sites.length > 0) {
       sitesToProcess = sites;
@@ -252,6 +253,13 @@ export class PaginateEngine {
       const allSites = this.siteManager.getSitesWithStartPages();
       sitesToProcess = allSites.map(site => site.domain);
       log.debug('Using all sites with start pages:', sitesToProcess.length);
+    }
+    
+    // Apply exclude filter first (takes precedence)
+    if (exclude && exclude.length > 0) {
+      const excludeSet = new Set(exclude);
+      sitesToProcess = sitesToProcess.filter(site => !excludeSet.has(site));
+      log.normal(`Excluded ${exclude.length} sites: ${exclude.join(', ')}`);
     }
     
     // If force is true, skip the since filtering
