@@ -11,7 +11,7 @@ import { createInterface } from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
 import { getSiteConfig, addStartPages, replaceStartPages, removeStartPages } from '../drivers/site-config.js';
 import { getSites } from '../providers/etl-api.js';
-import { listRuns } from '../drivers/scrape-runs.js';
+import { SiteManager } from '../services/site-manager.js';
 import type { ScrapeRun } from '../types/scrape-run.js';
 import { logger } from '../utils/logger.js';
 
@@ -148,13 +148,13 @@ async function listSitesWithNoStartPages() {
 
 async function listSitesWithOutstandingRuns(since?: Date) {
   try {
-    // Get all sites
-    const response = await getSites();
-    const sites = response.sites || [];
+    // Initialize SiteManager
+    const siteManager = new SiteManager();
+    await siteManager.loadSites();
     
-    // Get all pending/processing runs
-    const pendingRunsResponse = await listRuns({ status: 'pending', since });
-    const processingRunsResponse = await listRuns({ status: 'processing', since });
+    // Get all pending/processing runs using SiteManager
+    const pendingRunsResponse = await siteManager.listRuns({ status: 'pending', since });
+    const processingRunsResponse = await siteManager.listRuns({ status: 'processing', since });
     
     const pendingRuns = pendingRunsResponse.runs || [];
     const processingRuns = processingRunsResponse.runs || [];
