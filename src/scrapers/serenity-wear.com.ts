@@ -35,8 +35,32 @@ export const SELECTORS = {
  * @returns Set of product URLs
  */
 export async function getItemUrls(page: Page): Promise<Set<string>> {
-  const links = await page.$$eval(SELECTORS.productLinks, (els) => els.map((el) => (el as HTMLAnchorElement).href));
-  return new Set(links);
+  try {
+    // Wait for the product grid to be present
+    await page.waitForSelector(SELECTORS.productGrid, { timeout: 10000 });
+    
+    // Wait a bit for any dynamic content to load
+    await page.waitForTimeout(1000);
+    
+    // Try to wait for network idle to ensure page is stable
+    try {
+      await page.waitForLoadState('networkidle', { timeout: 5000 });
+    } catch (e) {
+      // Continue even if network doesn't become idle
+      log.debug('Network did not become idle, continuing anyway');
+    }
+    
+    // Extract links using locator to be more resilient to navigation
+    const links = await page.locator(SELECTORS.productLinks).evaluateAll((els) => 
+      els.map((el) => (el as HTMLAnchorElement).href)
+    );
+    
+    return new Set(links);
+  } catch (error) {
+    log.error('Error in getItemUrls:', error);
+    // Return empty set on error rather than throwing
+    return new Set<string>();
+  }
 }
 
 /**
@@ -75,13 +99,30 @@ export async function paginate(page: Page): Promise<boolean> {
 
     // 3. Click the button
     await loadMoreButton.scrollIntoViewIfNeeded();
+    
+    // Store the current number of products before clicking
+    const productCountBefore = await page.locator(SELECTORS.productLinks).count();
+    
     await loadMoreButton.click({ timeout: 5000 });
 
-    // 4. Wait for network activity to potentially settle
+    // 4. Wait for new products to load
     try {
-      await page.waitForLoadState('networkidle', { timeout: 10000 });
+      // Wait for either new products to appear or network to settle
+      await Promise.race([
+        // Wait for more products than before
+        page.waitForFunction(
+          (selector, countBefore) => document.querySelectorAll(selector).length > countBefore,
+          { selector: SELECTORS.productLinks, countBefore: productCountBefore },
+          { timeout: 10000 }
+        ),
+        // Or wait for network idle
+        page.waitForLoadState('networkidle', { timeout: 10000 })
+      ]);
+      
+      // Additional small wait to ensure DOM is stable
+      await page.waitForTimeout(500);
     } catch (e) {
-      log.debug("   Network did not become idle after click (timeout or error), proceeding anyway.");
+      log.debug("   Timeout waiting for new products or network idle after click, proceeding anyway.");
     }
 
     // 5. Indicate pagination attempt was made
