@@ -64,6 +64,7 @@ interface UrlWithRunInfo {
 
 export class ScrapeItemEngine {
   private etlDriver: ETLDriver;
+  private sessionDataMap: Map<string, SessionWithBrowser> = new Map();
   
   constructor(
     private siteManager: SiteManager,
@@ -76,6 +77,7 @@ export class ScrapeItemEngine {
     const startTime = Date.now();
     const errors = new Map<string, string>();
     const itemsBySite = new Map<string, Item[]>();
+    const urlToSite = new Map<string, string>();
     
     // Set defaults
     const instanceLimit = options.instanceLimit || 10;
@@ -85,54 +87,48 @@ export class ScrapeItemEngine {
     const maxRetries = options.maxRetries || 2;
     
     try {
-      // Step 1: Get sites to process and their pending items
-      const { urlsWithRunInfo, urlToSite } = await this.collectPendingItems(
-        options.sites,
-        itemLimit,
-        options.since,
-        options.exclude
-      );
-      
-      if (urlsWithRunInfo.length === 0) {
-        log.normal('No pending items to scrape');
-        return {
-          success: true,
-          itemsScraped: 0,
-          itemsBySite,
-          errors,
-          duration: Date.now() - startTime
-        };
-      }
-      
-      log.normal(`Found ${urlsWithRunInfo.length} pending items across ${new Set(urlsWithRunInfo.map(u => u.domain)).size} sites`);
-      
-      // Convert to ScrapeTargets
-      const allTargets = urlsToScrapeTargets(urlsWithRunInfo.map(u => u.url));
-      
       // Process all items in batches
-      let processedCount = 0;
       let batchNumber = 1;
       let cacheStats: CacheStats | undefined;
-      const allScrapedItems: Item[] = []; // Collect all items for batch upload
       
-      while (processedCount < allTargets.length) {
-        const batchStart = processedCount;
-        const batchEnd = Math.min(processedCount + instanceLimit, allTargets.length);
-        const targetsToProcess = allTargets.slice(batchStart, batchEnd);
-        const urlsToProcess = urlsWithRunInfo.slice(batchStart, batchEnd);
+      while (true) {
+        // Get pending items for this batch
+        const { urlsWithRunInfo: batchUrlsWithRunInfo, urlToSite: batchUrlToSite } = await this.collectPendingItems(
+          options.sites,
+          instanceLimit,  // Only collect up to instanceLimit items per batch
+          options.since,
+          options.exclude
+        );
         
-        log.normal(`\nBatch ${batchNumber}: Processing items ${batchStart + 1}-${batchEnd} of ${allTargets.length}`);
+        if (batchUrlsWithRunInfo.length === 0) {
+          log.normal('No more pending items to process');
+          break;
+        }
+        
+        log.normal(`\nBatch ${batchNumber}: Processing ${batchUrlsWithRunInfo.length} items`);
+        
+        // Convert to ScrapeTargets
+        const targetsToProcess = urlsToScrapeTargets(batchUrlsWithRunInfo.map(u => u.url));
+        
+        // Update urlToSite map
+        for (const [url, site] of batchUrlToSite) {
+          urlToSite.set(url, site);
+        }
+        
+        // Reset inUse flags at start of each batch
+        Array.from(this.sessionDataMap.values()).forEach(sessionData => {
+          sessionData.inUse = false;
+        });
         
         // Get existing sessions
         const existingSessions = await this.sessionManager.getActiveSessions();
-        const sessionDataMap = new Map<string, SessionWithBrowser>();
         
         // Convert existing sessions to SessionWithBrowser format
-        const existingSessionData = this.convertSessionsToSessionData(existingSessions, sessionDataMap);
+        const existingSessionData = this.convertSessionsToSessionData(existingSessions, this.sessionDataMap);
         log.normal(`Found ${existingSessionData.length} existing sessions`);
         
         // Get site configs with blocked proxies
-        const sitesToProcess = Array.from(new Set(urlsToProcess.map(u => u.domain)));
+        const sitesToProcess = Array.from(new Set(batchUrlsWithRunInfo.map(u => u.domain)));
         const siteConfigs = await this.siteManager.getSiteConfigsWithBlockedProxies();
         const relevantSiteConfigs = siteConfigs.filter(config => 
           sitesToProcess.includes(config.domain)
@@ -149,7 +145,7 @@ export class ScrapeItemEngine {
         
         // Mark used sessions
         firstPassPairs.forEach(pair => {
-          const session = sessionDataMap.get(pair.sessionId);
+          const session = this.sessionDataMap.get(pair.sessionId);
           if (session) session.inUse = true;
         });
         
@@ -157,7 +153,14 @@ export class ScrapeItemEngine {
         const excessSessions = existingSessionData.filter(s => !s.inUse);
         if (excessSessions.length > 0) {
           log.normal(`Terminating ${excessSessions.length} excess sessions`);
-          await Promise.all(excessSessions.map(s => s.session.cleanup()));
+          await Promise.all(excessSessions.map(s => 
+            this.sessionManager.destroySessionByObject(s.session)
+          ));
+          // Remove from our map
+          excessSessions.forEach(s => {
+            const sessionId = this.getSessionId(s.session);
+            this.sessionDataMap.delete(sessionId);
+          });
         }
         
         // Calculate how many new sessions we need
@@ -174,8 +177,8 @@ export class ScrapeItemEngine {
             sessionsNeeded, 
             targetsToProcess, 
             firstPassPairs, 
-            urlToSite, 
-            sessionDataMap, 
+            batchUrlToSite, 
+            this.sessionDataMap, 
             existingSessionData,
             options
           );
@@ -192,24 +195,71 @@ export class ScrapeItemEngine {
         
         // Process URL-session pairs for this batch
         const batchItems: Map<string, Item[]> = new Map();
+        const successfulUrls: Array<{url: string, runId: string}> = [];
+        
         const batchCacheStats = await this.processUrlSessionPairs(
           finalPairs,
-          sessionDataMap,
-          urlsToProcess,
+          this.sessionDataMap,
+          batchUrlsWithRunInfo,
           maxRetries,
           options.disableCache ? undefined : { cacheSizeMB, cacheTTLSeconds },
           batchItems,
           errors,
-          true // Always skip save during batch processing, we'll save all at once later
+          options.noSave,
+          successfulUrls
         );
         
         // Collect items from this batch
-        for (const [site, items] of batchItems) {
+        Array.from(batchItems.entries()).forEach(([site, items]) => {
           if (!itemsBySite.has(site)) {
             itemsBySite.set(site, []);
           }
           itemsBySite.get(site)!.push(...items);
-          allScrapedItems.push(...items);
+        });
+        
+        // Upload items from this batch immediately if not noSave
+        if (!options.noSave && batchItems.size > 0) {
+          const batchItemsArray: Item[] = [];
+          Array.from(batchItems.values()).forEach(items => {
+            batchItemsArray.push(...items);
+          });
+          if (batchItemsArray.length > 0) {
+            log.normal(`Uploading ${batchItemsArray.length} items from batch ${batchNumber} to ETL API`);
+            const batchResult = await this.etlDriver.addItemsBatch(batchItemsArray);
+            if (batchResult.failed.length > 0) {
+              log.error(`Failed to upload ${batchResult.failed.length} items in batch ${batchNumber}`);
+            }
+            
+            // Mark successfully uploaded items as done in the database
+            if (successfulUrls.length > 0) {
+              log.normal(`Marking ${successfulUrls.length} items as done in database`);
+              const updates = successfulUrls.map(({ url, runId }) => ({
+                url,
+                runId,
+                status: { done: true }
+              }));
+              
+              // Group updates by runId for efficiency
+              const updatesByRun = new Map<string, Array<{url: string; status: {done: boolean}}>>();
+              for (const update of updates) {
+                if (!updatesByRun.has(update.runId)) {
+                  updatesByRun.set(update.runId, []);
+                }
+                updatesByRun.get(update.runId)!.push({
+                  url: update.url,
+                  status: update.status
+                });
+              }
+              
+              // Batch update for each run
+              for (const [runId, runUpdates] of Array.from(updatesByRun.entries())) {
+                await this.siteManager.updateItemStatuses(runId, runUpdates.map(u => ({
+                  url: u.url,
+                  status: u.status
+                })));
+              }
+            }
+          }
         }
         
         // Merge cache stats
@@ -224,18 +274,9 @@ export class ScrapeItemEngine {
           }
         }
         
-        // Clean up browsers for this batch
-        await this.cleanupBrowsers(sessionDataMap);
+        // Do NOT clean up browsers between batches - we want to reuse them!
         
-        processedCount += targetsToProcess.length;
         batchNumber++;
-      }
-      
-      // Batch upload all scraped items at once if not noSave
-      if (!options.noSave && allScrapedItems.length > 0) {
-        log.normal(`Uploading ${allScrapedItems.length} items to ETL API`);
-        const etlDriver = new ETLDriver();
-        await etlDriver.uploadItems(allScrapedItems);
       }
       
       const totalItems = Array.from(itemsBySite.values()).reduce((sum, items) => sum + items.length, 0);
@@ -252,6 +293,12 @@ export class ScrapeItemEngine {
     } catch (error) {
       log.error('Item scraping failed:', error);
       throw error;
+    } finally {
+      // Clean up all sessions at the very end
+      log.debug('Cleaning up all sessions');
+      await this.cleanupBrowsers(this.sessionDataMap);
+      await this.sessionManager.destroyAllSessions();
+      this.sessionDataMap.clear();
     }
   }
   
@@ -264,7 +311,6 @@ export class ScrapeItemEngine {
     urlsWithRunInfo: UrlWithRunInfo[];
     urlToSite: Map<string, string>;
   }> {
-    const urlsWithRunInfo: UrlWithRunInfo[] = [];
     const urlToSite = new Map<string, string>();
     
     // Get sites to process
@@ -292,29 +338,15 @@ export class ScrapeItemEngine {
       log.normal(`Excluded ${exclude.length} sites: ${exclude.join(', ')}`);
     }
     
-    // For each site, get pending items from active runs
-    for (const site of sitesToProcess) {
-      const activeRun = await this.siteManager.getActiveRun(site);
-      if (!activeRun) {
-        log.debug(`No active run for ${site}`);
-        continue;
-      }
-      
-      const pendingItems = await this.siteManager.getPendingItems(activeRun.id);
-      const itemsToProcess = pendingItems.slice(0, itemLimit);
-      
-      for (const item of itemsToProcess) {
-        urlsWithRunInfo.push({
-          url: item.url,
-          runId: activeRun.id,
-          domain: site
-        });
-        urlToSite.set(item.url, site);
-      }
-      
-      if (itemsToProcess.length > 0) {
-        log.normal(`${site}: ${itemsToProcess.length} pending items (run ${activeRun.id})`);
-      }
+    // Get pending items from all sites, respecting session limits
+    const urlsWithRunInfo = await this.siteManager.getPendingItemsWithLimits(
+      sitesToProcess,
+      itemLimit
+    );
+    
+    // Build urlToSite map
+    for (const item of urlsWithRunInfo) {
+      urlToSite.set(item.url, item.domain);
     }
     
     return { urlsWithRunInfo, urlToSite };
@@ -324,17 +356,38 @@ export class ScrapeItemEngine {
     sessions: Session[],
     sessionDataMap: Map<string, SessionWithBrowser>
   ): SessionWithBrowser[] {
-    return sessions.map((session, i) => {
+    return sessions.map((session) => {
+      // Use the actual session ID so it can be matched across batches
+      const sessionId = this.getSessionId(session);
+      
+      // Check if we already have this session in our map
+      const existing = sessionDataMap.get(sessionId);
+      if (existing) {
+        return existing;
+      }
+      
+      // For browserbase sessions, proxy info is in session.browserbase, not session.local!
+      const proxyInfo = session.provider === 'browserbase' ? session.browserbase?.proxy : session.local?.proxy;
+      
       const sessionInfo: SessionInfo = {
-        id: `existing-${i}`,
-        proxyType: session.local?.proxy?.type as any || 'none',
-        proxyId: session.local?.proxy?.id,
-        proxyGeo: session.local?.proxy?.geo
+        id: sessionId,
+        proxyType: proxyInfo?.type as any || 'none',
+        proxyId: proxyInfo?.id,
+        proxyGeo: proxyInfo?.geo
       };
       const data = { session, sessionInfo };
       sessionDataMap.set(sessionInfo.id, data);
       return data;
     });
+  }
+  
+  private getSessionId(session: Session): string {
+    if (session.provider === 'browserbase') {
+      return session.browserbase!.id;
+    } else {
+      // For local sessions, generate a stable ID
+      return `local-${Date.now()}`;
+    }
   }
   
   private async createNewSessions(
@@ -361,14 +414,14 @@ export class ScrapeItemEngine {
     });
     
     log.normal('Proxy requirements for new sessions:');
-    for (const [domain, count] of domainCounts) {
+    for (const [domain, count] of Array.from(domainCounts.entries())) {
       const proxy = await this.siteManager.getProxyForDomain(domain);
       log.normal(`  ${domain}: ${count} sessions (${proxy?.type || 'no proxy'})`);
     }
     
     // Create sessions based on requirements
     const newSessionRequests: Array<{domain: string, proxy: any, browserType?: string, headless?: boolean, timeout?: number}> = [];
-    for (const [domain, count] of domainCounts) {
+    for (const [domain, count] of Array.from(domainCounts.entries())) {
       for (let i = 0; i < count; i++) {
         const proxy = await this.siteManager.getProxyForDomain(domain);
         const request: any = { domain, proxy };
@@ -388,16 +441,17 @@ export class ScrapeItemEngine {
       }
     }
     
-    const newSessions = await Promise.all(
-      newSessionRequests.map(req => this.sessionManager.createSession(req))
-    ) as Session[];
+    // Pass all requests as an array to avoid race condition in session limit check
+    const newSessions = await this.sessionManager.createSession(newSessionRequests) as Session[];
     log.normal(`Created ${newSessions.length} new sessions`);
     
     // Add new sessions to our tracking
     newSessions.forEach((session, i) => {
       const originalRequest = newSessionRequests[i];
+      // Use the actual session ID so it can be matched across batches
+      const sessionId = this.getSessionId(session);
       const sessionInfo: SessionInfo = {
-        id: `new-${i}`,
+        id: sessionId,
         proxyType: originalRequest.proxy?.type as any || 'none',
         proxyId: originalRequest.proxy?.id,
         proxyGeo: originalRequest.proxy?.geo
@@ -416,7 +470,8 @@ export class ScrapeItemEngine {
     cacheOptions: { cacheSizeMB: number; cacheTTLSeconds: number } | undefined,
     itemsBySite: Map<string, Item[]>,
     errors: Map<string, string>,
-    noSave: boolean | undefined
+    noSave: boolean | undefined,
+    successfulUrls: Array<{url: string, runId: string}>
   ): Promise<CacheStats | undefined> {
     // Create browsers only for sessions that will be used
     const usedSessionIds = new Set(pairs.map(p => p.sessionId));
@@ -462,7 +517,8 @@ export class ScrapeItemEngine {
         maxRetries,
         itemsBySite,
         errors,
-        noSave
+        noSave,
+        successfulUrls
       );
     }));
     
@@ -472,14 +528,14 @@ export class ScrapeItemEngine {
       let totalMisses = 0;
       let totalSizeBytes = 0;
       
-      for (const sessionData of sessionDataMap.values()) {
+      Array.from(sessionDataMap.values()).forEach(sessionData => {
         if (sessionData.cache) {
           const stats = sessionData.cache.getStats();
           totalHits += stats.hits;
           totalMisses += stats.misses;
           totalSizeBytes += stats.sizeBytes;
         }
-      }
+      });
       
       const hitRate = totalHits + totalMisses > 0 
         ? (totalHits / (totalHits + totalMisses)) * 100
@@ -503,7 +559,8 @@ export class ScrapeItemEngine {
     maxRetries: number,
     itemsBySite: Map<string, Item[]>,
     errors: Map<string, string>,
-    noSave: boolean | undefined
+    noSave: boolean | undefined,
+    successfulUrls: Array<{url: string, runId: string}>
   ): Promise<void> {
     let lastError: Error | undefined;
     
@@ -511,21 +568,13 @@ export class ScrapeItemEngine {
       try {
         const item = await this.processItem(url, runInfo.domain, sessionData);
         
-        // Save to ETL if not noSave
-        if (!noSave) {
-          const result = await this.etlDriver.addItem(item);
-          if (!result.success) {
-            throw new Error(`Failed to save item: ${result.error}`);
-          }
-        }
-        
-        // Update run status - mark as done
-        await this.siteManager.updateItemStatus(runInfo.runId, url, { done: true });
-        
-        // Add to results
+        // Add to results - will mark as done after batch upload
         const siteItems = itemsBySite.get(runInfo.domain) || [];
         siteItems.push(item);
         itemsBySite.set(runInfo.domain, siteItems);
+        
+        // Track successful URL for batch update
+        successfulUrls.push({ url, runId: runInfo.runId });
         
         log.normal(`✓ Scraped item from ${url}`);
         return; // Success
@@ -533,6 +582,14 @@ export class ScrapeItemEngine {
       } catch (error) {
         lastError = error as Error;
         const isNetworkError = this.isNetworkError(error);
+        const isBrowserClosed = this.isBrowserClosedError(error);
+        
+        if (isBrowserClosed) {
+          // Browser/page was closed - this is a special case
+          log.error(`Browser closed while scraping ${url}: ${lastError.message}`);
+          errors.set(url, 'Browser closed unexpectedly');
+          return;
+        }
         
         if (!isNetworkError || attempt === maxRetries) {
           // Non-network error or final attempt
@@ -583,6 +640,8 @@ export class ScrapeItemEngine {
       return item;
       
     } finally {
+      // Unroute all handlers to avoid errors when closing
+      await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
       await page.close();
     }
   }
@@ -595,16 +654,26 @@ export class ScrapeItemEngine {
            message.includes('navigation');
   }
   
+  private isBrowserClosedError(error: any): boolean {
+    const message = error?.message?.toLowerCase() || '';
+    return message.includes('target page, context or browser has been closed') ||
+           message.includes('browser has been closed') ||
+           message.includes('context has been closed') ||
+           message.includes('target closed');
+  }
+  
   private async cleanupBrowsers(sessionDataMap: Map<string, SessionWithBrowser>): Promise<void> {
-    for (const sessionData of sessionDataMap.values()) {
-      if (sessionData.browser) {
-        try {
-          await sessionData.context?.close();
-          await sessionData.browser.close();
-        } catch (e) {
-          // Ignore cleanup errors
+    await Promise.all(
+      Array.from(sessionDataMap.values()).map(async sessionData => {
+        if (sessionData.browser) {
+          try {
+            await sessionData.context?.close();
+            await sessionData.browser.close();
+          } catch (e) {
+            // Ignore cleanup errors
+          }
         }
-      }
-    }
+      })
+    );
   }
 }

@@ -535,23 +535,81 @@ export class SiteManager {
   
   /**
    * Get pending items from a run (not done)
+   * @param runId - The run ID
+   * @param limit - Optional limit on number of items to return
    */
-  async getPendingItems(runId: string): Promise<ScrapeRunItem[]> {
+  async getPendingItems(runId: string, limit?: number): Promise<ScrapeRunItem[]> {
     // Check if it's an uncommitted run
     const pendingRun = this.uncommittedRuns.get(runId);
     if (pendingRun) {
-      return pendingRun.items.filter(item => !item.done);
+      const pending = pendingRun.items.filter(item => !item.done && !item.failed && !item.invalid);
+      return limit ? pending.slice(0, limit) : pending;
     }
     
     try {
       const run = await fetchRun(runId);
-      const pendingItems = run.items.filter((item: ScrapeRunItem) => !item.done);
+      const pendingItems = run.items.filter((item: ScrapeRunItem) => !item.done && !item.failed && !item.invalid);
       log.debug(`Found ${pendingItems.length} pending items in run ${runId}`);
-      return pendingItems;
+      return limit ? pendingItems.slice(0, limit) : pendingItems;
     } catch (error) {
       log.error(`Failed to get pending items for run ${runId}`, { error });
       return [];
     }
+  }
+
+  /**
+   * Get pending items from multiple sites, respecting session limits
+   * This returns pending items from active runs, up to the session limit per domain
+   * @param sites - Array of site domains to get items from
+   * @param totalLimit - Maximum total items to return across all sites
+   * @returns Array of items with domain and run info
+   */
+  async getPendingItemsWithLimits(
+    sites: string[], 
+    totalLimit: number = Infinity
+  ): Promise<Array<{ url: string; runId: string; domain: string }>> {
+    const results: Array<{ url: string; runId: string; domain: string }> = [];
+    let totalCollected = 0;
+    
+    for (const domain of sites) {
+      // Stop if we've reached the total limit
+      if (totalCollected >= totalLimit) {
+        break;
+      }
+      
+      // Get active run for this domain
+      const activeRun = await this.getActiveRun(domain);
+      if (!activeRun) {
+        log.debug(`No active run for ${domain}`);
+        continue;
+      }
+      
+      // Get session limit for this domain
+      const sessionLimit = await this.getSessionLimitForDomain(domain);
+      
+      // Calculate how many items we can take from this domain
+      const remainingCapacity = totalLimit - totalCollected;
+      const domainLimit = Math.min(sessionLimit, remainingCapacity);
+      
+      // Get pending items up to the domain limit
+      const pendingItems = await this.getPendingItems(activeRun.id, domainLimit);
+      
+      // Add items to results
+      for (const item of pendingItems) {
+        results.push({
+          url: item.url,
+          runId: activeRun.id,
+          domain: domain
+        });
+        totalCollected++;
+      }
+      
+      if (pendingItems.length > 0) {
+        log.normal(`${domain}: collected ${pendingItems.length} pending items (sessionLimit: ${sessionLimit})`);
+      }
+    }
+    
+    return results;
   }
   
   /**
@@ -575,7 +633,7 @@ export class SiteManager {
     
     try {
       await updateRunItem(runId, url, status);
-      log.debug(`Updated item ${url} in run ${runId}`, status);
+      log.normal(`Updated item ${url} in run ${runId}`, status);
       
       // Update retry tracking
       if (status.failed) {
