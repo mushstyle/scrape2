@@ -58,6 +58,7 @@ Update existing methods to support bypassing in-memory cache:
     cacheSizeMB?: number;
     cacheTTLSeconds?: number;
     noSave?: boolean;  // Save to DB by default
+    localBrowser?: boolean;  // Use local browser instead of Browserbase
   }
 
   export interface PaginateResult {
@@ -93,6 +94,7 @@ Update existing methods to support bypassing in-memory cache:
     - Terminate unused sessions
     - Calculate new sessions needed
     - Create targeted sessions based on unmatched URLs
+    - Pass browserType: 'local' if localBrowser option is set
     - Second pass: Match all URLs to all sessions
   - [ ] Create RequestCache (enabled by default unless disableCache=true)
   - [ ] Create browsers only for used sessions
@@ -117,6 +119,7 @@ Update existing methods to support bypassing in-memory cache:
     cacheSizeMB?: number;
     cacheTTLSeconds?: number;
     noSave?: boolean;  // Save to ETL by default
+    localBrowser?: boolean;  // Use local browser instead of Browserbase
   }
 
   export interface ScrapeItemResult {
@@ -149,6 +152,7 @@ Update existing methods to support bypassing in-memory cache:
     - Limit to itemLimit per site
   - [ ] Convert all URLs to ScrapeTargets
   - [ ] Implement double-pass matcher (same pattern as PaginateEngine)
+    - Pass browserType: 'local' if localBrowser option is set
   - [ ] Create RequestCache (enabled by default)
   - [ ] Process each URL-session pair:
     - Load scraper for site
@@ -172,6 +176,7 @@ Update existing methods to support bypassing in-memory cache:
     const maxPages = options.maxPages || 5;
     const disableCache = options.disableCache || false;
     const noSave = options.noSave || false;
+    const localBrowser = options.localBrowser || false;
     const cacheSizeMB = options.cacheSizeMB || 100;
 
     const siteManager = new SiteManager();
@@ -186,6 +191,7 @@ Update existing methods to support bypassing in-memory cache:
       maxPages,
       disableCache,
       noSave,
+      localBrowser,
       cacheSizeMB
     });
 
@@ -207,6 +213,7 @@ Update existing methods to support bypassing in-memory cache:
     const itemLimit = options.itemLimit || 100;
     const disableCache = options.disableCache || false;
     const noSave = options.noSave || false;
+    const localBrowser = options.localBrowser || false;
 
     const siteManager = new SiteManager();
     const sessionManager = new SessionManager();
@@ -219,7 +226,8 @@ Update existing methods to support bypassing in-memory cache:
       instanceLimit,
       itemLimit,
       disableCache,
-      noSave
+      noSave,
+      localBrowser
     });
 
     console.log(`Scraped ${result.itemsScraped} items`);
@@ -237,17 +245,21 @@ Update existing methods to support bypassing in-memory cache:
 
 - [ ] Add command documentation:
   ```bash
-  # Paginate all sites (cache ON, save ON by default)
+  # Paginate all sites (Browserbase by default, cache ON, save ON)
   npm run scrape paginate -- --instance-limit=10 --max-pages=5
 
   # Paginate specific sites
   npm run scrape paginate -- --sites=site1.com,site2.com --instance-limit=10
 
-  # Scrape items from all sites with pending items (cache ON, save ON by default)
+  # Scrape items from all sites with pending items
   npm run scrape items -- --instance-limit=5 --item-limit=50
 
   # Scrape items from specific sites
   npm run scrape items -- --sites=site1.com,site2.com --instance-limit=5
+
+  # Use local browser instead of Browserbase
+  npm run scrape paginate -- --sites=site1.com --local-browser
+  npm run scrape items -- --sites=site1.com --local-browser
 
   # Skip saving (for testing)
   npm run scrape paginate -- --sites=site1.com --no-save
