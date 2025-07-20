@@ -203,19 +203,19 @@ async function main() {
       console.log('  npm run scrape verify item <url>');
       console.log('');
       console.log('Options:');
-      console.log('  --sites=site1,site2       Sites to process (optional)');
-      console.log('  --since=1d                Only process sites/runs without activity since (1d, 48h, 1w, etc)');
-      console.log('  --instance-limit=N        Max concurrent sessions (default: 10)');
-      console.log('  --max-pages=N             Max pages to paginate (default: 5)');
-      console.log('  --item-limit=N            Max items per site (default: 100)');
+      console.log('  --sites site1,site2       Sites to process (optional)');
+      console.log('  --since 1d                Only process sites/runs without activity since (1d, 48h, 1w, etc)');
+      console.log('  --instance-limit N        Max concurrent sessions (default: 10)');
+      console.log('  --max-pages N             Max pages to paginate (default: 5)');
+      console.log('  --item-limit N            Max items per site (default: 100)');
       console.log('  --disable-cache           Disable request caching');
-      console.log('  --cache-size-mb=N         Cache size in MB (default: 100)');
-      console.log('  --cache-ttl-seconds=N     Cache TTL in seconds (default: 300)');
+      console.log('  --cache-size-mb N         Cache size in MB (default: 100)');
+      console.log('  --cache-ttl-seconds N     Cache TTL in seconds (default: 300)');
       console.log('  --no-save                 Skip saving to database');
       console.log('  --local-headless          Use local browser in headless mode');
       console.log('  --local-headed            Use local browser in headed mode');
-      console.log('  --session-timeout=N       Session timeout in seconds');
-      console.log('  --max-retries=N           Max retries for network errors (default: 2)');
+      console.log('  --session-timeout N       Session timeout in seconds');
+      console.log('  --max-retries N           Max retries for network errors (default: 2)');
       process.exit(1);
     }
     
