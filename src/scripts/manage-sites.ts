@@ -152,13 +152,27 @@ async function listSitesWithOutstandingRuns(since?: Date) {
     const siteManager = new SiteManager();
     await siteManager.loadSites();
     
+    // Debug log the since parameter
+    if (since) {
+      log.debug(`Filtering runs since: ${since.toISOString()}`);
+    }
+    
     // Get all pending/processing runs using SiteManager
     const pendingRunsResponse = await siteManager.listRuns({ status: 'pending', since });
     const processingRunsResponse = await siteManager.listRuns({ status: 'processing', since });
     
     const pendingRuns = pendingRunsResponse.runs || [];
     const processingRuns = processingRunsResponse.runs || [];
-    const allOutstandingRuns = [...pendingRuns, ...processingRuns];
+    let allOutstandingRuns = [...pendingRuns, ...processingRuns];
+    
+    // Filter by date if since is provided (in case API doesn't filter)
+    if (since) {
+      const sinceTime = since.getTime();
+      allOutstandingRuns = allOutstandingRuns.filter(run => {
+        const runDate = new Date(run.created_at || run.createdAt || '');
+        return runDate.getTime() >= sinceTime;
+      });
+    }
     
     if (allOutstandingRuns.length === 0) {
       console.log('\nNo sites have outstanding scrape runs.');
