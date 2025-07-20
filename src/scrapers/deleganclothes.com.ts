@@ -23,10 +23,14 @@ export const SELECTORS = {
   productGrid: '.product-card',
   productLinks: '.product-card a.product-card__link',
   product: {
-    title: 'h1.product_title.entry-title',
-    price: 'p.price',
-    images: '.iconic-woothumbs-all-images-wrap, .iconic-woothumbs-images__slide img, .woocommerce-product-gallery__image img',
-    description: '.woocommerce-product-details__short-description'
+    title: '.view-product-title a, .text-block p',
+    price: '.add-to-cart-price, .price',
+    comparePrice: '.compare-price, .compare-at-price',
+    images: '.product-media__image',
+    description: '.text-block p',
+    productId: '[data-product-id]',
+    sizes: '.variant-option__button-label',
+    variantData: 'script[type="application/json"]'
   },
   pagination: {
     type: 'scroll' as const,
@@ -142,74 +146,100 @@ export async function scrapeItem(page: Page, options?: {
     };
 
     const itemData = await page.evaluate((SEL): ScrapedItemData => { // Type the return of evaluate
-      const title = document.querySelector(SEL.product.title)?.textContent?.trim() || '';
-      const productId = document.querySelector('form.variations_form.cart')?.getAttribute('data-product_id') || '';
+      // Extract title - try multiple selectors
+      const title = document.querySelector('.view-product-title a')?.textContent?.trim() || 
+                    document.querySelector('.text-block p')?.textContent?.trim() || '';
+      
+      // Extract product ID from data attribute
+      const productId = document.querySelector('[data-product-id]')?.getAttribute('data-product-id') || '';
 
-      // Price parsing (handles regular vs sale price)
+      // Price parsing - look for sale price and compare price
       let price = 0;
       let salePrice: number | undefined;
-      const priceElement = document.querySelector(SEL.product.price);
-      if (priceElement) {
-        const delEl = priceElement.querySelector('del .woocommerce-Price-amount');
-        const insEl = priceElement.querySelector('ins .woocommerce-Price-amount');
-        if (insEl) {
-          const saleText = insEl.textContent?.replace(/[^\d.,]/g, '') || '0';
+      
+      // Check for price in add-to-cart button area
+      const addToCartPrice = document.querySelector('.add-to-cart-price');
+      if (addToCartPrice) {
+        // Get the first text node which contains the current price
+        const priceText = addToCartPrice.childNodes[0]?.textContent?.trim() || '';
+        const comparePriceEl = addToCartPrice.querySelector('.compare-price');
+        
+        if (comparePriceEl) {
+          // This is a sale item
+          const saleText = priceText.replace(/[^\d.,]/g, '') || '0';
           salePrice = parseFloat(saleText.replace(',', '.')) || 0;
-          const originalText = delEl?.textContent?.replace(/[^\d.,]/g, '') || '0';
+          const originalText = comparePriceEl.textContent?.replace(/[^\d.,]/g, '') || '0';
           price = parseFloat(originalText.replace(',', '.')) || 0;
         } else {
-          const normalText = priceElement.querySelector('.woocommerce-Price-amount')?.textContent?.replace(/[^\d.,]/g, '') || '0';
+          // Regular price item
+          const normalText = priceText.replace(/[^\d.,]/g, '') || '0';
           price = parseFloat(normalText.replace(',', '.')) || 0;
         }
       }
-
-      // Detect currency symbol (€, ₴, etc.)
-      let currency = 'EUR';
-      const currencyMatch = priceElement?.textContent?.match(/[^\d\s.,]+/);
-      if (currencyMatch) currency = currencyMatch[0];
-
-      // Image extraction – try the JSON payload first.
-      let images: { sourceUrl: string; alt_text: string }[] = [];
-      const imageWrap = document.querySelector('.iconic-woothumbs-all-images-wrap');
-      const dataDefault = imageWrap?.getAttribute('data-default');
-      if (dataDefault) {
-        try {
-          const clean = dataDefault.replace(/\\"/g, '"');
-          const json: ImageData[] = JSON.parse(clean);
-          images = json
-            .map(img => ({
-              sourceUrl: img.full_src || img.src || img.url || '',
-              alt_text: img.alt || ''
-            }))
-            .filter(i => i.sourceUrl && !i.sourceUrl.startsWith('data:') && !i.sourceUrl.includes('blank.gif'));
-        } catch {
-          // ignore JSON parse errors – fall back to DOM extraction
+      
+      // Fallback to other price selectors
+      if (price === 0) {
+        const priceEl = document.querySelector('.price');
+        if (priceEl) {
+          const priceText = priceEl.textContent?.replace(/[^\d.,]/g, '') || '0';
+          price = parseFloat(priceText.replace(',', '.')) || 0;
         }
       }
 
-      if (images.length === 0) {
-        const imgEls = document.querySelectorAll([
-          '.iconic-woothumbs-images__slide img',
-          '.woocommerce-product-gallery__image img',
-          '.iconic-woothumbs-all-images-wrap img'
-        ].join(','));
-        images = Array.from(imgEls)
-          .map(img => {
-            const el = img as HTMLImageElement;
-            const url = el.getAttribute('data-large_image') || el.getAttribute('data-src') || el.getAttribute('data-original') || el.src;
-            return { sourceUrl: url, alt_text: el.alt || '' };
-          })
-          .filter(i => i.sourceUrl && !i.sourceUrl.startsWith('data:') && !i.sourceUrl.includes('blank.gif'));
+      // Currency is EUR based on the HTML
+      const currency = 'EUR';
+
+      // Image extraction from product media
+      let images: { sourceUrl: string; alt_text: string }[] = [];
+      const imgEls = document.querySelectorAll('.product-media__image');
+      images = Array.from(imgEls)
+        .map(img => {
+          const el = img as HTMLImageElement;
+          // Get the highest resolution URL from data_max_resolution or fallback to src
+          let url = el.getAttribute('data_max_resolution') || el.src;
+          // Ensure URL has protocol
+          if (url && !url.startsWith('http')) {
+            url = 'https:' + url;
+          }
+          return { sourceUrl: url, alt_text: el.alt || '' };
+        })
+        .filter(i => i.sourceUrl && !i.sourceUrl.startsWith('data:') && !i.sourceUrl.includes('blank.gif') && !i.sourceUrl.includes('preview_images'));
+
+      // Extract sizes from variant picker
+      const sizeLabels = document.querySelectorAll('.variant-option__button-label');
+      const sizes = Array.from(sizeLabels).map(label => {
+        const input = label.querySelector('input[type="radio"]');
+        const text = label.querySelector('.variant-option__button-label__text');
+        const isAvailable = input?.getAttribute('data-option-available') === 'true';
+        return {
+          size: text?.textContent?.trim()?.toUpperCase() || '',
+          is_available: isAvailable
+        };
+      }).filter(s => s.size);
+
+      // Try to get variant data from script tag for more details
+      const variantScripts = document.querySelectorAll('script[type="application/json"]');
+      let variantData: any = null;
+      for (const script of variantScripts) {
+        try {
+          const data = JSON.parse(script.textContent || '{}');
+          if (data.id && data.title && data.price) {
+            variantData = data;
+            break;
+          }
+        } catch {}
       }
 
-      // Sizes
-      const sizeEls = document.querySelectorAll('li.thwvsf-wrapper-item-li.attribute_pa_size');
-      const sizes = Array.from(sizeEls).map(el => ({
-        size: (el.getAttribute('data-value') || '').toUpperCase(),
-        is_available: true
-      }));
-
-      const description = document.querySelector(SEL.product.description)?.textContent?.trim() || '';
+      // Extract description from text blocks
+      const descriptionBlocks = document.querySelectorAll('.text-block p');
+      let description = '';
+      for (const block of descriptionBlocks) {
+        const text = block.textContent?.trim() || '';
+        if (text && text.length > 20 && !text.includes('€') && text !== title) {
+          description = text;
+          break;
+        }
+      }
 
       // Construct the object matching ScrapedItemData
       const scrapedData: ScrapedItemData = {
