@@ -390,11 +390,15 @@ export class PaginateEngine {
     return sessions.map((session) => {
       // Use the actual session ID so it can be matched across batches
       const sessionId = this.getSessionId(session);
+      
+      // For browserbase sessions, proxy info is in session.browserbase, not session.local!
+      const proxyInfo = session.provider === 'browserbase' ? session.browserbase?.proxy : session.local?.proxy;
+      
       const sessionInfo: SessionInfo = {
         id: sessionId,
-        proxyType: session.local?.proxy?.type as any || 'none',
-        proxyId: session.local?.proxy?.id,
-        proxyGeo: session.local?.proxy?.geo
+        proxyType: proxyInfo?.type as any || 'none',
+        proxyId: proxyInfo?.id,
+        proxyGeo: proxyInfo?.geo
       };
       const data = { session, sessionInfo };
       sessionDataMap.set(sessionInfo.id, data);
