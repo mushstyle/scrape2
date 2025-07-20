@@ -89,12 +89,34 @@ export class PaginateEngine {
         };
       }
       
-      // Step 2: Collect all start page URLs from all sites
-      const { allTargets, urlToSite } = await this.collectStartPages(sitesToProcess);
+      // Step 2: Collect all start page URLs from all sites (without starting pagination tracking yet)
+      const { allTargets, urlToSite, siteStartPages } = await this.collectStartPageUrls(sitesToProcess);
       log.normal(`Collected ${allTargets.length} unique start page URLs across all sites`);
       
       // Limit targets to instance limit
       const targetsToProcess = allTargets.slice(0, instanceLimit);
+      
+      // Step 3: Start pagination tracking only for URLs that will actually be processed
+      const sitesToTrack = new Set<string>();
+      const urlsPerSite = new Map<string, string[]>();
+      
+      for (const target of targetsToProcess) {
+        const site = urlToSite.get(target.url);
+        if (site) {
+          sitesToTrack.add(site);
+          if (!urlsPerSite.has(site)) {
+            urlsPerSite.set(site, []);
+          }
+          urlsPerSite.get(site)!.push(target.url);
+        }
+      }
+      
+      // Start pagination tracking only for sites and URLs we'll actually process
+      for (const [site, urls] of urlsPerSite) {
+        await this.siteManager.startPagination(site, urls);
+      }
+      
+      log.normal(`Started pagination tracking for ${sitesToTrack.size} sites with ${targetsToProcess.length} URLs`);
       
       // Step 3: Get existing sessions
       const existingSessions = await this.sessionManager.getActiveSessions();
@@ -192,7 +214,8 @@ export class PaginateEngine {
       
       // Step 10: Commit partial runs if not noSave
       if (!options.noSave) {
-        await this.commitPartialRuns(urlToSite, errors);
+        // Only commit runs for sites we actually started tracking
+        await this.commitPartialRuns(sitesToTrack, errors);
       }
       
       // Step 11: Clean up all browsers
@@ -263,12 +286,14 @@ export class PaginateEngine {
     return sitesToProcess;
   }
   
-  private async collectStartPages(sites: string[]): Promise<{
+  private async collectStartPageUrls(sites: string[]): Promise<{
     allTargets: ScrapeTarget[];
     urlToSite: Map<string, string>;
+    siteStartPages: Map<string, string[]>;
   }> {
     const allTargets: ScrapeTarget[] = [];
     const urlToSite = new Map<string, string>();
+    const siteStartPages = new Map<string, string[]>();
     
     for (const site of sites) {
       const siteConfig = this.siteManager.getSite(site);
@@ -279,9 +304,7 @@ export class PaginateEngine {
       
       // Get start pages respecting sessionLimit
       const startPagesToProcess = await this.siteManager.getStartPagesForDomain(site);
-      
-      // Start pagination tracking
-      await this.siteManager.startPagination(site, startPagesToProcess);
+      siteStartPages.set(site, startPagesToProcess);
       
       // Convert to targets and track which site each URL belongs to
       const targets = urlsToScrapeTargets(startPagesToProcess);
@@ -296,7 +319,7 @@ export class PaginateEngine {
       }
     }
     
-    return { allTargets, urlToSite };
+    return { allTargets, urlToSite, siteStartPages };
   }
   
   private convertSessionsToSessionData(
@@ -564,12 +587,10 @@ export class PaginateEngine {
   }
   
   private async commitPartialRuns(
-    urlToSite: Map<string, string>,
+    sitesToCommit: Set<string>,
     errors: Map<string, string>
   ): Promise<void> {
-    const processedSites = new Set(Array.from(urlToSite.values()));
-    
-    for (const site of processedSites) {
+    for (const site of sitesToCommit) {
       try {
         const run = await this.siteManager.commitPartialRun(site);
         log.normal(`✓ Committed run ${run.id} for ${site}`);
