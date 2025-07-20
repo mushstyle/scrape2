@@ -239,7 +239,11 @@ export class PaginateEngine {
               // Check if all pagination states for this site are completed
               const allStatesCompleted = Array.from(partialRun.paginationStates.values())
                 .every(state => state.completed);
-              if (allStatesCompleted) {
+              // Also check that at least one state has collected URLs
+              const hasAnyUrls = Array.from(partialRun.paginationStates.values())
+                .some(state => state.collectedUrls.length > 0);
+              
+              if (allStatesCompleted && hasAnyUrls) {
                 completedSites.add(site);
               }
             }
@@ -487,27 +491,62 @@ export class PaginateEngine {
     const usedSessionIds = new Set(pairs.map(p => p.sessionId));
     log.normal(`Creating browsers for ${usedSessionIds.size} sessions that will be used`);
     
+    // Track which sessions failed to create browsers
+    const failedSessions = new Set<string>();
+    
     await Promise.all(
       Array.from(usedSessionIds).map(async sessionId => {
         const sessionData = sessionDataMap.get(sessionId);
         if (sessionData && !sessionData.browser) {
-          const { browser, createContext } = await createBrowserFromSession(sessionData.session);
-          sessionData.browser = browser;
-          sessionData.context = await createContext();
-          
-          // Create cache for this session if caching enabled
-          if (cacheOptions) {
-            sessionData.cache = new RequestCache({
-              maxSizeBytes: cacheOptions.cacheSizeMB * 1024 * 1024,
-              ttlSeconds: cacheOptions.cacheTTLSeconds
-            });
+          try {
+            const { browser, createContext } = await createBrowserFromSession(sessionData.session);
+            sessionData.browser = browser;
+            sessionData.context = await createContext();
+            
+            // Create cache for this session if caching enabled
+            if (cacheOptions) {
+              sessionData.cache = new RequestCache({
+                maxSizeBytes: cacheOptions.cacheSizeMB * 1024 * 1024,
+                ttlSeconds: cacheOptions.cacheTTLSeconds
+              });
+            }
+          } catch (error: any) {
+            log.error(`Failed to create browser for session ${sessionId}: ${error.message}`);
+            failedSessions.add(sessionId);
+            
+            // Mark session for removal from tracking
+            sessionData.browser = null;
+            sessionData.context = null;
+            
+            // If it's a browserbase session not found error, remove from sessionDataMap
+            if (error.message?.includes('not found or expired')) {
+              sessionDataMap.delete(sessionId);
+              // Also destroy the session to clean up
+              try {
+                await this.sessionManager.destroySessionByObject(sessionData.session);
+              } catch (e) {
+                // Ignore cleanup errors
+              }
+            }
           }
         }
       })
     );
     
-    // Process each URL-session pair
-    await Promise.all(pairs.map(async (pair) => {
+    // Filter out pairs for failed sessions
+    const validPairs = pairs.filter(p => !failedSessions.has(p.sessionId));
+    
+    if (validPairs.length === 0) {
+      log.error('All browser creation failed, skipping this batch');
+      return undefined;
+    }
+    
+    if (failedSessions.size > 0) {
+      log.normal(`Continuing with ${validPairs.length} working sessions (${failedSessions.size} failed)`);
+    }
+    
+    // Process each URL-session pair (only valid ones)
+    await Promise.all(validPairs.map(async (pair) => {
       const sessionData = sessionDataMap.get(pair.sessionId);
       const site = urlToSite.get(pair.url);
       
@@ -594,6 +633,8 @@ export class PaginateEngine {
         }
         
         log.debug(`Network error on ${url}, retrying (attempt ${attempt + 1}/${maxRetries + 1})`);
+        // Add a delay before retry to avoid hammering the server
+        await new Promise(resolve => setTimeout(resolve, 2000 * (attempt + 1))); // 2s, 4s, 6s...
       }
     }
   }
@@ -664,7 +705,9 @@ export class PaginateEngine {
     return message.includes('timeout') || 
            message.includes('network') || 
            message.includes('connection') ||
-           message.includes('navigation');
+           message.includes('navigation') ||
+           message.includes('err_aborted') ||
+           message.includes('frame was detached');
   }
   
   private async commitPartialRuns(

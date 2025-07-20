@@ -30,8 +30,17 @@ export async function createBrowserFromSession(
       throw new Error('Invalid session: missing browserbase data');
     }
     
-    // Connect to Browserbase via CDP
-    browser = await chromium.connectOverCDP(session.browserbase.connectUrl);
+    // Connect to Browserbase via CDP with better error handling
+    try {
+      browser = await chromium.connectOverCDP(session.browserbase.connectUrl);
+    } catch (error: any) {
+      // Add session ID to error message for better debugging
+      const sessionId = session.browserbase.id;
+      if (error.message?.includes('Could not find a running session')) {
+        throw new Error(`Browserbase session ${sessionId} not found or expired: ${error.message}`);
+      }
+      throw new Error(`Failed to connect to browserbase session ${sessionId}: ${error.message}`);
+    }
   } else if (session.provider === 'local') {
     if (!session.local) {
       throw new Error('Invalid session: missing local data');
@@ -57,13 +66,22 @@ export async function createBrowserFromSession(
 
     // Add image blocking if requested
     if (blockImages) {
-      await context.route('**/*', (route) => {
-        const request = route.request();
-        const resourceType = request.resourceType();
-        if (resourceType === 'image') {
-          route.abort();
-        } else {
-          route.continue();
+      await context.route('**/*', async (route) => {
+        try {
+          const request = route.request();
+          const resourceType = request.resourceType();
+          if (resourceType === 'image') {
+            await route.abort();
+          } else {
+            await route.continue();
+          }
+        } catch (error: any) {
+          // Ignore "Route is already handled" errors - this happens when
+          // multiple route handlers are active (e.g., cache + image blocking)
+          if (!error.message?.includes('Route is already handled')) {
+            // Log other errors but don't crash
+            console.error('Route handler error:', error.message);
+          }
         }
       });
     }

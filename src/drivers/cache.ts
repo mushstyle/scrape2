@@ -28,20 +28,20 @@ export class RequestCache {
 
         // Only cache GET requests
         if (method !== 'GET') {
-          return route.continue();
+          return await route.continue();
         }
 
         // Skip requests with auth headers
         const headers = await request.allHeaders();
         if (headers.authorization || headers.cookie) {
-          return route.continue();
+          return await route.continue();
         }
 
       // Check cache
       const cached = this.get(url);
       if (cached) {
         this.stats.hits++;
-        return route.fulfill({
+        return await route.fulfill({
           status: cached.status,
           headers: cached.headers,
           body: cached.response
@@ -75,14 +75,14 @@ export class RequestCache {
           });
         }
 
-        return route.fulfill({
+        return await route.fulfill({
           response
         });
       
       } catch (error) {
         // For network errors (DNS, connection failures), continue without caching
         // This prevents crashes when external resources are unavailable
-        return route.continue();
+        return await route.continue();
       }
       } catch (error) {
         // If the page/context/browser is closed, just return silently
@@ -92,7 +92,7 @@ export class RequestCache {
           return;
         }
         // For other errors, continue without caching
-        return route.continue();
+        return await route.continue();
       }
     });
   }
