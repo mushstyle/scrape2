@@ -14,11 +14,13 @@ import { ScrapeItemEngine } from '../src/engines/scrape-item-engine.js';
 import { SiteManager } from '../src/services/site-manager.js';
 import { SessionManager } from '../src/services/session-manager.js';
 import { logger } from '../src/utils/logger.js';
+import { parseTimeDuration, formatDate } from '../src/utils/time-parser.js';
 
 const log = logger.createContext('scrape-cli');
 
 interface PaginateOptions {
   sites?: string[];
+  since?: Date;
   instanceLimit?: number;
   maxPages?: number;
   disableCache?: boolean;
@@ -33,6 +35,7 @@ interface PaginateOptions {
 
 interface ItemsOptions {
   sites?: string[];
+  since?: Date;
   instanceLimit?: number;
   itemLimit?: number;
   disableCache?: boolean;
@@ -54,6 +57,14 @@ function parseArgs(args: string[]): { command: string; options: any } {
     
     if (arg === '--sites' && i + 1 < args.length) {
       options.sites = args[i + 1].split(',').map(s => s.trim());
+      i++;
+    } else if (arg === '--since' && i + 1 < args.length) {
+      try {
+        options.since = parseTimeDuration(args[i + 1]);
+      } catch (error) {
+        console.error(`Error parsing --since: ${error.message}`);
+        process.exit(1);
+      }
       i++;
     } else if (arg === '--instance-limit' && i + 1 < args.length) {
       options.instanceLimit = parseInt(args[i + 1], 10);
@@ -103,6 +114,10 @@ async function runPaginate(options: PaginateOptions) {
   console.log(`\nProcessed ${result.sitesProcessed} sites`);
   console.log(`Collected ${result.totalUrls} URLs`);
   
+  if (options.since) {
+    console.log(`Since: ${formatDate(options.since)}`);
+  }
+  
   if (!options.noSave) {
     console.log(`Saved to database`);
   }
@@ -132,6 +147,10 @@ async function runItems(options: ItemsOptions) {
   
   // Display results
   console.log(`\nScraped ${result.itemsScraped} items`);
+  
+  if (options.since) {
+    console.log(`Since: ${formatDate(options.since)}`);
+  }
   
   for (const [site, items] of result.itemsBySite) {
     console.log(`  ${site}: ${items.length} items`);
@@ -171,6 +190,7 @@ async function main() {
       console.log('');
       console.log('Options:');
       console.log('  --sites=site1,site2       Sites to process (optional)');
+      console.log('  --since=1d                Only process sites/runs without activity since (1d, 48h, 1w, etc)');
       console.log('  --instance-limit=N        Max concurrent sessions (default: 10)');
       console.log('  --max-pages=N             Max pages to paginate (default: 5)');
       console.log('  --item-limit=N            Max items per site (default: 100)');

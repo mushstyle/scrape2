@@ -29,6 +29,7 @@ const result = await engine.paginate({
 ### Options
 
 - `sites`: Array of site domains to paginate (optional - defaults to all sites with start pages)
+- `since`: Only paginate sites without runs since this date (Date object)
 - `instanceLimit`: Maximum concurrent browser sessions (default: 10)
 - `maxPages`: Maximum pages to paginate per start page (default: 5)
 - `disableCache`: Disable request caching (default: false - caching enabled)
@@ -43,6 +44,7 @@ const result = await engine.paginate({
 ### How it Works
 
 1. **Site Collection**: Collects start pages from specified sites (or all sites)
+   - If `since` is provided, filters out sites that already have runs created after that date
 2. **Session Matching**: Uses double-pass matcher to efficiently assign URLs to sessions
    - First pass: Try to match URLs to existing sessions
    - Terminate unused sessions
@@ -93,6 +95,7 @@ const result = await engine.scrapeItems({
 ### Options
 
 - `sites`: Array of site domains to scrape (optional - defaults to all sites with pending items)
+- `since`: Only process runs created after this date (Date object)
 - `instanceLimit`: Maximum concurrent browser sessions (default: 10)
 - `itemLimit`: Maximum items to scrape per site (default: 100)
 - `disableCache`: Disable request caching (default: false - caching enabled)
@@ -108,6 +111,7 @@ const result = await engine.scrapeItems({
 
 1. **Item Collection**: Gets pending items from active scrape runs
    - Queries sites with active runs (pending or processing status)
+   - If `since` is provided, only processes runs created after that date
    - Limits items per site based on itemLimit
 2. **Session Matching**: Uses same double-pass matcher pattern as PaginateEngine
 3. **Item Scraping**: For each item URL:
@@ -185,8 +189,17 @@ The engines are accessible via CLI commands:
 # Paginate all sites with scraping enabled
 npm run scrape paginate
 
+# Paginate only sites without runs in the last 24 hours
+npm run scrape paginate -- --since=1d
+
+# Paginate sites without runs in the last week
+npm run scrape paginate -- --since=1w
+
 # Paginate specific sites
 npm run scrape paginate -- --sites=site1.com,site2.com
+
+# Scrape items from runs created in the last 48 hours
+npm run scrape items -- --since=48h
 
 # Scrape items from all sites with pending items
 npm run scrape items

@@ -17,6 +17,7 @@ const log = logger.createContext('scrape-item-engine');
 
 export interface ScrapeItemOptions {
   sites?: string[];  // If not specified, scrape all sites with pending items
+  since?: Date;  // Only process runs created after this date
   instanceLimit?: number;  // Default: 10
   itemLimit?: number;  // Max items per site, default: 100
   disableCache?: boolean;  // Cache ON by default
@@ -86,7 +87,8 @@ export class ScrapeItemEngine {
       // Step 1: Get sites to process and their pending items
       const { urlsWithRunInfo, urlToSite } = await this.collectPendingItems(
         options.sites,
-        itemLimit
+        itemLimit,
+        options.since
       );
       
       if (urlsWithRunInfo.length === 0) {
@@ -210,7 +212,8 @@ export class ScrapeItemEngine {
   
   private async collectPendingItems(
     sites: string[] | undefined,
-    itemLimit: number
+    itemLimit: number,
+    since?: Date
   ): Promise<{
     urlsWithRunInfo: UrlWithRunInfo[];
     urlToSite: Map<string, string>;
@@ -224,12 +227,16 @@ export class ScrapeItemEngine {
       sitesToProcess = sites;
     } else {
       // Get all sites with active runs
-      const runs = await this.siteManager.listRuns({ status: 'processing' });
-      const pendingRuns = await this.siteManager.listRuns({ status: 'pending' });
+      const runs = await this.siteManager.listRuns({ status: 'processing', since });
+      const pendingRuns = await this.siteManager.listRuns({ status: 'pending', since });
       const allRuns = [...runs.runs, ...pendingRuns.runs];
       
       // Get unique domains
       sitesToProcess = Array.from(new Set(allRuns.map(run => run.domain)));
+      
+      if (since) {
+        log.normal(`Processing runs created after ${since.toISOString()}: ${allRuns.length} active runs found`);
+      }
     }
     
     // For each site, get pending items from active runs

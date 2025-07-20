@@ -15,6 +15,7 @@ const log = logger.createContext('paginate-engine');
 
 export interface PaginateOptions {
   sites?: string[];  // If not specified, paginate all sites with scraping enabled
+  since?: Date;  // Only paginate sites without runs since this date
   instanceLimit?: number;  // Default: 10
   maxPages?: number;  // Default: 5
   disableCache?: boolean;  // Cache ON by default
@@ -73,7 +74,7 @@ export class PaginateEngine {
     
     try {
       // Step 1: Get sites to process
-      const sitesToProcess = await this.getSitesToProcess(options.sites);
+      const sitesToProcess = await this.getSitesToProcess(options.sites, options.since);
       log.normal(`Will paginate ${sitesToProcess.length} sites`);
       
       if (sitesToProcess.length === 0) {
@@ -214,14 +215,36 @@ export class PaginateEngine {
     }
   }
   
-  private async getSitesToProcess(sites?: string[]): Promise<string[]> {
+  private async getSitesToProcess(sites?: string[], since?: Date): Promise<string[]> {
+    let sitesToProcess: string[];
+    
     if (sites && sites.length > 0) {
-      return sites;
+      sitesToProcess = sites;
+    } else {
+      // Get all sites with scraping enabled
+      const allSites = this.siteManager.getSitesWithStartPages();
+      sitesToProcess = allSites.map(site => site.domain);
     }
     
-    // Get all sites with scraping enabled
-    const allSites = this.siteManager.getSitesWithStartPages();
-    return allSites.map(site => site.domain);
+    // If since is specified, filter out sites with recent runs
+    if (since) {
+      const sitesWithRecentRuns = new Set<string>();
+      
+      // Check for runs created after the since date
+      const recentRuns = await this.siteManager.listRuns({ since });
+      for (const run of recentRuns.runs) {
+        sitesWithRecentRuns.add(run.domain);
+      }
+      
+      // Filter out sites that already have recent runs
+      const filteredSites = sitesToProcess.filter(site => !sitesWithRecentRuns.has(site));
+      
+      log.normal(`Since ${since.toISOString()}: ${sitesWithRecentRuns.size} sites have recent runs, ${filteredSites.length} sites need pagination`);
+      
+      return filteredSites;
+    }
+    
+    return sitesToProcess;
   }
   
   private async collectStartPages(sites: string[]): Promise<{
