@@ -113,7 +113,7 @@ export class VerifyPaginateEngine {
       
       // Start with initial URLs as ScrapeTargets
       const targets = urlsToScrapeTargets(siteConfig.startPages);
-      const maxPages = options.maxPages || 5;
+      const maxPages = options.maxPages || Infinity;  // NO LIMIT by default!
       
       // Use distributor to match URLs to sessions
       const pairs = targetsToSessions(

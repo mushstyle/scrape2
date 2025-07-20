@@ -78,7 +78,7 @@ export class ScrapeItemEngine {
     
     // Set defaults
     const instanceLimit = options.instanceLimit || 10;
-    const itemLimit = options.itemLimit || 100;
+    const itemLimit = options.itemLimit || Infinity;  // NO LIMIT by default!
     const cacheSizeMB = options.cacheSizeMB || 100;
     const cacheTTLSeconds = options.cacheTTLSeconds || 300;
     const maxRetries = options.maxRetries || 2;
