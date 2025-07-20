@@ -49,14 +49,16 @@ export class RequestCache {
 
       // Cache miss - fetch and store
       this.stats.misses++;
-      const response = await route.fetch();
       
-      // Only cache successful responses
-      if (response && response.status() >= 200 && response.status() < 300) {
-        const body = await response.body();
-        const headers: Record<string, string> = {};
+      try {
+        const response = await route.fetch();
         
-        // Convert headers to plain object
+        // Only cache successful responses
+        if (response && response.status() >= 200 && response.status() < 300) {
+          const body = await response.body();
+          const headers: Record<string, string> = {};
+          
+          // Convert headers to plain object
         const responseHeaders = response.headers();
         for (const [key, value] of Object.entries(responseHeaders)) {
           headers[key] = value;
@@ -75,6 +77,12 @@ export class RequestCache {
       return route.fulfill({
         response
       });
+      
+      } catch (error) {
+        // Re-throw the error to let Playwright's retry logic handle it
+        // This is important for network errors like ECONNREFUSED
+        throw error;
+      }
     });
   }
 

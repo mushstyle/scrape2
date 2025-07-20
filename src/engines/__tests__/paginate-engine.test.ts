@@ -40,7 +40,9 @@ describe('PaginateEngine', () => {
       getProxyForDomain: vi.fn(),
       updatePaginationState: vi.fn(),
       commitPartialRun: vi.fn(),
-      hasPartialRun: vi.fn()
+      hasPartialRun: vi.fn(),
+      getStartPagesForDomain: vi.fn(),
+      listRuns: vi.fn()
     };
     
     mockSessionManager = {
@@ -94,6 +96,11 @@ describe('PaginateEngine', () => {
       mockSiteManager.getSiteConfigsWithBlockedProxies.mockResolvedValue(
         mockSiteStates.map(s => s.config)
       );
+      mockSiteManager.getStartPagesForDomain.mockImplementation((domain: string) => {
+        const site = mockSiteStates.find(s => s.domain === domain);
+        return site ? site.config.startPages : [];
+      });
+      mockSiteManager.listRuns.mockResolvedValue({ runs: [] });
       
       // Mock no existing sessions
       mockSessionManager.getActiveSessions.mockResolvedValue([]);
@@ -192,6 +199,8 @@ describe('PaginateEngine', () => {
         startPages: ['https://error-site.com/products'],
         itemUrlPattern: /\/product\//
       }]);
+      mockSiteManager.getStartPagesForDomain.mockResolvedValue(['https://error-site.com/products']);
+      mockSiteManager.listRuns.mockResolvedValue({ runs: [] });
       
       // Mock an existing session so browser creation will be attempted
       mockSessionManager.getActiveSessions.mockResolvedValue([{
@@ -240,6 +249,8 @@ describe('PaginateEngine', () => {
         startPages,
         itemUrlPattern: /\/product\//
       }]);
+      mockSiteManager.getStartPagesForDomain.mockResolvedValue(startPages.slice(0, 3)); // respect instance limit
+      mockSiteManager.listRuns.mockResolvedValue({ runs: [] });
       
       mockSessionManager.getActiveSessions.mockResolvedValue([]);
       

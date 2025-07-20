@@ -270,11 +270,14 @@ export class PaginateEngine {
         continue;
       }
       
+      // Get start pages respecting sessionLimit
+      const startPagesToProcess = await this.siteManager.getStartPagesForDomain(site);
+      
       // Start pagination tracking
-      await this.siteManager.startPagination(site, siteConfig.config.startPages);
+      await this.siteManager.startPagination(site, startPagesToProcess);
       
       // Convert to targets and track which site each URL belongs to
-      const targets = urlsToScrapeTargets(siteConfig.config.startPages);
+      const targets = urlsToScrapeTargets(startPagesToProcess);
       for (const target of targets) {
         // Deduplicate URLs across sites
         if (!urlToSite.has(target.url)) {
