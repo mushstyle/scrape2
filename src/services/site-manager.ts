@@ -605,7 +605,7 @@ export class SiteManager {
       }
       
       if (pendingItems.length > 0) {
-        log.normal(`${domain}: collected ${pendingItems.length} pending items (sessionLimit: ${sessionLimit})`);
+        log.debug(`${domain}: collected ${pendingItems.length} pending items (sessionLimit: ${sessionLimit})`);
       }
     }
     
@@ -624,6 +624,7 @@ export class SiteManager {
     // Check if it's an uncommitted run
     const pendingRun = this.uncommittedRuns.get(runId);
     if (pendingRun) {
+      log.error(`CRITICAL: Trying to update item in uncommitted run ${runId} - this won't persist!`);
       const item = pendingRun.items.find(i => i.url === url);
       if (item) {
         Object.assign(item, status);
@@ -633,7 +634,7 @@ export class SiteManager {
     
     try {
       await updateRunItem(runId, url, status);
-      log.normal(`Updated item ${url} in run ${runId}`, status);
+      log.debug(`Updated item ${url} in run ${runId}`, status);
       
       // Update retry tracking
       if (status.failed) {

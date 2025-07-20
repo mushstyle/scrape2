@@ -217,6 +217,8 @@ export class ScrapeItemEngine {
           itemsBySite.get(site)!.push(...items);
         });
         
+        // No need for summary since we log each URL
+        
         // Upload items from this batch immediately if not noSave
         if (!options.noSave && batchItems.size > 0) {
           const batchItemsArray: Item[] = [];
@@ -224,14 +226,15 @@ export class ScrapeItemEngine {
             batchItemsArray.push(...items);
           });
           if (batchItemsArray.length > 0) {
-            log.normal(`Uploading ${batchItemsArray.length} items from batch ${batchNumber} to ETL API`);
+            log.normal(`Uploading ${batchItemsArray.length} items to ETL API`);
             const batchResult = await this.etlDriver.addItemsBatch(batchItemsArray);
             if (batchResult.failed.length > 0) {
               log.error(`Failed to upload ${batchResult.failed.length} items in batch ${batchNumber}`);
             }
             
             // Mark successfully uploaded items as done in the database
-            if (successfulUrls.length > 0) {
+            // We trust that if ETL batch was successful, all items can be marked done
+            if (successfulUrls.length > 0 && batchResult.successful.length > 0) {
               log.normal(`Marking ${successfulUrls.length} items as done in database`);
               const updates = successfulUrls.map(({ url, runId }) => ({
                 url,
@@ -253,6 +256,7 @@ export class ScrapeItemEngine {
               
               // Batch update for each run
               for (const [runId, runUpdates] of Array.from(updatesByRun.entries())) {
+                log.normal(`Updating ${runUpdates.length} items in run ${runId}`);
                 await this.siteManager.updateItemStatuses(runId, runUpdates.map(u => ({
                   url: u.url,
                   status: u.status
@@ -576,7 +580,7 @@ export class ScrapeItemEngine {
         // Track successful URL for batch update
         successfulUrls.push({ url, runId: runInfo.runId });
         
-        log.normal(`✓ Scraped item from ${url}`);
+        log.normal(`✓ Scraped ${url}`);
         return; // Success
         
       } catch (error) {

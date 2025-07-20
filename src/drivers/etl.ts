@@ -72,7 +72,7 @@ export class ETLDriver {
       for (let attempt = 1; attempt <= this.options.retryAttempts; attempt++) {
         try {
           await addPendingItem(item, itemId);
-          log.normal(`Added item ${itemId.substring(0, 8)} from ${item.sourceUrl}`);
+          log.debug(`Added item ${itemId.substring(0, 8)} from ${item.sourceUrl}`);
           return { itemId, success: true };
         } catch (error) {
           lastError = error as Error;
@@ -106,7 +106,7 @@ export class ETLDriver {
     const successful: AddItemResult[] = [];
     const failed: AddItemResult[] = [];
     
-    log.normal(`Processing ${items.length} items in batches of ${this.options.batchSize}`);
+    log.debug(`Processing ${items.length} items in batches of ${this.options.batchSize}`);
     
     // Process items in batches
     for (let i = 0; i < items.length; i += this.options.batchSize) {
@@ -114,7 +114,7 @@ export class ETLDriver {
       const batchNum = Math.floor(i / this.options.batchSize) + 1;
       const totalBatches = Math.ceil(items.length / this.options.batchSize);
       
-      log.normal(`Processing batch ${batchNum}/${totalBatches} (${batch.length} items)`);
+      log.debug(`Processing batch ${batchNum}/${totalBatches} (${batch.length} items)`);
       
       // Process batch in parallel
       const results = await Promise.all(
@@ -136,7 +136,7 @@ export class ETLDriver {
       }
     }
     
-    log.normal(`Batch complete: ${successful.length} successful, ${failed.length} failed`);
+    log.normal(`ETL batch complete: ${successful.length} successful, ${failed.length} failed`);
     
     return {
       successful,

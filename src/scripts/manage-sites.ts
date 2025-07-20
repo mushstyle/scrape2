@@ -196,10 +196,11 @@ async function listSitesWithOutstandingRuns(since?: Date) {
     }> = [];
     
     latestRunByDomain.forEach((run, domain) => {
-      const total = run.metadata?.totalItems || run.items?.length || 0;
-      const processed = run.metadata?.processedItems || 0;
-      const failed = run.metadata?.failedItems || 0;
-      const invalid = run.metadata?.invalidItems || 0;
+      const total = run.items?.length || 0;
+      // Count actual item statuses instead of relying on metadata
+      const processed = run.items?.filter((item: any) => item.done).length || 0;
+      const failed = run.items?.filter((item: any) => item.failed).length || 0;
+      const invalid = run.items?.filter((item: any) => item.invalid).length || 0;
       const remaining = total - processed - failed - invalid;
       
       tableData.push({
