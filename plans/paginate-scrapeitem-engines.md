@@ -52,13 +52,16 @@ Update existing methods to support bypassing in-memory cache:
   ```typescript
   export interface PaginateOptions {
     sites?: string[];  // If not specified, paginate all sites with scraping enabled
-    instanceLimit: number;
-    maxPages?: number;
+    instanceLimit?: number;  // Default: 10
+    maxPages?: number;  // Default: 5
     disableCache?: boolean;  // Cache ON by default
-    cacheSizeMB?: number;
-    cacheTTLSeconds?: number;
+    cacheSizeMB?: number;  // Default: 100
+    cacheTTLSeconds?: number;  // Default: 300 (5 minutes)
     noSave?: boolean;  // Save to DB by default
-    localBrowser?: boolean;  // Use local browser instead of Browserbase
+    localHeadless?: boolean;  // Use local browser in headless mode
+    localHeaded?: boolean;  // Use local browser in headed mode
+    sessionTimeout?: number;  // Session timeout in seconds (browserbase only)
+    maxRetries?: number;  // Default: 2 (for network errors)
   }
 
   export interface PaginateResult {
@@ -94,7 +97,9 @@ Update existing methods to support bypassing in-memory cache:
     - Terminate unused sessions
     - Calculate new sessions needed
     - Create targeted sessions based on unmatched URLs
-    - Pass browserType: 'local' if localBrowser option is set
+    - Pass browserType: 'local' if localHeadless or localHeaded is set
+    - Pass headless: true/false based on options
+    - Pass timeout if sessionTimeout is specified
     - Second pass: Match all URLs to all sessions
   - [ ] Create RequestCache (enabled by default unless disableCache=true)
   - [ ] Create browsers only for used sessions
@@ -102,6 +107,7 @@ Update existing methods to support bypassing in-memory cache:
     - Load scraper for site
     - Create page with cache enabled
     - Paginate using Set for deduplication
+    - Retry navigation errors up to maxRetries times
     - Update SiteManager pagination state
   - [ ] Unless noSave is true:
     - Commit partial runs per site
@@ -113,13 +119,16 @@ Update existing methods to support bypassing in-memory cache:
   ```typescript
   export interface ScrapeItemOptions {
     sites?: string[];  // If not specified, scrape all sites with pending items
-    instanceLimit?: number;
-    itemLimit?: number;  // Max items per site
+    instanceLimit?: number;  // Default: 10
+    itemLimit?: number;  // Max items per site, default: 100
     disableCache?: boolean;  // Cache ON by default
-    cacheSizeMB?: number;
-    cacheTTLSeconds?: number;
+    cacheSizeMB?: number;  // Default: 100
+    cacheTTLSeconds?: number;  // Default: 300 (5 minutes)
     noSave?: boolean;  // Save to ETL by default
-    localBrowser?: boolean;  // Use local browser instead of Browserbase
+    localHeadless?: boolean;  // Use local browser in headless mode
+    localHeaded?: boolean;  // Use local browser in headed mode
+    sessionTimeout?: number;  // Session timeout in seconds (browserbase only)
+    maxRetries?: number;  // Default: 2 (for network errors)
   }
 
   export interface ScrapeItemResult {
@@ -152,14 +161,19 @@ Update existing methods to support bypassing in-memory cache:
     - Limit to itemLimit per site
   - [ ] Convert all URLs to ScrapeTargets
   - [ ] Implement double-pass matcher (same pattern as PaginateEngine)
-    - Pass browserType: 'local' if localBrowser option is set
+    - Pass browserType: 'local' if localHeadless or localHeaded is set
+    - Pass headless: true/false based on options
+    - Pass timeout if sessionTimeout is specified
   - [ ] Create RequestCache (enabled by default)
   - [ ] Process each URL-session pair:
     - Load scraper for site
     - Create page with cache enabled
-    - Navigate to item URL
+    - Navigate to item URL with retry logic (up to maxRetries for network errors)
     - Call scraper.scrapeItem()
-    - Update scrape run status (mark item as done/failed)
+    - Update scrape run status:
+      - Mark as done if successful
+      - Mark as failed if network error after retries
+      - Mark as invalid if other error (no retry)
     - Collect results
   - [ ] Unless noSave is true:
     - Use ETL driver to save items
@@ -172,12 +186,16 @@ Update existing methods to support bypassing in-memory cache:
   // New subcommand: scrape paginate
   if (command === 'paginate') {
     const sites = options.sites?.split(',') : undefined;
-    const instanceLimit = options.instanceLimit || 5;
+    const instanceLimit = options.instanceLimit || 10;
     const maxPages = options.maxPages || 5;
     const disableCache = options.disableCache || false;
     const noSave = options.noSave || false;
-    const localBrowser = options.localBrowser || false;
+    const localHeadless = options.localHeadless || false;
+    const localHeaded = options.localHeaded || false;
+    const sessionTimeout = options.sessionTimeout;
+    const maxRetries = options.maxRetries || 2;
     const cacheSizeMB = options.cacheSizeMB || 100;
+    const cacheTTLSeconds = options.cacheTTLSeconds || 300;
 
     const siteManager = new SiteManager();
     const sessionManager = new SessionManager();
@@ -191,8 +209,12 @@ Update existing methods to support bypassing in-memory cache:
       maxPages,
       disableCache,
       noSave,
-      localBrowser,
-      cacheSizeMB
+      localHeadless,
+      localHeaded,
+      sessionTimeout,
+      maxRetries,
+      cacheSizeMB,
+      cacheTTLSeconds
     });
 
     // Display results
@@ -209,11 +231,16 @@ Update existing methods to support bypassing in-memory cache:
   // New subcommand: scrape items
   if (command === 'items') {
     const sites = options.sites?.split(',') : undefined;
-    const instanceLimit = options.instanceLimit || 5;
+    const instanceLimit = options.instanceLimit || 10;
     const itemLimit = options.itemLimit || 100;
     const disableCache = options.disableCache || false;
     const noSave = options.noSave || false;
-    const localBrowser = options.localBrowser || false;
+    const localHeadless = options.localHeadless || false;
+    const localHeaded = options.localHeaded || false;
+    const sessionTimeout = options.sessionTimeout;
+    const maxRetries = options.maxRetries || 2;
+    const cacheSizeMB = options.cacheSizeMB || 100;
+    const cacheTTLSeconds = options.cacheTTLSeconds || 300;
 
     const siteManager = new SiteManager();
     const sessionManager = new SessionManager();
@@ -227,7 +254,12 @@ Update existing methods to support bypassing in-memory cache:
       itemLimit,
       disableCache,
       noSave,
-      localBrowser
+      localHeadless,
+      localHeaded,
+      sessionTimeout,
+      maxRetries,
+      cacheSizeMB,
+      cacheTTLSeconds
     });
 
     console.log(`Scraped ${result.itemsScraped} items`);
@@ -246,20 +278,31 @@ Update existing methods to support bypassing in-memory cache:
 - [ ] Add command documentation:
   ```bash
   # Paginate all sites (Browserbase by default, cache ON, save ON)
-  npm run scrape paginate -- --instance-limit=10 --max-pages=5
+  npm run scrape paginate  # instanceLimit=10, maxPages=5 by default
 
   # Paginate specific sites
-  npm run scrape paginate -- --sites=site1.com,site2.com --instance-limit=10
+  npm run scrape paginate -- --sites=site1.com,site2.com
 
   # Scrape items from all sites with pending items
-  npm run scrape items -- --instance-limit=5 --item-limit=50
+  npm run scrape items  # instanceLimit=10, itemLimit=100 by default
 
   # Scrape items from specific sites
-  npm run scrape items -- --sites=site1.com,site2.com --instance-limit=5
+  npm run scrape items -- --sites=site1.com,site2.com
 
-  # Use local browser instead of Browserbase
-  npm run scrape paginate -- --sites=site1.com --local-browser
-  npm run scrape items -- --sites=site1.com --local-browser
+  # Use local browser in headless mode
+  npm run scrape paginate -- --sites=site1.com --local-headless
+  npm run scrape items -- --sites=site1.com --local-headless
+
+  # Use local browser in headed mode (visible browser)
+  npm run scrape paginate -- --sites=site1.com --local-headed
+  npm run scrape items -- --sites=site1.com --local-headed
+
+  # Set session timeout for Browserbase (seconds)
+  npm run scrape paginate -- --session-timeout=120
+  npm run scrape items -- --session-timeout=120
+
+  # Adjust retry count for network errors (default: 2)
+  npm run scrape items -- --max-retries=3
 
   # Skip saving (for testing)
   npm run scrape paginate -- --sites=site1.com --no-save
@@ -267,6 +310,9 @@ Update existing methods to support bypassing in-memory cache:
 
   # Disable cache (not recommended)
   npm run scrape paginate -- --sites=site1.com --disable-cache
+
+  # Custom cache settings
+  npm run scrape items -- --cache-size-mb=200 --cache-ttl-seconds=600
   ```
 
 ### [ ] 5. Testing Strategy
