@@ -242,7 +242,6 @@ export class PaginateEngine {
         });
         if (recentRuns.runs.length > 0) {
           sitesWithRecentRuns.add(site);
-          log.debug(`${site} has ${recentRuns.runs.length} recent runs created after ${since.toISOString()}`);
         }
       }
       
