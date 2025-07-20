@@ -237,6 +237,17 @@ export async function fetchScrapeRun(runId: string): Promise<ScrapeRun> {
 
 /**
  * List scrape runs with optional filters
+ * 
+ * @param query - Query parameters for filtering scrape runs
+ * @param query.domain - Filter by specific domain
+ * @param query.status - Filter by status (pending, processing, completed, failed)
+ * @param query.since - Filter runs after this date (maps to API's startTimeAfter parameter)
+ * @param query.until - Filter runs before this date
+ * @param query.limit - Number of results per page (default: 50)
+ * @param query.offset - Offset for pagination
+ * @param query.page - Page number for pagination (alternative to offset)
+ * @param query.sortBy - Field to sort by (startTime, createdAt, domain, endTime)
+ * @param query.sortOrder - Sort direction (asc, desc) - default: desc
  */
 export async function listScrapeRuns(query?: ListScrapeRunsQuery): Promise<ListScrapeRunsResponse> {
   const params = new URLSearchParams();
@@ -247,6 +258,10 @@ export async function listScrapeRuns(query?: ListScrapeRunsQuery): Promise<ListS
   if (query?.until) params.append('until', query.until.toISOString());
   if (query?.limit) params.append('limit', query.limit.toString());
   if (query?.offset) params.append('offset', query.offset.toString());
+  // Additional optional parameters
+  if (query?.page) params.append('page', query.page.toString());
+  if (query?.sortBy) params.append('sortBy', query.sortBy);
+  if (query?.sortOrder) params.append('sortOrder', query.sortOrder);
   
   const url = buildApiUrl(`${API_ENDPOINTS.scrapeRuns}?${params.toString()}`);
   const token = getApiBearerToken();
