@@ -157,31 +157,56 @@ async function listSitesWithOutstandingRuns(since?: Date) {
       log.debug(`Filtering runs since: ${since.toISOString()}`);
     }
     
-    // Get all pending/processing runs using SiteManager
-    const pendingRunsResponse = await siteManager.listRuns({ status: 'pending', since });
-    const processingRunsResponse = await siteManager.listRuns({ status: 'processing', since });
-    
-    const pendingRuns = pendingRunsResponse.runs || [];
-    const processingRuns = processingRunsResponse.runs || [];
-    const allOutstandingRuns = [...pendingRuns, ...processingRuns];
-    
-    if (allOutstandingRuns.length === 0) {
-      console.log('\nNo sites have outstanding scrape runs.');
-      return;
-    }
+    // First, get all sites
+    const response = await getSites();
+    const allSites = response.sites || [];
     
     // Get the most recent outstanding run for each domain
     const latestRunByDomain = new Map<string, ScrapeRun>();
     
-    allOutstandingRuns.forEach(run => {
-      const existing = latestRunByDomain.get(run.domain);
-      const runDate = run.created_at || run.createdAt || '';
-      const existingDate = existing ? (existing.created_at || existing.createdAt || '') : '';
+    // For each site, check if it has an outstanding run
+    for (const site of allSites) {
+      const domain = site._id;
       
-      if (!existing || runDate > existingDate) {
-        latestRunByDomain.set(run.domain, run);
+      // Get the most recent run for this domain
+      const runsResponse = await siteManager.listRuns({ 
+        domain, 
+        status: 'pending',
+        limit: 1,
+        sortBy: 'createdAt',
+        sortOrder: 'desc'
+      });
+      
+      if (runsResponse.runs.length === 0) {
+        // Try processing status
+        const processingResponse = await siteManager.listRuns({ 
+          domain, 
+          status: 'processing',
+          limit: 1,
+          sortBy: 'createdAt',
+          sortOrder: 'desc'
+        });
+        
+        if (processingResponse.runs.length > 0) {
+          const run = processingResponse.runs[0];
+          const runDate = new Date(run.created_at || run.createdAt || '');
+          if (!since || runDate >= since) {
+            latestRunByDomain.set(domain, run);
+          }
+        }
+      } else {
+        const run = runsResponse.runs[0];
+        const runDate = new Date(run.created_at || run.createdAt || '');
+        if (!since || runDate >= since) {
+          latestRunByDomain.set(domain, run);
+        }
       }
-    });
+    }
+    
+    if (latestRunByDomain.size === 0) {
+      console.log('\nNo sites have outstanding scrape runs.');
+      return;
+    }
     
     // Create table data showing statistics from the most recent run
     const tableData: Array<{
