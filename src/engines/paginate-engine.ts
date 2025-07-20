@@ -57,6 +57,8 @@ interface SessionWithBrowser {
 }
 
 export class PaginateEngine {
+  private sessionDataMap = new Map<string, SessionWithBrowser>();
+  
   constructor(
     private siteManager: SiteManager,
     private sessionManager: SessionManager
@@ -130,10 +132,14 @@ export class PaginateEngine {
         
         // Get existing sessions
         const existingSessions = await this.sessionManager.getActiveSessions();
-        const sessionDataMap = new Map<string, SessionWithBrowser>();
         
-        // Convert existing sessions to SessionWithBrowser format
-        const existingSessionData = this.convertSessionsToSessionData(existingSessions, sessionDataMap);
+        // Reset inUse flags for all sessions at start of each batch
+        for (const sessionData of this.sessionDataMap.values()) {
+          sessionData.inUse = false;
+        }
+        
+        // Convert existing sessions to SessionWithBrowser format (updates class sessionDataMap)
+        const existingSessionData = this.convertSessionsToSessionData(existingSessions, this.sessionDataMap);
         log.normal(`Found ${existingSessionData.length} existing sessions`);
         
         // Get site configs with blocked proxies
@@ -153,7 +159,7 @@ export class PaginateEngine {
         
         // Mark used sessions
         firstPassPairs.forEach(pair => {
-          const session = sessionDataMap.get(pair.sessionId);
+          const session = this.sessionDataMap.get(pair.sessionId);
           if (session) session.inUse = true;
         });
         
@@ -181,7 +187,7 @@ export class PaginateEngine {
             targetsToProcess, 
             firstPassPairs, 
             urlToSite, 
-            sessionDataMap, 
+            this.sessionDataMap, 
             existingSessionData,
             options
           );
@@ -199,7 +205,7 @@ export class PaginateEngine {
         // Process URL-session pairs
         const batchCacheStats = await this.processUrlSessionPairs(
           finalPairs,
-          sessionDataMap,
+          this.sessionDataMap,
           urlToSite,
           maxPages,
           maxRetries,
