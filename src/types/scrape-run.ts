@@ -76,8 +76,12 @@ export interface ListScrapeRunsQuery {
   status?: string;
   limit?: number;
   offset?: number;
-  since?: Date;
+  since?: Date;  // Maps to startTimeAfter in API
   until?: Date;
+  // Additional optional parameters supported by the API
+  page?: number;
+  sortBy?: 'startTime' | 'createdAt' | 'domain' | 'endTime';
+  sortOrder?: 'asc' | 'desc';
 }
 
 export interface ListScrapeRunsResponse {
