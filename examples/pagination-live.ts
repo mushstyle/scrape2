@@ -6,6 +6,7 @@
  * - Smart session creation based on URL requirements
  * - Proper URL deduplication within and across pages
  * - Distributor for intelligent URL-session matching
+ * - Request caching for improved performance
  * 
  * Usage:
  * npm run example:pagination:live -- --sites=amgbrand.com,blackseatribe.com --instance-limit=5
@@ -18,6 +19,7 @@ import { logger } from '../src/utils/logger.js';
 import { loadScraper } from '../src/drivers/scraper-loader.js';
 import { createBrowserFromSession } from '../src/drivers/browser.js';
 import { urlsToScrapeTargets } from '../src/utils/scrape-target-utils.js';
+import { RequestCache } from '../src/drivers/cache.js';
 import type { Session } from '../src/types/session.js';
 import type { SessionInfo } from '../src/core/distributor.js';
 import type { ScrapeTarget } from '../src/types/scrape-target.js';
@@ -31,6 +33,7 @@ interface SessionWithBrowser {
   browser?: any;
   context?: any;
   inUse?: boolean;
+  cache?: RequestCache;
 }
 
 async function main() {
@@ -95,9 +98,9 @@ async function main() {
   const existingSessionData: SessionWithBrowser[] = existingSessions.map((session, i) => {
     const sessionInfo: SessionInfo = {
       id: `existing-${i}`,
-      proxyType: session.proxy?.type as any || 'none',
-      proxyId: session.proxy?.id,
-      proxyGeo: session.proxy?.geo
+      proxyType: session.local?.proxy?.type as any || 'none',
+      proxyId: session.local?.proxy?.id,
+      proxyGeo: session.local?.proxy?.geo
     };
     const data = { session, sessionInfo };
     sessionDataMap.set(sessionInfo.id, data);
@@ -136,7 +139,7 @@ async function main() {
   const excessSessions = existingSessionData.filter(s => !s.inUse);
   if (excessSessions.length > 0) {
     log.normal(`Terminating ${excessSessions.length} excess sessions`);
-    await Promise.all(excessSessions.map(s => sessionManager.destroySession(s.session.id)));
+    await Promise.all(excessSessions.map(s => s.session.cleanup()));
   }
   
   // Step 5: Calculate how many new sessions we need
@@ -266,6 +269,12 @@ async function processUrlSessionPairs(
         const { browser, createContext } = await createBrowserFromSession(sessionData.session);
         sessionData.browser = browser;
         sessionData.context = await createContext();
+        
+        // Create cache for this session (100MB max, 5 minute TTL)
+        sessionData.cache = new RequestCache({
+          maxSizeBytes: 100 * 1024 * 1024, // 100MB
+          ttlSeconds: 300 // 5 minutes
+        });
       }
     })
   );
@@ -283,6 +292,11 @@ async function processUrlSessionPairs(
     try {
       const scraper = await loadScraper(site);
       const page: Page = await sessionData.context.newPage();
+      
+      // Enable caching for this page
+      if (sessionData.cache) {
+        await sessionData.cache.enableForPage(page);
+      }
       
       try {
         await page.goto(pair.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -324,7 +338,7 @@ async function processUrlSessionPairs(
         await page.close();
       }
     } catch (error) {
-      log.error(`Failed to process ${pair.url}: ${error.message}`);
+      log.error(`Failed to process ${pair.url}: ${error instanceof Error ? error.message : String(error)}`);
       siteManager.updatePaginationState(pair.url, {
         collectedUrls: [],
         completed: true,
@@ -340,7 +354,19 @@ async function processUrlSessionPairs(
       const run = await siteManager.commitPartialRun(site);
       log.normal(`✓ Committed run ${run.id} for ${site}`);
     } catch (error) {
-      log.error(`Failed to commit run for ${site}: ${error.message}`);
+      log.error(`Failed to commit run for ${site}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  
+  // Log cache statistics
+  log.normal('\n========== CACHE STATISTICS ==========');
+  for (const [sessionId, sessionData] of sessionDataMap.entries()) {
+    if (sessionData.cache) {
+      const stats = sessionData.cache.getStats();
+      const hitRate = stats.hits + stats.misses > 0 
+        ? ((stats.hits / (stats.hits + stats.misses)) * 100).toFixed(1)
+        : '0.0';
+      log.normal(`Session ${sessionId}: ${stats.hits} hits, ${stats.misses} misses (${hitRate}% hit rate), ${(stats.sizeBytes / 1024 / 1024).toFixed(1)}MB cached`);
     }
   }
 }
