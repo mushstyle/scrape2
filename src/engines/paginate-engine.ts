@@ -219,8 +219,7 @@ export class PaginateEngine {
           }
         }
         
-        // Clean up browsers for this batch
-        await this.cleanupBrowsers(sessionDataMap);
+        // Do NOT clean up browsers between batches - we want to reuse them!
         
         // Commit any completed runs after this batch if not noSave
         if (!options.noSave) {
@@ -304,6 +303,10 @@ export class PaginateEngine {
     } catch (error) {
       log.error('Pagination failed:', error);
       throw error;
+    } finally {
+      // Clean up all sessions at the very end
+      log.debug('Cleaning up all sessions');
+      await this.sessionManager.destroyAllSessions();
     }
   }
   
