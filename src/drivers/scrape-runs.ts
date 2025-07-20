@@ -125,6 +125,29 @@ export async function fetchRun(runId: string): Promise<ScrapeRun> {
   }
 }
 
+/**
+ * Get all active runs (pending or processing)
+ */
+export async function getActiveRuns(): Promise<ScrapeRun[]> {
+  try {
+    log.debug('Getting all active runs');
+    
+    // Get both pending and processing runs
+    const [pendingResult, processingResult] = await Promise.all([
+      listScrapeRuns({ status: 'pending' }),
+      listScrapeRuns({ status: 'processing' })
+    ]);
+    
+    const allRuns = [...pendingResult.runs, ...processingResult.runs];
+    log.debug(`Found ${allRuns.length} active runs`);
+    
+    return allRuns;
+  } catch (error) {
+    log.error('Failed to get active runs', { error });
+    throw error;
+  }
+}
+
 // Re-export types
 export type {
   ScrapeRun,

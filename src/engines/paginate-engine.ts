@@ -1,0 +1,561 @@
+import { logger } from '../utils/logger.js';
+import { SiteManager } from '../services/site-manager.js';
+import { SessionManager } from '../services/session-manager.js';
+import { targetsToSessions } from '../core/distributor.js';
+import { loadScraper } from '../drivers/scraper-loader.js';
+import { createBrowserFromSession } from '../drivers/browser.js';
+import { urlsToScrapeTargets } from '../utils/scrape-target-utils.js';
+import { RequestCache } from '../drivers/cache.js';
+import type { Session } from '../types/session.js';
+import type { SessionInfo } from '../core/distributor.js';
+import type { ScrapeTarget } from '../types/scrape-target.js';
+import type { Page } from 'playwright';
+
+const log = logger.createContext('paginate-engine');
+
+export interface PaginateOptions {
+  sites?: string[];  // If not specified, paginate all sites with scraping enabled
+  instanceLimit?: number;  // Default: 10
+  maxPages?: number;  // Default: 5
+  disableCache?: boolean;  // Cache ON by default
+  cacheSizeMB?: number;  // Default: 100
+  cacheTTLSeconds?: number;  // Default: 300 (5 minutes)
+  noSave?: boolean;  // Save to DB by default
+  localHeadless?: boolean;  // Use local browser in headless mode
+  localHeaded?: boolean;  // Use local browser in headed mode
+  sessionTimeout?: number;  // Session timeout in seconds (browserbase only)
+  maxRetries?: number;  // Default: 2 (for network errors)
+}
+
+export interface PaginateResult {
+  success: boolean;
+  sitesProcessed: number;
+  totalUrls: number;
+  urlsBySite: Map<string, string[]>;
+  errors: Map<string, string>;
+  duration: number;
+  cacheStats?: CacheStats;
+}
+
+interface CacheStats {
+  hits: number;
+  misses: number;
+  hitRate: number;
+  totalSizeMB: number;
+}
+
+interface SessionWithBrowser {
+  session: Session;
+  sessionInfo: SessionInfo;
+  browser?: any;
+  context?: any;
+  inUse?: boolean;
+  cache?: RequestCache;
+}
+
+export class PaginateEngine {
+  constructor(
+    private siteManager: SiteManager,
+    private sessionManager: SessionManager
+  ) {}
+
+  async paginate(options: PaginateOptions): Promise<PaginateResult> {
+    const startTime = Date.now();
+    const errors = new Map<string, string>();
+    const urlsBySite = new Map<string, string[]>();
+    
+    // Set defaults
+    const instanceLimit = options.instanceLimit || 10;
+    const maxPages = options.maxPages || 5;
+    const cacheSizeMB = options.cacheSizeMB || 100;
+    const cacheTTLSeconds = options.cacheTTLSeconds || 300;
+    const maxRetries = options.maxRetries || 2;
+    
+    try {
+      // Step 1: Get sites to process
+      const sitesToProcess = await this.getSitesToProcess(options.sites);
+      log.normal(`Will paginate ${sitesToProcess.length} sites`);
+      
+      if (sitesToProcess.length === 0) {
+        return {
+          success: true,
+          sitesProcessed: 0,
+          totalUrls: 0,
+          urlsBySite,
+          errors,
+          duration: Date.now() - startTime
+        };
+      }
+      
+      // Step 2: Collect all start page URLs from all sites
+      const { allTargets, urlToSite } = await this.collectStartPages(sitesToProcess);
+      log.normal(`Collected ${allTargets.length} unique start page URLs across all sites`);
+      
+      // Limit targets to instance limit
+      const targetsToProcess = allTargets.slice(0, instanceLimit);
+      
+      // Step 3: Get existing sessions
+      const existingSessions = await this.sessionManager.getActiveSessions();
+      const sessionDataMap = new Map<string, SessionWithBrowser>();
+      
+      // Convert existing sessions to SessionWithBrowser format
+      const existingSessionData = this.convertSessionsToSessionData(existingSessions, sessionDataMap);
+      log.normal(`Found ${existingSessionData.length} existing sessions`);
+      
+      // Step 4: Get site configs with blocked proxies
+      const siteConfigs = await this.siteManager.getSiteConfigsWithBlockedProxies();
+      const relevantSiteConfigs = siteConfigs.filter(config => 
+        sitesToProcess.includes(config.domain)
+      );
+      
+      // Step 5: First pass - match with existing sessions
+      const firstPassPairs = targetsToSessions(
+        targetsToProcess,
+        existingSessionData.map(s => s.sessionInfo),
+        relevantSiteConfigs
+      );
+      
+      log.normal(`First pass: Matched ${firstPassPairs.length} URLs to existing sessions`);
+      
+      // Mark used sessions
+      firstPassPairs.forEach(pair => {
+        const session = sessionDataMap.get(pair.sessionId);
+        if (session) session.inUse = true;
+      });
+      
+      // Step 6: Terminate excess sessions
+      const excessSessions = existingSessionData.filter(s => !s.inUse);
+      if (excessSessions.length > 0) {
+        log.normal(`Terminating ${excessSessions.length} excess sessions`);
+        await Promise.all(excessSessions.map(s => s.session.cleanup()));
+      }
+      
+      // Step 7: Calculate how many new sessions we need
+      const sessionsNeeded = Math.min(
+        instanceLimit - firstPassPairs.length, 
+        targetsToProcess.length - firstPassPairs.length
+      );
+      
+      let finalPairs = firstPassPairs;
+      
+      if (sessionsNeeded > 0) {
+        // Create new sessions and do second pass
+        await this.createNewSessions(
+          sessionsNeeded, 
+          targetsToProcess, 
+          firstPassPairs, 
+          urlToSite, 
+          sessionDataMap, 
+          existingSessionData,
+          options
+        );
+        
+        // Second pass with all sessions
+        finalPairs = targetsToSessions(
+          targetsToProcess,
+          existingSessionData.map(s => s.sessionInfo),
+          relevantSiteConfigs
+        );
+        
+        log.normal(`Second pass: Matched ${finalPairs.length} URLs total (limit: ${instanceLimit})`);
+      }
+      
+      // Step 8: Process URL-session pairs
+      const cacheStats = await this.processUrlSessionPairs(
+        finalPairs,
+        sessionDataMap,
+        urlToSite,
+        maxPages,
+        maxRetries,
+        options.disableCache ? undefined : { cacheSizeMB, cacheTTLSeconds }
+      );
+      
+      // Step 9: Commit partial runs if not noSave
+      if (!options.noSave) {
+        await this.commitPartialRuns(urlToSite, errors);
+      }
+      
+      // Step 10: Clean up all browsers
+      await this.cleanupBrowsers(sessionDataMap);
+      
+      // Collect results
+      for (const site of sitesToProcess) {
+        const siteData = this.siteManager.getSite(site);
+        if (siteData) {
+          const urls: string[] = [];
+          // Get URLs from partial runs
+          const partialRun = this.getPartialRunForSite(site);
+          if (partialRun) {
+            for (const state of partialRun.paginationStates.values()) {
+              urls.push(...state.collectedUrls);
+            }
+          }
+          if (urls.length > 0) {
+            urlsBySite.set(site, urls);
+          }
+        }
+      }
+      
+      const totalUrls = Array.from(urlsBySite.values()).reduce((sum, urls) => sum + urls.length, 0);
+      
+      return {
+        success: errors.size === 0,
+        sitesProcessed: urlsBySite.size,
+        totalUrls,
+        urlsBySite,
+        errors,
+        duration: Date.now() - startTime,
+        cacheStats
+      };
+      
+    } catch (error) {
+      log.error('Pagination failed:', error);
+      throw error;
+    }
+  }
+  
+  private async getSitesToProcess(sites?: string[]): Promise<string[]> {
+    if (sites && sites.length > 0) {
+      return sites;
+    }
+    
+    // Get all sites with scraping enabled
+    const allSites = this.siteManager.getSitesWithStartPages();
+    return allSites.map(site => site.domain);
+  }
+  
+  private async collectStartPages(sites: string[]): Promise<{
+    allTargets: ScrapeTarget[];
+    urlToSite: Map<string, string>;
+  }> {
+    const allTargets: ScrapeTarget[] = [];
+    const urlToSite = new Map<string, string>();
+    
+    for (const site of sites) {
+      const siteConfig = this.siteManager.getSite(site);
+      if (!siteConfig?.config.startPages?.length) {
+        log.error(`No start pages for ${site}, skipping`);
+        continue;
+      }
+      
+      // Start pagination tracking
+      await this.siteManager.startPagination(site, siteConfig.config.startPages);
+      
+      // Convert to targets and track which site each URL belongs to
+      const targets = urlsToScrapeTargets(siteConfig.config.startPages);
+      for (const target of targets) {
+        // Deduplicate URLs across sites
+        if (!urlToSite.has(target.url)) {
+          allTargets.push(target);
+          urlToSite.set(target.url, site);
+        } else {
+          log.debug(`Skipping duplicate URL ${target.url} (already assigned to ${urlToSite.get(target.url)})`);
+        }
+      }
+    }
+    
+    return { allTargets, urlToSite };
+  }
+  
+  private convertSessionsToSessionData(
+    sessions: Session[],
+    sessionDataMap: Map<string, SessionWithBrowser>
+  ): SessionWithBrowser[] {
+    return sessions.map((session, i) => {
+      const sessionInfo: SessionInfo = {
+        id: `existing-${i}`,
+        proxyType: session.local?.proxy?.type as any || 'none',
+        proxyId: session.local?.proxy?.id,
+        proxyGeo: session.local?.proxy?.geo
+      };
+      const data = { session, sessionInfo };
+      sessionDataMap.set(sessionInfo.id, data);
+      return data;
+    });
+  }
+  
+  private async createNewSessions(
+    sessionsNeeded: number,
+    targetsToProcess: ScrapeTarget[],
+    firstPassPairs: Array<{ url: string; sessionId: string }>,
+    urlToSite: Map<string, string>,
+    sessionDataMap: Map<string, SessionWithBrowser>,
+    existingSessionData: SessionWithBrowser[],
+    options: PaginateOptions
+  ): Promise<void> {
+    log.normal(`Need to create ${sessionsNeeded} new sessions`);
+    
+    // Analyze unmatched URLs to determine proxy requirements
+    const unmatchedTargets = targetsToProcess.filter(
+      target => !firstPassPairs.find(pair => pair.url === target.url)
+    );
+    
+    // Group by domain to understand proxy needs
+    const domainCounts = new Map<string, number>();
+    unmatchedTargets.slice(0, sessionsNeeded).forEach(target => {
+      const domain = urlToSite.get(target.url) || new URL(target.url).hostname;
+      domainCounts.set(domain, (domainCounts.get(domain) || 0) + 1);
+    });
+    
+    log.normal('Proxy requirements for new sessions:');
+    for (const [domain, count] of domainCounts) {
+      const proxy = await this.siteManager.getProxyForDomain(domain);
+      log.normal(`  ${domain}: ${count} sessions (${proxy?.type || 'no proxy'})`);
+    }
+    
+    // Create sessions based on requirements
+    const newSessionRequests: Array<{domain: string, proxy: any, browserType?: string, headless?: boolean, timeout?: number}> = [];
+    for (const [domain, count] of domainCounts) {
+      for (let i = 0; i < count; i++) {
+        const proxy = await this.siteManager.getProxyForDomain(domain);
+        const request: any = { domain, proxy };
+        
+        // Add browser type if local browser requested
+        if (options.localHeadless || options.localHeaded) {
+          request.browserType = 'local';
+          request.headless = !options.localHeaded; // headed means headless=false
+        }
+        
+        // Add timeout if specified
+        if (options.sessionTimeout) {
+          request.timeout = options.sessionTimeout;
+        }
+        
+        newSessionRequests.push(request);
+      }
+    }
+    
+    const newSessions = await Promise.all(
+      newSessionRequests.map(req => this.sessionManager.createSession(req))
+    ) as Session[];
+    log.normal(`Created ${newSessions.length} new sessions`);
+    
+    // Add new sessions to our tracking
+    newSessions.forEach((session, i) => {
+      const originalRequest = newSessionRequests[i];
+      const sessionInfo: SessionInfo = {
+        id: `new-${i}`,
+        proxyType: originalRequest.proxy?.type as any || 'none',
+        proxyId: originalRequest.proxy?.id,
+        proxyGeo: originalRequest.proxy?.geo
+      };
+      const data = { session, sessionInfo };
+      sessionDataMap.set(sessionInfo.id, data);
+      existingSessionData.push(data);
+    });
+  }
+  
+  private async processUrlSessionPairs(
+    pairs: Array<{ url: string; sessionId: string }>,
+    sessionDataMap: Map<string, SessionWithBrowser>,
+    urlToSite: Map<string, string>,
+    maxPages: number,
+    maxRetries: number,
+    cacheOptions?: { cacheSizeMB: number; cacheTTLSeconds: number }
+  ): Promise<CacheStats | undefined> {
+    // Create browsers only for sessions that will be used
+    const usedSessionIds = new Set(pairs.map(p => p.sessionId));
+    log.normal(`Creating browsers for ${usedSessionIds.size} sessions that will be used`);
+    
+    await Promise.all(
+      Array.from(usedSessionIds).map(async sessionId => {
+        const sessionData = sessionDataMap.get(sessionId);
+        if (sessionData && !sessionData.browser) {
+          const { browser, createContext } = await createBrowserFromSession(sessionData.session);
+          sessionData.browser = browser;
+          sessionData.context = await createContext();
+          
+          // Create cache for this session if caching enabled
+          if (cacheOptions) {
+            sessionData.cache = new RequestCache({
+              maxSizeBytes: cacheOptions.cacheSizeMB * 1024 * 1024,
+              ttlSeconds: cacheOptions.cacheTTLSeconds
+            });
+          }
+        }
+      })
+    );
+    
+    // Process each URL-session pair
+    await Promise.all(pairs.map(async (pair) => {
+      const sessionData = sessionDataMap.get(pair.sessionId);
+      const site = urlToSite.get(pair.url);
+      
+      if (!sessionData?.browser || !site) {
+        log.error(`Missing session or site for ${pair.url}`);
+        return;
+      }
+      
+      await this.processUrlWithRetries(
+        pair.url,
+        site,
+        sessionData,
+        maxPages,
+        maxRetries
+      );
+    }));
+    
+    // Collect cache statistics if caching was enabled
+    if (cacheOptions) {
+      let totalHits = 0;
+      let totalMisses = 0;
+      let totalSizeBytes = 0;
+      
+      for (const sessionData of sessionDataMap.values()) {
+        if (sessionData.cache) {
+          const stats = sessionData.cache.getStats();
+          totalHits += stats.hits;
+          totalMisses += stats.misses;
+          totalSizeBytes += stats.sizeBytes;
+        }
+      }
+      
+      const hitRate = totalHits + totalMisses > 0 
+        ? (totalHits / (totalHits + totalMisses)) * 100
+        : 0;
+      
+      return {
+        hits: totalHits,
+        misses: totalMisses,
+        hitRate,
+        totalSizeMB: totalSizeBytes / 1024 / 1024
+      };
+    }
+    
+    return undefined;
+  }
+  
+  private async processUrlWithRetries(
+    url: string,
+    site: string,
+    sessionData: SessionWithBrowser,
+    maxPages: number,
+    maxRetries: number
+  ): Promise<void> {
+    let lastError: Error | undefined;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        await this.processUrl(url, site, sessionData, maxPages);
+        return; // Success
+      } catch (error) {
+        lastError = error as Error;
+        const isNetworkError = this.isNetworkError(error);
+        
+        if (!isNetworkError || attempt === maxRetries) {
+          // Non-network error or final attempt
+          log.error(`Failed to process ${url} (attempt ${attempt + 1}/${maxRetries + 1}): ${lastError.message}`);
+          this.siteManager.updatePaginationState(url, {
+            collectedUrls: [],
+            completed: true,
+            failureCount: attempt + 1,
+            failureHistory: [lastError.message]
+          });
+          return;
+        }
+        
+        log.debug(`Network error on ${url}, retrying (attempt ${attempt + 1}/${maxRetries + 1})`);
+      }
+    }
+  }
+  
+  private async processUrl(
+    url: string,
+    site: string,
+    sessionData: SessionWithBrowser,
+    maxPages: number
+  ): Promise<void> {
+    const scraper = await loadScraper(site);
+    const page: Page = await sessionData.context.newPage();
+    
+    try {
+      // Enable caching for this page
+      if (sessionData.cache) {
+        await sessionData.cache.enableForPage(page);
+      }
+      
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      
+      const uniqueUrls = new Set<string>();
+      let currentPage = 1;
+      
+      // Collect from first page
+      const firstPageUrls = await scraper.getItemUrls(page);
+      firstPageUrls.forEach(url => uniqueUrls.add(url));
+      log.normal(`[${site}] ${url} page 1: ${firstPageUrls.size} items (${uniqueUrls.size} unique total)`);
+      
+      // Paginate
+      while (currentPage < maxPages) {
+        const hasMore = await scraper.paginate(page);
+        if (!hasMore) break;
+        
+        currentPage++;
+        const beforeCount = uniqueUrls.size;
+        const urls = await scraper.getItemUrls(page);
+        urls.forEach(url => uniqueUrls.add(url));
+        const newItems = uniqueUrls.size - beforeCount;
+        log.normal(`[${site}] ${url} page ${currentPage}: ${urls.size} items (${newItems} new, ${uniqueUrls.size} unique total)`);
+      }
+      
+      // Convert Set to Array for pagination state
+      const pageUrls = Array.from(uniqueUrls);
+      
+      // Update pagination state
+      this.siteManager.updatePaginationState(url, {
+        collectedUrls: pageUrls,
+        completed: true
+      });
+      
+      log.normal(`[${site}] Collected ${pageUrls.length} unique URLs from ${url}`);
+      
+    } finally {
+      await page.close();
+    }
+  }
+  
+  private isNetworkError(error: any): boolean {
+    const message = error?.message?.toLowerCase() || '';
+    return message.includes('timeout') || 
+           message.includes('network') || 
+           message.includes('connection') ||
+           message.includes('navigation');
+  }
+  
+  private async commitPartialRuns(
+    urlToSite: Map<string, string>,
+    errors: Map<string, string>
+  ): Promise<void> {
+    const processedSites = new Set(Array.from(urlToSite.values()));
+    
+    for (const site of processedSites) {
+      try {
+        const run = await this.siteManager.commitPartialRun(site);
+        log.normal(`✓ Committed run ${run.id} for ${site}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        log.error(`Failed to commit run for ${site}: ${message}`);
+        errors.set(site, message);
+      }
+    }
+  }
+  
+  private async cleanupBrowsers(sessionDataMap: Map<string, SessionWithBrowser>): Promise<void> {
+    for (const sessionData of sessionDataMap.values()) {
+      if (sessionData.browser) {
+        try {
+          await sessionData.context?.close();
+          await sessionData.browser.close();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+      }
+    }
+  }
+  
+  private getPartialRunForSite(site: string): any {
+    // Access the private partialRuns map through a workaround
+    // In a real implementation, we would expose a getter method on SiteManager
+    const siteManagerAny = this.siteManager as any;
+    return siteManagerAny.partialRuns?.get(site);
+  }
+}
