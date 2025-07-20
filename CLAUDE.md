@@ -50,10 +50,10 @@
 ## Commands
 - Scripts via `npm run <name>` (see package.json)
 - Verify commands: `npm run scrape verify [paginate|item]`
-- **CLI Parameters**: ALWAYS use `--param=value` format (with `=`) for parameters with values
-  - Correct: `--sites=site1.com,site2.com`, `--max-pages=10`, `--since=1d`
-  - Wrong: `--sites site1.com,site2.com` (space-separated not supported)
-  - Boolean flags: `--no-save`, `--disable-cache` (no `=` needed)
+- **CLI Parameters**: Both formats are supported for parameters with values:
+  - Space-separated (recommended for npm run): `--sites site1.com,site2.com`, `--max-pages 10`, `--since 1d`
+  - Equals format (also works): `--sites=site1.com,site2.com`, `--max-pages=10`, `--since=1d`
+  - Boolean flags: `--no-save`, `--disable-cache` (no value needed)
 - All browser options after `--` (e.g., `-- --browser-type=local`)
 
 ## Git Workflow
