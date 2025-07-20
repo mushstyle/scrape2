@@ -6,13 +6,15 @@ import {
   getSites as getSitesProvider,
   finalizeScrapeRun as finalizeScrapeRunProvider,
   getLatestRunForDomain as getLatestRunForDomainProvider,
-  fetchScrapeRun,
-  type ListScrapeRunsOptions,
-  type ScrapeRun,
-  type ScrapeRunItem,
-  type CreateScrapeRunOptions,
-  type UpdateScrapeRunItemRequest
+  fetchScrapeRun
 } from '../providers/etl-api.js';
+import type {
+  ListScrapeRunsQuery as ListScrapeRunsOptions,
+  ScrapeRun,
+  ScrapeRunItem,
+  CreateScrapeRunRequest as CreateScrapeRunOptions,
+  UpdateScrapeRunItemRequest
+} from '../types/scrape-run.js';
 
 const log = logger.createContext('scrape-runs-driver');
 
@@ -21,6 +23,14 @@ const log = logger.createContext('scrape-runs-driver');
  * Wraps ETL API provider functions with additional logic and error handling
  */
 
+/**
+ * List scrape runs with optional filters
+ * 
+ * @param options.since - Filter runs created after this date (driver abstracts to API's startTimeAfter)
+ * @param options.domain - Filter by domain
+ * @param options.status - Filter by status
+ * @param options.limit - Max results to return
+ */
 export async function listRuns(options: ListScrapeRunsOptions = {}): Promise<{ runs: ScrapeRun[] }> {
   try {
     log.debug('Listing scrape runs', options);
@@ -75,7 +85,7 @@ export async function updateRunItem(runId: string, url: string, options: { done?
   }
 }
 
-export async function getSites(): Promise<any[]> {
+export async function getSites(): Promise<any> {
   try {
     log.debug('Getting sites');
     return await getSitesProvider();
@@ -85,10 +95,10 @@ export async function getSites(): Promise<any[]> {
   }
 }
 
-export async function finalizeRun(runId: string): Promise<ScrapeRun> {
+export async function finalizeRun(runId: string): Promise<void> {
   try {
     log.debug(`Finalizing scrape run ${runId}`);
-    return await finalizeScrapeRunProvider(runId);
+    await finalizeScrapeRunProvider(runId);
   } catch (error) {
     log.error(`Failed to finalize scrape run ${runId}`, { error });
     throw error;

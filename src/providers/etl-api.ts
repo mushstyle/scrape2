@@ -242,7 +242,8 @@ export async function listScrapeRuns(query?: ListScrapeRunsQuery): Promise<ListS
   const params = new URLSearchParams();
   if (query?.domain) params.append('domain', query.domain);
   if (query?.status) params.append('status', query.status);
-  if (query?.since) params.append('since', query.since.toISOString());
+  // API expects 'startTimeAfter' not 'since'
+  if (query?.since) params.append('startTimeAfter', query.since.toISOString());
   if (query?.until) params.append('until', query.until.toISOString());
   if (query?.limit) params.append('limit', query.limit.toString());
   if (query?.offset) params.append('offset', query.offset.toString());
