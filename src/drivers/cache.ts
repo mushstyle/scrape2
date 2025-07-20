@@ -91,17 +91,40 @@ export class RequestCache {
         if (error instanceof Error && error.message.includes('Target page, context or browser has been closed')) {
           return;
         }
-        // For other errors, continue without caching
-        return await route.continue();
+        // If route is already handled (by another handler), just return
+        if (error instanceof Error && error.message.includes('Route is already handled')) {
+          return;
+        }
+        // For other errors, try to continue without caching
+        try {
+          return await route.continue();
+        } catch (continueError) {
+          // If continue also fails, just return silently
+          return;
+        }
       }
     });
   }
 
 
   /**
+   * Increment hit counter
+   */
+  incrementHits(): void {
+    this.stats.hits++;
+  }
+
+  /**
+   * Increment miss counter
+   */
+  incrementMisses(): void {
+    this.stats.misses++;
+  }
+
+  /**
    * Get cached entry
    */
-  private get(url: string): CacheEntry | null {
+  get(url: string): CacheEntry | null {
     const entry = this.cache.get(url);
     if (!entry) return null;
 
@@ -121,7 +144,7 @@ export class RequestCache {
   /**
    * Store entry in cache with LRU eviction
    */
-  private set(url: string, entry: CacheEntry): void {
+  set(url: string, entry: CacheEntry): void {
     // If entry exists, remove old size
     const existing = this.cache.get(url);
     if (existing) {

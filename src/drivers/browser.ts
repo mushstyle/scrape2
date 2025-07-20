@@ -4,6 +4,8 @@ import type { Session } from '../types/session.js';
 import { formatProxyForPlaywright } from './proxy.js';
 import { createSession as createBrowserbaseSessionProvider } from '../providers/browserbase.js';
 import { createSession as createLocalSessionProvider } from '../providers/local-browser.js';
+import { UnifiedRouteHandler } from './unified-route-handler.js';
+import type { RequestCache } from './cache.js';
 
 export interface BrowserFromSessionOptions {
   blockImages?: boolean; // Block image downloads, defaults to true
@@ -11,8 +13,13 @@ export interface BrowserFromSessionOptions {
 
 export interface BrowserFromSessionResult {
   browser: Browser;
-  createContext: (options?: any) => Promise<BrowserContext>;
+  createContext: (options?: BrowserContextOptions) => Promise<BrowserContext>;
   cleanup: () => Promise<void>;
+}
+
+export interface BrowserContextOptions {
+  cache?: RequestCache;
+  [key: string]: any;
 }
 
 /**
@@ -65,23 +72,13 @@ export async function createBrowserFromSession(
     const context = await browser.newContext(contextOptions);
 
     // Add image blocking if requested
+    // Note: Cache handler is added separately and takes priority
     if (blockImages) {
-      await context.route('**/*', async (route) => {
+      await context.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico}', async (route) => {
         try {
-          const request = route.request();
-          const resourceType = request.resourceType();
-          if (resourceType === 'image') {
-            await route.abort();
-          } else {
-            await route.continue();
-          }
+          await route.abort();
         } catch (error: any) {
-          // Ignore "Route is already handled" errors - this happens when
-          // multiple route handlers are active (e.g., cache + image blocking)
-          if (!error.message?.includes('Route is already handled')) {
-            // Log other errors but don't crash
-            console.error('Route handler error:', error.message);
-          }
+          // Ignore errors - route might be handled by another handler
         }
       });
     }

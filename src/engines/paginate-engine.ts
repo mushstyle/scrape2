@@ -620,6 +620,19 @@ export class PaginateEngine {
           return;
         }
         
+        const isMissingScraper = this.isMissingScraperError(lastError);
+        if (isMissingScraper) {
+          // Missing scraper is a permanent error - don't retry
+          log.error(`Missing scraper for ${url}: ${lastError.message}`);
+          this.siteManager.updatePaginationState(url, {
+            collectedUrls: [],
+            completed: true,
+            failureCount: 1,
+            failureHistory: [`Missing scraper: ${lastError.message}`]
+          });
+          return;
+        }
+        
         if (!isNetworkError || attempt === maxRetries) {
           // Non-network error or final attempt
           log.error(`Failed to process ${url} (attempt ${attempt + 1}/${maxRetries + 1}): ${lastError.message}`);
@@ -708,6 +721,13 @@ export class PaginateEngine {
            message.includes('navigation') ||
            message.includes('err_aborted') ||
            message.includes('frame was detached');
+  }
+  
+  private isMissingScraperError(error: any): boolean {
+    const message = error?.message || '';
+    return message.includes('Failed to load scraper') || 
+           message.includes('Cannot find module') ||
+           message.includes('ERR_MODULE_NOT_FOUND');
   }
   
   private async commitPartialRuns(

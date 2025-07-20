@@ -20,8 +20,8 @@ import { logger } from '../utils/logger.js';
  */
 
 export const SELECTORS = {
-  productGrid: 'ul.products',
-  productLinks: 'ul.products li.product a.woocommerce-LoopProduct-link',
+  productGrid: '.product-card',
+  productLinks: '.product-card a.product-card__link',
   product: {
     title: 'h1.product_title.entry-title',
     price: 'p.price',
@@ -29,6 +29,7 @@ export const SELECTORS = {
     description: '.woocommerce-product-details__short-description'
   },
   pagination: {
+    type: 'scroll' as const,
     nextButton: '.next.page-numbers'
   }
 };
@@ -48,7 +49,7 @@ export async function getItemUrls(page: Page): Promise<Set<string>> {
   const links = await page.$$eval(SELECTORS.productLinks, (elements) =>
     elements.map((el) => (el as HTMLAnchorElement).href)
   );
-  return new Set(links);
+  return new Set(links.map(link => new URL(link, page.url()).href)); // Ensure absolute URLs
 }
 
 /**
