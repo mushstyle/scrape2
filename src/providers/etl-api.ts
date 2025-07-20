@@ -16,6 +16,7 @@ import type {
   ListScrapeRunsQuery,
   ListScrapeRunsResponse
 } from '../types/scrape-run.js';
+import type { Item } from '../types/item.js';
 
 const getApiBaseUrl = (): string => {
   const baseUrl = process.env.ETL_API_ENDPOINT;
@@ -137,7 +138,9 @@ const API_ENDPOINTS = {
   scrapeRun: (runId: string) => `/api/scrape-runs/${runId}`,
   sites: '/api/sites',
   site: (siteId: string) => `/api/sites/${siteId}`,
-  scrapingConfig: (siteId: string) => `/api/sites/${siteId}/scraping-config`
+  scrapingConfig: (siteId: string) => `/api/sites/${siteId}/scraping-config`,
+  pendingItems: '/api/pending-items',
+  pendingItem: (itemId: string) => `/api/pending-items/${itemId}`
 } as const;
 
 /**
@@ -373,4 +376,114 @@ export async function getLatestRunForDomain(domain: string): Promise<ScrapeRun |
  * Get site config with proxy strategy merged from local proxy-strategies.json
  * This is a re-export for convenience from the site-config module
  */
-// Site config is now in drivers/site-config.ts 
+// Site config is now in drivers/site-config.ts
+
+/**
+ * Type for the payload expected by POST /api/pending-items
+ * Key is generated item ID, value contains the item data
+ */
+type PendingItemsPayload = Record<string, { item: Item }>;
+
+/**
+ * Add a single scraped item to the pending items API
+ * 
+ * @param itemData - The scraped item data to add
+ * @param itemId - The generated item ID (use mkItemId from utils)
+ * @throws Error if the API request fails
+ */
+export async function addPendingItem(itemData: Item, itemId: string): Promise<void> {
+  const url = buildApiUrl(API_ENDPOINTS.pendingItems);
+  const token = getApiBearerToken();
+  
+  // Add timestamp fields
+  const now = new Date().toISOString();
+  const itemWithTimestamps = {
+    ...itemData,
+    lastScrapedAt: now,
+    lastScrapeUpdateAt: now
+  };
+  
+  // Ensure status is not set or is ACTIVE
+  if (itemWithTimestamps.status && itemWithTimestamps.status !== 'ACTIVE') {
+    log.debug(`Removing invalid status '${itemWithTimestamps.status}' before sending to pending items`);
+    delete itemWithTimestamps.status;
+  }
+  
+  // Construct payload: { itemId: { item: itemData } }
+  const payload: PendingItemsPayload = {
+    [itemId]: { item: itemWithTimestamps }
+  };
+  
+  try {
+    // Add timeout using AbortController
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      let errorBody = '';
+      try {
+        errorBody = await response.text();
+      } catch (e) { /* ignore */ }
+      throw new Error(`Failed to add pending item: ${response.status} ${response.statusText}${errorBody ? ' - ' + errorBody : ''}`);
+    }
+    
+    log.debug(`Added pending item ${itemId.substring(0, 8)}`);
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      throw new Error(`Timeout adding pending item after 10 seconds`);
+    }
+    log.error(`Error adding pending item ${itemId}`, { error });
+    throw error;
+  }
+}
+
+/**
+ * Get a pending item by its ID
+ * 
+ * @param itemId - The item ID to retrieve
+ * @returns The item if found, null if not found (404)
+ * @throws Error if the API request fails for other reasons
+ */
+export async function getPendingItem(itemId: string): Promise<Item | null> {
+  const url = buildApiUrl(API_ENDPOINTS.pendingItem(itemId));
+  const token = getApiBearerToken();
+  
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    
+    if (response.status === 404) {
+      return null; // Item not found
+    }
+    
+    if (!response.ok) {
+      let errorBody = '';
+      try {
+        errorBody = await response.text();
+      } catch (e) { /* ignore */ }
+      throw new Error(`Failed to get pending item: ${response.status} ${response.statusText}${errorBody ? ' - ' + errorBody : ''}`);
+    }
+    
+    const data = await response.json();
+    return data as Item;
+  } catch (error) {
+    log.error(`Error fetching pending item ${itemId}`, { error });
+    throw error;
+  }
+} 
