@@ -1,228 +1,397 @@
-# Paginate and ScrapeItem Engines Plan
+# Paginate and ScrapeItem Engines Plan (Revised)
 
 ## Goal
-**Create production-ready engines for paginating sites and scraping individual items that can be invoked from both CLI and API endpoints, with full status visibility and caching support.**
+**Create production-ready engines for paginating sites and scraping individual items that can be invoked from CLI, with caching support and proper architectural patterns.**
 
 ## Key Requirements
-1. All activity must affect the in-memory singletons of SiteManager and SessionManager
-2. Must be callable from both CLI and API endpoints
-3. Status must be queryable via API even if started from CLI
-4. Must implement caching (currently missing from pagination-live.ts)
-5. Must follow the strict layered architecture (engines → services → drivers → providers)
+1. No ActiveTask tracking - engines are stateless orchestrators
+2. Keep `forceRefresh` pattern for cross-process visibility
+3. Both PaginateEngine and ScrapeItemEngine use double-pass matcher pattern
+4. Initial implementation is CLI-only for sanity checking
+5. Follow strict layered architecture (engines → services → drivers → providers)
+6. Include caching like pagination-live.ts example
 
 ## Architecture Overview
 
 ### Engine Design Pattern
-- **PaginateEngine**: Handles pagination across multiple sites with the double-pass matcher pattern
-- **ScrapeItemEngine**: Handles scraping individual items or batches of items
-- Both engines will be classes in `src/engines/` following the existing pattern
-- Both will accept and use injected SessionManager and SiteManager instances (ensuring singleton usage)
+- **PaginateEngine**: Orchestrates pagination across multiple sites using double-pass matcher
+- **ScrapeItemEngine**: Orchestrates scraping of individual items using double-pass matcher
+- Both engines are stateless classes in `src/engines/`
+- Both accept injected SessionManager and SiteManager instances
+- Both return results immediately (no persistent task tracking)
 
-### State Management for CLI/API Interoperability
-To enable status checking from API for CLI-initiated tasks:
-- Engines will register active tasks in SiteManager using a new `ActiveTask` tracking system
-- Each task gets a unique ID that can be queried
-- Tasks update their progress in real-time via SiteManager methods
-- API endpoints can query fresh database state using a `forceRefresh` pattern to see tasks from other processes
+### Key Principles
+- Engines orchestrate but don't own state
+- SiteManager handles all persistent state (partial runs, blocked proxies)
+- SessionManager handles session lifecycle
+- Distributor handles URL-to-session matching
+- Caching improves performance without changing logic
 
 ## Implementation Plan
 
-### [ ] 1. Create ActiveTask Tracking System in SiteManager
-- [ ] Add types to `src/types/site-manager-types.ts`:
+### [ ] 1. Add forceRefresh Support to SiteManager
+Update existing methods to support bypassing in-memory cache:
+- [ ] `getSitesWithPartialRuns(options?: { forceRefresh?: boolean })`
+- [ ] `getBlockedProxies(domain: string, options?: { forceRefresh?: boolean })`
+- [ ] `getSiteStatus(domain: string, options?: { forceRefresh?: boolean })`
+- [ ] Implementation pattern:
   ```typescript
-  interface ActiveTask {
-    id: string;
-    type: 'paginate' | 'scrapeItem';
-    status: 'running' | 'completed' | 'failed';
-    startedAt: Date;
-    updatedAt: Date;
-    progress: {
-      total: number;
-      completed: number;
-      failed: number;
-    };
-    metadata: {
-      sites?: string[];
-      urls?: string[];
-      instanceLimit?: number;
-    };
-    error?: string;
-  }
-  ```
-- [ ] Add methods to SiteManager:
-  - [ ] `registerActiveTask(task: ActiveTask): Promise<void>` - Also writes to DB
-  - [ ] `updateTaskProgress(taskId: string, progress: Partial<ActiveTask['progress']>): Promise<void>` - Updates DB
-  - [ ] `getActiveTask(taskId: string, options?: { forceRefresh?: boolean }): Promise<ActiveTask | null>`
-  - [ ] `getActiveTasks(options?: { forceRefresh?: boolean }): Promise<ActiveTask[]>`
-  - [ ] `completeTask(taskId: string, status: 'completed' | 'failed', error?: string): Promise<void>`
-- [ ] Store tasks in memory map within SiteManager
-- [ ] Add database persistence for tasks (new table or use existing scrape_runs with metadata)
-- [ ] Implement forceRefresh pattern:
-  ```typescript
-  async getActiveTasks(options?: { forceRefresh?: boolean }): Promise<ActiveTask[]> {
+  async getSitesWithPartialRuns(options?: { forceRefresh?: boolean }): Promise<string[]> {
     if (options?.forceRefresh) {
-      // Bypass cache, query DB directly
-      return await this.scrapeRunsDriver.getActiveTasks();
+      // Query database directly via driver
+      const runs = await this.scrapeRunsDriver.getActiveRuns();
+      return runs.map(r => r.domain);
     }
-    return Array.from(this.activeTasks.values());
+    // Use in-memory state
+    return Array.from(this.partialRuns.keys());
   }
   ```
-- [ ] Add similar forceRefresh support to existing methods:
-  - [ ] `getSitesWithPartialRuns(options?: { forceRefresh?: boolean })`
-  - [ ] `getBlockedProxies(domain: string, options?: { forceRefresh?: boolean })`
-  - [ ] `getSiteStatus(domain: string, options?: { forceRefresh?: boolean })`
 
 ### [ ] 2. Create PaginateEngine
-- [ ] Create `src/engines/paginate-engine.ts` with:
-  - [ ] Constructor accepting SessionManager and SiteManager instances
-  - [ ] Options interface:
-    ```typescript
-    interface PaginateOptions {
-      sites: string[];
-      instanceLimit: number;
-      maxPages?: number;
-      enableCache?: boolean;
-      cacheSize?: number;
-      taskId?: string; // For tracking
-    }
-    ```
-  - [ ] Result interface:
-    ```typescript
-    interface PaginateResult {
-      taskId: string;
-      success: boolean;
-      sitesProcessed: number;
-      totalUrls: number;
-      urlsBySite: Map<string, string[]>;
-      errors: string[];
-      duration: number;
-      cacheStats?: CacheStats;
-    }
-    ```
-- [ ] Implement double-pass matcher pattern from pagination-live.ts
-- [ ] Add RequestCache integration:
-  - [ ] Create shared cache instance at engine level
-  - [ ] Enable cache for all pages before navigation
-  - [ ] Track cache statistics
-- [ ] Register task with SiteManager at start
-- [ ] Update task progress after each site/page
-- [ ] Use SiteManager's partial run tracking:
-  - [ ] Call `startPagination()` for each site
-  - [ ] Call `updatePaginationState()` after each page
-  - [ ] Call `commitPartialRun()` after each site completes
-- [ ] Handle errors gracefully with retry logic
-- [ ] Complete task in SiteManager when done
+- [ ] Create `src/engines/paginate-engine.ts`:
+  ```typescript
+  export interface PaginateOptions {
+    sites?: string[];  // If not specified, paginate all sites with scraping enabled
+    instanceLimit: number;
+    maxPages?: number;
+    disableCache?: boolean;  // Cache ON by default
+    cacheSizeMB?: number;
+    cacheTTLSeconds?: number;
+    noSave?: boolean;  // Save to DB by default
+  }
 
-### [ ] 3. Create ScrapeItemEngine  
-- [ ] Create `src/engines/scrape-item-engine.ts` with:
-  - [ ] Constructor accepting SessionManager and SiteManager instances
-  - [ ] Options interface:
-    ```typescript
-    interface ScrapeItemOptions {
-      urls: string[]; // Can be single or batch
-      instanceLimit?: number;
-      enableCache?: boolean;
-      cacheSize?: number;
-      taskId?: string;
-      saveToDatabase?: boolean;
+  export interface PaginateResult {
+    success: boolean;
+    sitesProcessed: number;
+    totalUrls: number;
+    urlsBySite: Map<string, string[]>;
+    errors: Map<string, string>;
+    duration: number;
+    cacheStats?: CacheStats;
+  }
+
+  export class PaginateEngine {
+    constructor(
+      private siteManager: SiteManager,
+      private sessionManager: SessionManager
+    ) {}
+
+    async paginate(options: PaginateOptions): Promise<PaginateResult> {
+      // Implementation following pagination-live.ts pattern
     }
-    ```
-  - [ ] Result interface:
-    ```typescript
-    interface ScrapeItemResult {
-      taskId: string;
-      success: boolean;
-      itemsScraped: number;
-      items: Map<string, any>; // url -> item data
-      errors: Map<string, string>; // url -> error
-      duration: number;
-      cacheStats?: CacheStats;
+  }
+  ```
+
+- [ ] Implementation details:
+  - [ ] Get sites to process:
+    - If sites specified: use those
+    - Otherwise: get all sites with scraping enabled from SiteManager
+  - [ ] Load site configurations via SiteManager
+  - [ ] Collect all start page URLs across sites
+  - [ ] Implement double-pass matcher:
+    - First pass: Match URLs to existing sessions
+    - Terminate unused sessions
+    - Calculate new sessions needed
+    - Create targeted sessions based on unmatched URLs
+    - Second pass: Match all URLs to all sessions
+  - [ ] Create RequestCache (enabled by default unless disableCache=true)
+  - [ ] Create browsers only for used sessions
+  - [ ] Process each URL-session pair:
+    - Load scraper for site
+    - Create page with cache enabled
+    - Paginate using Set for deduplication
+    - Update SiteManager pagination state
+  - [ ] Unless noSave is true:
+    - Commit partial runs per site
+  - [ ] Clean up all resources
+  - [ ] Return comprehensive results
+
+### [ ] 3. Create ScrapeItemEngine
+- [ ] Create `src/engines/scrape-item-engine.ts`:
+  ```typescript
+  export interface ScrapeItemOptions {
+    sites?: string[];  // If not specified, scrape all sites with pending items
+    instanceLimit?: number;
+    itemLimit?: number;  // Max items per site
+    disableCache?: boolean;  // Cache ON by default
+    cacheSizeMB?: number;
+    cacheTTLSeconds?: number;
+    noSave?: boolean;  // Save to ETL by default
+  }
+
+  export interface ScrapeItemResult {
+    success: boolean;
+    itemsScraped: number;
+    itemsBySite: Map<string, Item[]>;
+    errors: Map<string, string>;
+    duration: number;
+    cacheStats?: CacheStats;
+  }
+
+  export class ScrapeItemEngine {
+    constructor(
+      private siteManager: SiteManager,
+      private sessionManager: SessionManager
+    ) {}
+
+    async scrapeItems(options: ScrapeItemOptions): Promise<ScrapeItemResult> {
+      // Implementation using double-pass matcher
     }
-    ```
-- [ ] Implement URL grouping by domain
-- [ ] Use distributor for URL-session matching
-- [ ] Add RequestCache integration
-- [ ] Register and update task progress
-- [ ] Support both single item and batch scraping
-- [ ] Optionally save items to database via ItemsDriver
+  }
+  ```
+
+- [ ] Implementation details:
+  - [ ] Get sites to process:
+    - If sites specified: use those
+    - Otherwise: get all sites with pending items from scrape runs
+  - [ ] For each site:
+    - Get pending item URLs from active scrape runs
+    - Limit to itemLimit per site
+  - [ ] Convert all URLs to ScrapeTargets
+  - [ ] Implement double-pass matcher (same pattern as PaginateEngine)
+  - [ ] Create RequestCache (enabled by default)
+  - [ ] Process each URL-session pair:
+    - Load scraper for site
+    - Create page with cache enabled
+    - Navigate to item URL
+    - Call scraper.scrapeItem()
+    - Update scrape run status (mark item as done/failed)
+    - Collect results
+  - [ ] Unless noSave is true:
+    - Use ETL driver to save items
+  - [ ] Clean up all resources
+  - [ ] Return results organized by site
 
 ### [ ] 4. Create CLI Commands
-- [ ] Update `src/cli/commands/scrape.ts` to add new subcommands:
-  - [ ] `scrape paginate` command:
-    ```bash
-    npm run scrape paginate -- --sites=site1.com,site2.com --instance-limit=10 --max-pages=5 --enable-cache
-    ```
-  - [ ] `scrape items` command:
-    ```bash
-    npm run scrape items -- --urls=url1,url2,url3 --instance-limit=5 --enable-cache --save
-    ```
-- [ ] Both commands should:
-  - [ ] Get singleton instances of SessionManager and SiteManager
-  - [ ] Create appropriate engine with those instances
-  - [ ] Generate a task ID
-  - [ ] Run the engine
-  - [ ] Display progress and results
+- [ ] Update `src/cli/commands/scrape.ts`:
+  ```typescript
+  // New subcommand: scrape paginate
+  if (command === 'paginate') {
+    const sites = options.sites?.split(',') : undefined;
+    const instanceLimit = options.instanceLimit || 5;
+    const maxPages = options.maxPages || 5;
+    const disableCache = options.disableCache || false;
+    const noSave = options.noSave || false;
+    const cacheSizeMB = options.cacheSizeMB || 100;
 
-### [ ] 5. Create API Endpoints
-- [ ] Create `src/api/routes/tasks.ts`:
-  - [ ] `GET /api/tasks` - List all active tasks
-    ```typescript
-    // Always use forceRefresh to see tasks from all processes
-    const tasks = await siteManager.getActiveTasks({ forceRefresh: true });
-    ```
-  - [ ] `GET /api/tasks/:taskId` - Get specific task status
-    ```typescript
-    const task = await siteManager.getActiveTask(taskId, { forceRefresh: true });
-    ```
-  - [ ] `POST /api/tasks/paginate` - Start pagination task
-  - [ ] `POST /api/tasks/scrape-items` - Start item scraping task
-- [ ] All endpoints use the same singleton SessionManager and SiteManager within the API process
-- [ ] POST endpoints create engines and start tasks asynchronously
-- [ ] Return task ID immediately for status checking
+    const siteManager = new SiteManager();
+    const sessionManager = new SessionManager();
+    
+    await siteManager.loadSites();
+    
+    const engine = new PaginateEngine(siteManager, sessionManager);
+    const result = await engine.paginate({
+      sites,  // undefined = all sites
+      instanceLimit,
+      maxPages,
+      disableCache,
+      noSave,
+      cacheSizeMB
+    });
 
-### [ ] 6. Testing Strategy
-- [ ] Unit tests for engines:
-  - [ ] Mock SessionManager and SiteManager
+    // Display results
+    console.log(`Processed ${result.sitesProcessed} sites`);
+    console.log(`Collected ${result.totalUrls} URLs`);
+    if (!noSave) {
+      console.log(`Saved to database`);
+    }
+    if (result.cacheStats) {
+      console.log(`Cache hit rate: ${(result.cacheStats.hits / (result.cacheStats.hits + result.cacheStats.misses) * 100).toFixed(1)}%`);
+    }
+  }
+
+  // New subcommand: scrape items
+  if (command === 'items') {
+    const sites = options.sites?.split(',') : undefined;
+    const instanceLimit = options.instanceLimit || 5;
+    const itemLimit = options.itemLimit || 100;
+    const disableCache = options.disableCache || false;
+    const noSave = options.noSave || false;
+
+    const siteManager = new SiteManager();
+    const sessionManager = new SessionManager();
+    
+    await siteManager.loadSites();
+    
+    const engine = new ScrapeItemEngine(siteManager, sessionManager);
+    const result = await engine.scrapeItems({
+      sites,  // undefined = all sites with pending items
+      instanceLimit,
+      itemLimit,
+      disableCache,
+      noSave
+    });
+
+    console.log(`Scraped ${result.itemsScraped} items`);
+    for (const [site, items] of result.itemsBySite) {
+      console.log(`  ${site}: ${items.length} items`);
+    }
+    if (!noSave) {
+      console.log(`Saved to ETL API`);
+    }
+    if (result.errors.size > 0) {
+      console.log(`Failed: ${result.errors.size} items`);
+    }
+  }
+  ```
+
+- [ ] Add command documentation:
+  ```bash
+  # Paginate all sites (cache ON, save ON by default)
+  npm run scrape paginate -- --instance-limit=10 --max-pages=5
+
+  # Paginate specific sites
+  npm run scrape paginate -- --sites=site1.com,site2.com --instance-limit=10
+
+  # Scrape items from all sites with pending items (cache ON, save ON by default)
+  npm run scrape items -- --instance-limit=5 --item-limit=50
+
+  # Scrape items from specific sites
+  npm run scrape items -- --sites=site1.com,site2.com --instance-limit=5
+
+  # Skip saving (for testing)
+  npm run scrape paginate -- --sites=site1.com --no-save
+  npm run scrape items -- --sites=site1.com --no-save
+
+  # Disable cache (not recommended)
+  npm run scrape paginate -- --sites=site1.com --disable-cache
+  ```
+
+### [ ] 5. Testing Strategy
+- [ ] Create `src/engines/__tests__/paginate-engine.test.ts`:
   - [ ] Test double-pass matcher integration
-  - [ ] Test cache behavior
-  - [ ] Test error handling and retries
+  - [ ] Test cache behavior when enabled/disabled
+  - [ ] Test error handling (site failures don't affect others)
+  - [ ] Test resource cleanup
+  - [ ] Mock SessionManager and SiteManager
+
+- [ ] Create `src/engines/__tests__/scrape-item-engine.test.ts`:
+  - [ ] Test URL grouping by domain
+  - [ ] Test double-pass matcher for items
+  - [ ] Test item scraping with mock scrapers
+  - [ ] Test ETL saving when enabled
+  - [ ] Test error collection
+
 - [ ] Integration tests:
-  - [ ] Test CLI commands with real sites
-  - [ ] Test API endpoints
-  - [ ] Test CLI-started task visibility in API
-- [ ] Add to existing test commands
+  - [ ] Test CLI commands with test sites
+  - [ ] Verify memory usage with large batches
+  - [ ] Test session reuse across runs
 
-### [ ] 7. Documentation Updates
+### [ ] 6. Documentation Updates
+- [ ] Create `docs/engines.md`:
+  ```markdown
+  # Engines
+
+  Engines are the top-level orchestrators in our architecture. They coordinate complex workflows using services and core logic.
+
+  ## PaginateEngine
+
+  Orchestrates pagination across multiple sites using the double-pass matcher pattern.
+
+  ### Usage
+  ```typescript
+  const engine = new PaginateEngine(siteManager, sessionManager);
+  const result = await engine.paginate({
+    sites: ['site1.com', 'site2.com'],
+    instanceLimit: 10,
+    maxPages: 5,
+    enableCache: true
+  });
+  ```
+
+  ### How it Works
+  1. Collects start pages from all sites
+  2. Uses double-pass matcher to efficiently assign URLs to sessions
+  3. Paginates each site independently
+  4. Tracks progress via SiteManager's partial run system
+  5. Returns aggregated results
+
+  ## ScrapeItemEngine
+
+  Orchestrates scraping of individual items using the double-pass matcher pattern.
+
+  ### Usage
+  ```typescript
+  const engine = new ScrapeItemEngine(siteManager, sessionManager);
+  const result = await engine.scrapeItems({
+    urls: ['url1', 'url2', 'url3'],
+    instanceLimit: 5,
+    enableCache: true,
+    saveToETL: true
+  });
+  ```
+
+  ### Double-Pass Matcher
+
+  Both engines use the same efficient session allocation pattern:
+  - **Pass 1**: Try to match work to existing sessions
+  - **Pass 2**: Create only the sessions needed for unmatched work
+
+  This ensures optimal resource usage and supports incremental scaling.
+  ```
+
 - [ ] Update `README.md` with new CLI commands
-- [ ] Create `docs/engines.md` explaining:
-  - [ ] How engines work
-  - [ ] CLI vs API usage
-  - [ ] Task tracking system
-  - [ ] Caching behavior
-  - [ ] Cross-process state visibility via forceRefresh
-- [ ] Update `rules/architecture.md` if needed
-- [ ] Update SiteManager documentation to include:
-  - [ ] All methods that support forceRefresh option
-  - [ ] Explanation of when to use forceRefresh (API querying CLI-initiated tasks)
-  - [ ] Examples of cross-process state queries
+- [ ] Add examples showing typical usage patterns
 
-## Key Considerations
+## Key Design Decisions
 
-- [ ] **Process Isolation**: CLI and API run in separate processes. They share state through the database, not memory. The forceRefresh pattern enables cross-process visibility.
-- [ ] **Task Persistence**: Tasks must be persisted to database for cross-process visibility. Consider using scrape_runs table with task metadata or creating a dedicated tasks table.
-- [ ] **Concurrency**: Multiple tasks might run simultaneously. Ensure SessionManager limits are respected globally.
-- [ ] **Memory Management**: With caching enabled, monitor memory usage especially for large pagination runs.
-- [ ] **Error Recovery**: Implement proper cleanup on errors (close browsers, update task status, etc.)
-- [ ] **Progress Reporting**: Consider adding WebSocket support for real-time progress updates in API.
-- [ ] **Cache Invalidation**: Determine cache TTL strategy - should cache persist between runs?
-- [ ] **Rate Limiting**: Ensure engines respect site-specific rate limits if configured.
+### No ActiveTask System
+- Engines return results immediately
+- No persistent task tracking needed for CLI usage
+- Simpler implementation, easier to debug
+- Can add task tracking later if needed for API
+
+### Double-Pass for Everything
+- Consistent pattern across both engines
+- Efficient session reuse
+- Respects all system limits
+- Proven pattern from pagination-live.ts
+
+### Stateless Engines
+- Engines don't maintain state between calls
+- All state in SessionManager and SiteManager
+- Enables easy testing and concurrent usage
+- Follows architectural principles
+
+### CLI-First Implementation
+- Start with CLI for immediate testing
+- No API endpoints initially
+- Can verify behavior interactively
+- API integration can come later
 
 ## Success Criteria
 
-1. Can start pagination from CLI and check status via API endpoint
-2. Can start item scraping from API and see results
-3. Caching improves performance by >30% for multi-page pagination
-4. All activity is reflected in SiteManager's state (partial runs, blocked proxies, etc.)
-5. Errors in one site don't affect others
-6. Clean shutdown handles all browser cleanup properly
-7. Memory usage stays reasonable even with large batches
+1. **Functionality**
+   - [ ] Can paginate multiple sites from CLI
+   - [ ] Can scrape individual items from CLI
+   - [ ] Caching improves performance by >30%
+   - [ ] Errors in one site don't affect others
+
+2. **Architecture**
+   - [ ] Strict layer separation maintained
+   - [ ] Engines only orchestrate, don't implement
+   - [ ] State properly managed by services
+   - [ ] Clean resource management
+
+3. **Performance**
+   - [ ] Session reuse works correctly
+   - [ ] Memory usage stays reasonable
+   - [ ] Cache statistics show effectiveness
+   - [ ] Parallel processing where appropriate
+
+4. **Usability**
+   - [ ] Clear CLI output
+   - [ ] Helpful error messages
+   - [ ] Progress indication
+   - [ ] Easy to debug issues
+
+## Implementation Order
+
+1. Add forceRefresh support to SiteManager (foundation)
+2. Create PaginateEngine (simpler, proven pattern)
+3. Create ScrapeItemEngine (builds on paginate patterns)
+4. Add CLI commands (enables testing)
+5. Write comprehensive tests
+6. Document everything
+
+This approach gives us working, testable engines quickly while maintaining architectural integrity and setting up for future API integration.
