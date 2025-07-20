@@ -52,6 +52,7 @@ export function targetsToSessions(
   
   const results: UrlSessionPair[] = [];
   const usedSessionIds = new Set<string>();
+  const domainSessionCounts = new Map<string, number>();
   
   // Iterate through URLs
   for (const target of pendingTargets) {
@@ -64,6 +65,15 @@ export function targetsToSessions(
     const urlDomain = extractDomain(target.url);
     const siteConfig = siteConfigs.find(config => config.domain === urlDomain);
     
+    // Check if we've reached the session limit for this domain
+    const currentDomainSessions = domainSessionCounts.get(urlDomain) || 0;
+    const sessionLimit = siteConfig?.proxy?.sessionLimit || 1;
+    
+    if (currentDomainSessions >= sessionLimit) {
+      // Skip this URL - domain has reached its session limit
+      continue;
+    }
+    
     // Iterate through sessions to find first unused one that works
     for (const session of sessions) {
       if (!usedSessionIds.has(session.id) && sessionWorksForUrl(session, siteConfig)) {
@@ -72,6 +82,7 @@ export function targetsToSessions(
           sessionId: session.id
         });
         usedSessionIds.add(session.id);
+        domainSessionCounts.set(urlDomain, currentDomainSessions + 1);
         break;
       }
     }
