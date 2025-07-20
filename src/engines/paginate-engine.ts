@@ -98,7 +98,6 @@ export class PaginateEngine {
       let processedCount = 0;
       let batchNumber = 1;
       let cacheStats: CacheStats | undefined;
-      const allProcessedSites = new Set<string>(); // Track all sites processed across all batches
       
       while (processedCount < allTargets.length) {
         const batchStart = processedCount;
@@ -124,8 +123,8 @@ export class PaginateEngine {
         
         // Start pagination tracking only for sites and URLs we'll actually process
         for (const [site, urls] of urlsPerSite) {
+          // startPagination expects siteId (domain), which is what we have
           await this.siteManager.startPagination(site, urls);
-          allProcessedSites.add(site); // Track this site as processed
         }
         
         log.normal(`Started pagination tracking for ${sitesToTrack.size} sites with ${targetsToProcess.length} URLs`);
@@ -208,6 +207,7 @@ export class PaginateEngine {
           options.disableCache ? undefined : { cacheSizeMB, cacheTTLSeconds }
         );
         
+        
         // Merge cache stats
         if (batchCacheStats) {
           if (!cacheStats) {
@@ -225,10 +225,13 @@ export class PaginateEngine {
         
         // Commit any completed runs after this batch if not noSave
         if (!options.noSave) {
+          // Simply check ALL sites with partial runs, not just the ones we think we processed
+          const allSitesWithPartialRuns = await this.siteManager.getSitesWithPartialRuns();
           const completedSites = new Set<string>();
-          for (const site of allProcessedSites) {
+          
+          for (const site of allSitesWithPartialRuns) {
             const partialRun = this.getPartialRunForSite(site);
-            if (partialRun) {
+            if (partialRun && !partialRun.committedToDb) {
               // Check if all pagination states for this site are completed
               const allStatesCompleted = Array.from(partialRun.paginationStates.values())
                 .every(state => state.isComplete);
@@ -241,10 +244,6 @@ export class PaginateEngine {
           if (completedSites.size > 0) {
             log.normal(`Committing ${completedSites.size} completed runs after batch ${batchNumber}`);
             await this.commitPartialRuns(completedSites, errors);
-            // Remove from allProcessedSites so we don't try to commit again
-            for (const site of completedSites) {
-              allProcessedSites.delete(site);
-            }
           }
         }
         
@@ -271,9 +270,21 @@ export class PaginateEngine {
       }
       
       // Step 10: Commit any remaining partial runs if not noSave
-      if (!options.noSave && allProcessedSites.size > 0) {
-        log.normal(`Committing ${allProcessedSites.size} remaining runs`);
-        await this.commitPartialRuns(allProcessedSites, errors);
+      if (!options.noSave) {
+        const remainingSites = await this.siteManager.getSitesWithPartialRuns();
+        const uncommittedSites = [];
+        
+        for (const site of remainingSites) {
+          const partialRun = this.getPartialRunForSite(site);
+          if (partialRun && !partialRun.committedToDb) {
+            uncommittedSites.push(site);
+          }
+        }
+        
+        if (uncommittedSites.length > 0) {
+          log.normal(`Committing ${uncommittedSites.length} remaining runs`);
+          await this.commitPartialRuns(new Set(uncommittedSites), errors);
+        }
       }
       
       const totalUrls = Array.from(urlsBySite.values()).reduce((sum, urls) => sum + urls.length, 0);
