@@ -90,6 +90,37 @@ async function showCurrentStartPages(domain: string): Promise<void> {
   }
 }
 
+function parsePeriodToDate(period: string): Date | null {
+  const now = new Date();
+  const match = period.match(/^(\d+)([dwmh])$/i);
+  
+  if (!match) {
+    return null;
+  }
+  
+  const [, amount, unit] = match;
+  const value = parseInt(amount, 10);
+  
+  switch (unit.toLowerCase()) {
+    case 'd':
+      now.setDate(now.getDate() - value);
+      break;
+    case 'w':
+      now.setDate(now.getDate() - (value * 7));
+      break;
+    case 'h':
+      now.setHours(now.getHours() - value);
+      break;
+    case 'm':
+      now.setMinutes(now.getMinutes() - value);
+      break;
+    default:
+      return null;
+  }
+  
+  return now;
+}
+
 async function listSitesWithNoStartPages() {
   try {
     const response = await getSites();
@@ -184,7 +215,7 @@ async function listSitesWithOutstandingRuns(since?: Date) {
       return remainingDiff !== 0 ? remainingDiff : a.Domain.localeCompare(b.Domain);
     });
     
-    const filterText = since ? ` (since ${since.toISOString()})` : '';
+    const filterText = since ? ` (since ${since.toLocaleString()})` : '';
     console.log(`\nSites with outstanding scrape runs${filterText} (${tableData.length} sites):\n`);
     
     // Print table header
@@ -245,6 +276,13 @@ async function main() {
     console.log('\nOptions:');
     console.log('  --since <date>  Filter scrape runs created after this date');
     console.log('                  Date format: YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss');
+    console.log('\nTime Period Format (when prompted):');
+    console.log('  1d    - Last 1 day');
+    console.log('  24h   - Last 24 hours');
+    console.log('  7d    - Last 7 days');
+    console.log('  1w    - Last 1 week');
+    console.log('  48h   - Last 48 hours');
+    console.log('  30m   - Last 30 minutes');
     console.log('\nExample:');
     console.log('  npm run sites:manage --since 2024-01-15');
     console.log('  npm run sites:manage --since 2024-01-15T10:30:00');
@@ -395,7 +433,22 @@ async function main() {
       
       case '6': {
         // List sites with outstanding runs
-        await listSitesWithOutstandingRuns(since);
+        // Ask for time period if not already provided via --since
+        let filterSince = since;
+        
+        if (!filterSince) {
+          const period = await rl.question('\nFilter by time period (e.g., 1d, 24h, 7d, 1w, or press Enter for all): ');
+          
+          if (period.trim()) {
+            filterSince = parsePeriodToDate(period.trim());
+            if (!filterSince) {
+              console.log('Invalid time period format. Use format like: 1d, 24h, 7d, 1w, 30m');
+              console.log('Showing all outstanding runs.');
+            }
+          }
+        }
+        
+        await listSitesWithOutstandingRuns(filterSince);
         break;
       }
       
