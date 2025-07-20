@@ -219,7 +219,7 @@ export class PaginateEngine {
             if (partialRun && !partialRun.committedToDb) {
               // Check if all pagination states for this site are completed
               const allStatesCompleted = Array.from(partialRun.paginationStates.values())
-                .every(state => state.isComplete);
+                .every(state => state.completed);
               if (allStatesCompleted) {
                 completedSites.add(site);
               }
