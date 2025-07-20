@@ -163,16 +163,7 @@ async function listSitesWithOutstandingRuns(since?: Date) {
     
     const pendingRuns = pendingRunsResponse.runs || [];
     const processingRuns = processingRunsResponse.runs || [];
-    let allOutstandingRuns = [...pendingRuns, ...processingRuns];
-    
-    // Filter by date if since is provided (in case API doesn't filter)
-    if (since) {
-      const sinceTime = since.getTime();
-      allOutstandingRuns = allOutstandingRuns.filter(run => {
-        const runDate = new Date(run.created_at || run.createdAt || '');
-        return runDate.getTime() >= sinceTime;
-      });
-    }
+    const allOutstandingRuns = [...pendingRuns, ...processingRuns];
     
     if (allOutstandingRuns.length === 0) {
       console.log('\nNo sites have outstanding scrape runs.');

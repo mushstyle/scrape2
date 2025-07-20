@@ -23,6 +23,14 @@ const log = logger.createContext('scrape-runs-driver');
  * Wraps ETL API provider functions with additional logic and error handling
  */
 
+/**
+ * List scrape runs with optional filters
+ * 
+ * @param options.since - Filter runs created after this date (driver abstracts to API's startTimeAfter)
+ * @param options.domain - Filter by domain
+ * @param options.status - Filter by status
+ * @param options.limit - Max results to return
+ */
 export async function listRuns(options: ListScrapeRunsOptions = {}): Promise<{ runs: ScrapeRun[] }> {
   try {
     log.debug('Listing scrape runs', options);
