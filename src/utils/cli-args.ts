@@ -65,6 +65,8 @@ export function parseArgs(args: string[]): ParsedArgs {
       options.localHeadless = true;
     } else if (arg === '--local-headed') {
       options.localHeaded = true;
+    } else if (arg === '--force') {
+      options.force = true;
     } else if (arg.startsWith('--session-timeout=')) {
       options.sessionTimeout = parseInt(arg.replace('--session-timeout=', ''), 10);
     } else if (arg === '--session-timeout' && i + 1 < args.length) {

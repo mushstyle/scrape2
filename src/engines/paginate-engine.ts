@@ -16,6 +16,7 @@ const log = logger.createContext('paginate-engine');
 export interface PaginateOptions {
   sites?: string[];  // If not specified, paginate all sites with scraping enabled
   since?: Date;  // Only paginate sites without runs since this date
+  force?: boolean;  // Force pagination even if sites have recent runs (ignores since)
   instanceLimit?: number;  // Default: 10
   maxPages?: number;  // Default: 5
   disableCache?: boolean;  // Cache ON by default
@@ -74,7 +75,7 @@ export class PaginateEngine {
     
     try {
       // Step 1: Get sites to process
-      const sitesToProcess = await this.getSitesToProcess(options.sites, options.since);
+      const sitesToProcess = await this.getSitesToProcess(options.sites, options.since, options.force);
       log.normal(`Will paginate ${sitesToProcess.length} sites`);
       
       if (sitesToProcess.length === 0) {
@@ -215,10 +216,10 @@ export class PaginateEngine {
     }
   }
   
-  private async getSitesToProcess(sites?: string[], since?: Date): Promise<string[]> {
+  private async getSitesToProcess(sites?: string[], since?: Date, force?: boolean): Promise<string[]> {
     let sitesToProcess: string[];
     
-    log.debug('getSitesToProcess called with:', { sites, since });
+    log.debug('getSitesToProcess called with:', { sites, since, force });
     
     if (sites && sites.length > 0) {
       sitesToProcess = sites;
@@ -228,6 +229,12 @@ export class PaginateEngine {
       const allSites = this.siteManager.getSitesWithStartPages();
       sitesToProcess = allSites.map(site => site.domain);
       log.debug('Using all sites with start pages:', sitesToProcess.length);
+    }
+    
+    // If force is true, skip the since filtering
+    if (force) {
+      log.normal('Force flag enabled - processing all sites regardless of recent runs');
+      return sitesToProcess;
     }
     
     // If since is specified, filter out sites that have ANY runs created after the date

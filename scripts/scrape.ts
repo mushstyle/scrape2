@@ -22,6 +22,7 @@ const log = logger.createContext('scrape-cli');
 interface PaginateOptions {
   sites?: string[];
   since?: Date;
+  force?: boolean;
   instanceLimit?: number;
   maxPages?: number;
   disableCache?: boolean;
@@ -140,6 +141,7 @@ async function main() {
       console.log('Options:');
       console.log('  --sites site1,site2       Sites to process (optional)');
       console.log('  --since 1d                Only process sites/runs without activity since (1d, 48h, 1w, etc)');
+      console.log('  --force                   Force pagination even if sites have recent runs (ignores --since)');
       console.log('  --instance-limit N        Max concurrent sessions (default: 10)');
       console.log('  --max-pages N             Max pages to paginate (default: 5)');
       console.log('  --item-limit N            Max items per site (default: 100)');

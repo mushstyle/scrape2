@@ -117,6 +117,11 @@ describe('parseArgs', () => {
       const result = parseArgs(['paginate', '--local-headed']);
       expect(result.options.localHeaded).toBe(true);
     });
+
+    test('should parse --force', () => {
+      const result = parseArgs(['paginate', '--force']);
+      expect(result.options.force).toBe(true);
+    });
   });
 
   describe('multiple parameters', () => {
