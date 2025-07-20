@@ -59,29 +59,29 @@ export class RequestCache {
           const headers: Record<string, string> = {};
           
           // Convert headers to plain object
-        const responseHeaders = response.headers();
-        for (const [key, value] of Object.entries(responseHeaders)) {
-          headers[key] = value;
+          const responseHeaders = response.headers();
+          for (const [key, value] of Object.entries(responseHeaders)) {
+            headers[key] = value;
+          }
+
+          this.set(url, {
+            url,
+            response: body,
+            headers,
+            status: response.status(),
+            timestamp: Date.now(),
+            size: body.length
+          });
         }
 
-        this.set(url, {
-          url,
-          response: body,
-          headers,
-          status: response.status(),
-          timestamp: Date.now(),
-          size: body.length
+        return route.fulfill({
+          response
         });
-      }
-
-      return route.fulfill({
-        response
-      });
       
       } catch (error) {
-        // Re-throw the error to let Playwright's retry logic handle it
-        // This is important for network errors like ECONNREFUSED
-        throw error;
+        // For network errors (DNS, connection failures), continue without caching
+        // This prevents crashes when external resources are unavailable
+        return route.continue();
       }
     });
   }
