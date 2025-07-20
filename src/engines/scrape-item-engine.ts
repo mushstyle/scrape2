@@ -54,6 +54,7 @@ interface SessionWithBrowser {
   context?: any;
   inUse?: boolean;
   cache?: RequestCache;
+  invalidated?: boolean;  // Set to true when browser crashes
 }
 
 interface UrlWithRunInfo {
@@ -124,8 +125,31 @@ export class ScrapeItemEngine {
         const existingSessions = await this.sessionManager.getActiveSessions();
         
         // Convert existing sessions to SessionWithBrowser format
-        const existingSessionData = this.convertSessionsToSessionData(existingSessions, this.sessionDataMap);
-        log.normal(`Found ${existingSessionData.length} existing sessions`);
+        const allSessionData = this.convertSessionsToSessionData(existingSessions, this.sessionDataMap);
+        
+        // Filter out invalidated sessions (browser crashed)
+        const invalidatedSessions = allSessionData.filter(s => s.invalidated);
+        const existingSessionData = allSessionData.filter(s => !s.invalidated);
+        
+        if (invalidatedSessions.length > 0) {
+          log.normal(`Found ${invalidatedSessions.length} invalidated sessions that need cleanup`);
+          // Clean up invalidated sessions
+          await Promise.all(invalidatedSessions.map(async sessionData => {
+            try {
+              if (sessionData.browser) {
+                await sessionData.browser.close();
+              }
+              // Also destroy the session in SessionManager
+              await this.sessionManager.destroySessionByObject(sessionData.session);
+            } catch (error) {
+              log.debug(`Error cleaning up invalidated session: ${error}`);
+            }
+            // Remove from map
+            this.sessionDataMap.delete(sessionData.sessionInfo.id);
+          }));
+        }
+        
+        log.normal(`Found ${existingSessionData.length} valid existing sessions`);
         
         // Get site configs with blocked proxies
         const sitesToProcess = Array.from(new Set(batchUrlsWithRunInfo.map(u => u.domain)));
@@ -183,10 +207,11 @@ export class ScrapeItemEngine {
             options
           );
           
-          // Second pass with all sessions
+          // Second pass with all sessions (including newly created ones)
+          const allCurrentSessions = Array.from(this.sessionDataMap.values());
           finalPairs = targetsToSessions(
             targetsToProcess,
-            existingSessionData.map(s => s.sessionInfo),
+            allCurrentSessions.map(s => s.sessionInfo),
             relevantSiteConfigs
           );
           
@@ -379,7 +404,7 @@ export class ScrapeItemEngine {
         proxyId: proxyInfo?.id,
         proxyGeo: proxyInfo?.geo
       };
-      const data = { session, sessionInfo };
+      const data: SessionWithBrowser = { session, sessionInfo };
       sessionDataMap.set(sessionInfo.id, data);
       return data;
     });
@@ -591,6 +616,8 @@ export class ScrapeItemEngine {
         if (isBrowserClosed) {
           // Browser/page was closed - this is a special case
           log.error(`Browser closed while scraping ${url}: ${lastError.message}`);
+          // Mark this session as invalidated so it won't be used again
+          sessionData.invalidated = true;
           errors.set(url, 'Browser closed unexpectedly');
           return;
         }
