@@ -23,6 +23,7 @@ To enable status checking from API for CLI-initiated tasks:
 - Engines will register active tasks in SiteManager using a new `ActiveTask` tracking system
 - Each task gets a unique ID that can be queried
 - Tasks update their progress in real-time via SiteManager methods
+- API endpoints can query fresh database state using a `forceRefresh` pattern to see tasks from other processes
 
 ## Implementation Plan
 
@@ -49,12 +50,27 @@ To enable status checking from API for CLI-initiated tasks:
   }
   ```
 - [ ] Add methods to SiteManager:
-  - [ ] `registerActiveTask(task: ActiveTask): void`
-  - [ ] `updateTaskProgress(taskId: string, progress: Partial<ActiveTask['progress']>): void`
-  - [ ] `getActiveTask(taskId: string): ActiveTask | null`
-  - [ ] `getActiveTasks(): ActiveTask[]`
-  - [ ] `completeTask(taskId: string, status: 'completed' | 'failed', error?: string): void`
+  - [ ] `registerActiveTask(task: ActiveTask): Promise<void>` - Also writes to DB
+  - [ ] `updateTaskProgress(taskId: string, progress: Partial<ActiveTask['progress']>): Promise<void>` - Updates DB
+  - [ ] `getActiveTask(taskId: string, options?: { forceRefresh?: boolean }): Promise<ActiveTask | null>`
+  - [ ] `getActiveTasks(options?: { forceRefresh?: boolean }): Promise<ActiveTask[]>`
+  - [ ] `completeTask(taskId: string, status: 'completed' | 'failed', error?: string): Promise<void>`
 - [ ] Store tasks in memory map within SiteManager
+- [ ] Add database persistence for tasks (new table or use existing scrape_runs with metadata)
+- [ ] Implement forceRefresh pattern:
+  ```typescript
+  async getActiveTasks(options?: { forceRefresh?: boolean }): Promise<ActiveTask[]> {
+    if (options?.forceRefresh) {
+      // Bypass cache, query DB directly
+      return await this.scrapeRunsDriver.getActiveTasks();
+    }
+    return Array.from(this.activeTasks.values());
+  }
+  ```
+- [ ] Add similar forceRefresh support to existing methods:
+  - [ ] `getSitesWithPartialRuns(options?: { forceRefresh?: boolean })`
+  - [ ] `getBlockedProxies(domain: string, options?: { forceRefresh?: boolean })`
+  - [ ] `getSiteStatus(domain: string, options?: { forceRefresh?: boolean })`
 
 ### [ ] 2. Create PaginateEngine
 - [ ] Create `src/engines/paginate-engine.ts` with:
@@ -150,10 +166,17 @@ To enable status checking from API for CLI-initiated tasks:
 ### [ ] 5. Create API Endpoints
 - [ ] Create `src/api/routes/tasks.ts`:
   - [ ] `GET /api/tasks` - List all active tasks
+    ```typescript
+    // Always use forceRefresh to see tasks from all processes
+    const tasks = await siteManager.getActiveTasks({ forceRefresh: true });
+    ```
   - [ ] `GET /api/tasks/:taskId` - Get specific task status
+    ```typescript
+    const task = await siteManager.getActiveTask(taskId, { forceRefresh: true });
+    ```
   - [ ] `POST /api/tasks/paginate` - Start pagination task
   - [ ] `POST /api/tasks/scrape-items` - Start item scraping task
-- [ ] All endpoints use the same singleton SessionManager and SiteManager
+- [ ] All endpoints use the same singleton SessionManager and SiteManager within the API process
 - [ ] POST endpoints create engines and start tasks asynchronously
 - [ ] Return task ID immediately for status checking
 
@@ -176,12 +199,17 @@ To enable status checking from API for CLI-initiated tasks:
   - [ ] CLI vs API usage
   - [ ] Task tracking system
   - [ ] Caching behavior
+  - [ ] Cross-process state visibility via forceRefresh
 - [ ] Update `rules/architecture.md` if needed
+- [ ] Update SiteManager documentation to include:
+  - [ ] All methods that support forceRefresh option
+  - [ ] Explanation of when to use forceRefresh (API querying CLI-initiated tasks)
+  - [ ] Examples of cross-process state queries
 
 ## Key Considerations
 
-- [ ] **Singleton Pattern**: Both CLI and API must use the same SessionManager and SiteManager instances. This might require a singleton factory pattern or dependency injection.
-- [ ] **Task Persistence**: Currently tasks are only in-memory. Consider if we need database persistence for long-running tasks.
+- [ ] **Process Isolation**: CLI and API run in separate processes. They share state through the database, not memory. The forceRefresh pattern enables cross-process visibility.
+- [ ] **Task Persistence**: Tasks must be persisted to database for cross-process visibility. Consider using scrape_runs table with task metadata or creating a dedicated tasks table.
 - [ ] **Concurrency**: Multiple tasks might run simultaneously. Ensure SessionManager limits are respected globally.
 - [ ] **Memory Management**: With caching enabled, monitor memory usage especially for large pagination runs.
 - [ ] **Error Recovery**: Implement proper cleanup on errors (close browsers, update task status, etc.)
