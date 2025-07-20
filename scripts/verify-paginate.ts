@@ -14,13 +14,21 @@ async function main() {
   const args = process.argv.slice(2);
   const domain = args[0];
   
-  // Parse optional --single flag to only use one session
+  // Parse optional flags
   const useSingleSession = args.includes('--single');
   
+  // Parse maxPages if provided
+  let maxPages: number | undefined;
+  const maxPagesArg = args.find(arg => arg.startsWith('--max-pages='));
+  if (maxPagesArg) {
+    maxPages = parseInt(maxPagesArg.replace('--max-pages=', ''), 10);
+  }
+  
   if (!domain) {
-    console.log('Usage: npm run verify:paginate <SITE> [--single]');
+    console.log('Usage: npm run verify:paginate <SITE> [--single] [--max-pages=N]');
     console.log('Example: npm run verify:paginate amgbrand.com');
     console.log('Example: npm run verify:paginate amgbrand.com --single  # Only scrapes one start page');
+    console.log('Example: npm run verify:paginate amgbrand.com --max-pages=3  # Limit to 3 pages');
     process.exit(1);
   }
   
@@ -28,7 +36,7 @@ async function main() {
     const engine = new VerifyPaginateEngine();
     const result = await engine.verify({ 
       domain,
-      maxPages: 5, // Limit for demo
+      maxPages,  // NO DEFAULT LIMIT!
       useSingleSession
     });
     

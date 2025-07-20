@@ -243,3 +243,12 @@ export async function scrapeItem(page: Page, options?: {
     throw error;
   }
 }
+
+// Define the scraper object
+const scraper: Scraper = {
+  paginate,
+  getItemUrls,
+  scrapeItem
+};
+
+export default scraper;

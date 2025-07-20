@@ -50,7 +50,11 @@
 ## Commands
 - Scripts via `npm run <name>` (see package.json)
 - Verify commands: `npm run scrape verify [paginate|item]`
-- All browser options after `--` (e.g., `-- --browser-type local`)
+- **CLI Parameters**: ALWAYS use `--param=value` format (with `=`) for parameters with values
+  - Correct: `--sites=site1.com,site2.com`, `--max-pages=10`, `--since=1d`
+  - Wrong: `--sites site1.com,site2.com` (space-separated not supported)
+  - Boolean flags: `--no-save`, `--disable-cache` (no `=` needed)
+- All browser options after `--` (e.g., `-- --browser-type=local`)
 
 ## Git Workflow
 - NEVER commit to main - always create branch

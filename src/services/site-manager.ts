@@ -7,7 +7,8 @@ import {
   updateRunItem,
   finalizeRun,
   getLatestRunForDomain,
-  fetchRun
+  fetchRun,
+  getActiveRuns
 } from '../drivers/scrape-runs.js';
 import { getSiteConfig } from '../drivers/site-config.js';
 import { getSessionLimitForDomain, selectProxyForDomain } from '../drivers/proxy.js';
@@ -822,7 +823,12 @@ export class SiteManager {
   /**
    * Get all sites with partial runs in progress
    */
-  getSitesWithPartialRuns(): string[] {
+  getSitesWithPartialRuns(options?: { forceRefresh?: boolean }): string[] {
+    if (options?.forceRefresh) {
+      // For forceRefresh, we don't have a database source for partial runs
+      // as they're only tracked in-memory. Return current in-memory state.
+      log.debug('forceRefresh requested for partial runs (in-memory only)');
+    }
     return Array.from(this.partialRuns.keys());
   }
 
@@ -877,9 +883,15 @@ export class SiteManager {
   /**
    * Get blocked proxies and clean up expired entries
    */
-  async getBlockedProxies(domain: string): Promise<string[]> {
+  async getBlockedProxies(domain: string, options?: { forceRefresh?: boolean }): Promise<string[]> {
     const site = this.getSite(domain);
     if (!site) return [];
+    
+    if (options?.forceRefresh) {
+      // For forceRefresh, we don't have a database source for blocked proxies
+      // as they're only tracked in-memory. Log for visibility.
+      log.debug(`forceRefresh requested for blocked proxies of ${domain} (in-memory only)`);
+    }
     
     const now = new Date();
     const cooldownMinutes = await this.getProxyCooldownMinutes(domain);
@@ -898,6 +910,46 @@ export class SiteManager {
     }
     
     return blocked;
+  }
+
+  /**
+   * Get status for a specific site
+   */
+  async getSiteStatus(domain: string, options?: { forceRefresh?: boolean }): Promise<{
+    hasActiveRun: boolean;
+    hasPartialRun: boolean;
+    blockedProxyCount: number;
+  }> {
+    if (options?.forceRefresh) {
+      // Query database for active runs
+      const activeRuns = await getActiveRuns();
+      const hasActiveRun = activeRuns.some(run => run.domain === domain);
+      
+      // Partial runs are in-memory only
+      const hasPartialRun = this.hasPartialRun(domain);
+      
+      // Get blocked proxies
+      const blockedProxies = await this.getBlockedProxies(domain);
+      
+      return {
+        hasActiveRun,
+        hasPartialRun,
+        blockedProxyCount: blockedProxies.length
+      };
+    }
+    
+    // Use in-memory state
+    const site = this.getSite(domain);
+    const hasActiveRun = !!(site?.activeRun && 
+      (site.activeRun.status === 'pending' || site.activeRun.status === 'processing'));
+    const hasPartialRun = this.hasPartialRun(domain);
+    const blockedProxies = await this.getBlockedProxies(domain);
+    
+    return {
+      hasActiveRun,
+      hasPartialRun,
+      blockedProxyCount: blockedProxies.length
+    };
   }
 
 }
