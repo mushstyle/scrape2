@@ -571,6 +571,15 @@ export class PaginateEngine {
       } catch (error) {
         lastError = error as Error;
         const isNetworkError = this.isNetworkError(error);
+        const isTargetClosedError = lastError.message.includes('Target page, context or browser has been closed');
+        
+        if (isTargetClosedError) {
+          // For target closed errors, don't mark as failed - leave for next batch
+          log.error(`Target closed while processing ${url}: ${lastError.message}`);
+          log.normal(`URL ${url} will be retried in the next batch`);
+          // Don't update pagination state - leave it incomplete for retry
+          return;
+        }
         
         if (!isNetworkError || attempt === maxRetries) {
           // Non-network error or final attempt
@@ -639,7 +648,14 @@ export class PaginateEngine {
       log.normal(`[${site}] Collected ${pageUrls.length} unique URLs from ${url}`);
       
     } finally {
-      await page.close();
+      try {
+        // Unroute all handlers before closing to prevent hanging promises
+        await page.unrouteAll({ behavior: 'ignoreErrors' });
+        await page.close();
+      } catch (error) {
+        // Ignore errors during cleanup
+        log.debug(`Error during page cleanup: ${error}`);
+      }
     }
   }
   

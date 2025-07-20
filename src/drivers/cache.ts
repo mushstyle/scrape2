@@ -21,20 +21,21 @@ export class RequestCache {
    */
   async enableForPage(page: Page): Promise<void> {
     await page.route('**/*', async (route: Route) => {
-      const request = route.request();
-      const method = request.method();
-      const url = request.url();
+      try {
+        const request = route.request();
+        const method = request.method();
+        const url = request.url();
 
-      // Only cache GET requests
-      if (method !== 'GET') {
-        return route.continue();
-      }
+        // Only cache GET requests
+        if (method !== 'GET') {
+          return route.continue();
+        }
 
-      // Skip requests with auth headers
-      const headers = await request.allHeaders();
-      if (headers.authorization || headers.cookie) {
-        return route.continue();
-      }
+        // Skip requests with auth headers
+        const headers = await request.allHeaders();
+        if (headers.authorization || headers.cookie) {
+          return route.continue();
+        }
 
       // Check cache
       const cached = this.get(url);
@@ -81,6 +82,16 @@ export class RequestCache {
       } catch (error) {
         // For network errors (DNS, connection failures), continue without caching
         // This prevents crashes when external resources are unavailable
+        return route.continue();
+      }
+      } catch (error) {
+        // If the page/context/browser is closed, just return silently
+        // This prevents the process from crashing when pages are closed
+        // The error will be: "Target page, context or browser has been closed"
+        if (error instanceof Error && error.message.includes('Target page, context or browser has been closed')) {
+          return;
+        }
+        // For other errors, continue without caching
         return route.continue();
       }
     });
