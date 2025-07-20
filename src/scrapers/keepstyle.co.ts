@@ -1,5 +1,5 @@
-import { Page } from 'playwright';
-import { Item, Size, Image } from '../types/item.js';
+import type { Page } from 'playwright';
+import type { Item, Size, Image } from '../types/item.js';
 import * as Utils from '../db/db-utils.js';
 import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js';
 import type { Scraper } from './types.js';
