@@ -163,7 +163,9 @@ export class PaginateEngine {
         const excessSessions = existingSessionData.filter(s => !s.inUse);
         if (excessSessions.length > 0) {
           log.normal(`Terminating ${excessSessions.length} excess sessions`);
-          await Promise.all(excessSessions.map(s => s.session.cleanup()));
+          await Promise.all(excessSessions.map(s => 
+            this.sessionManager.destroySessionByObject(s.session)
+          ));
         }
         
         // Calculate how many new sessions we need
