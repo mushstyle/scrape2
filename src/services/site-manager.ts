@@ -207,7 +207,9 @@ export class SiteManager {
   }
 
   /**
-   * Get start pages for a domain, respecting sessionLimit
+   * Get start pages for a domain
+   * NOTE: This returns ALL start pages. The sessionLimit should be applied
+   * during batch processing, not here!
    */
   async getStartPagesForDomain(domain: string): Promise<string[]> {
     const site = this.getSite(domain);
@@ -215,8 +217,8 @@ export class SiteManager {
       return [];
     }
 
-    const sessionLimit = await getSessionLimitForDomain(domain);
-    return site.config.startPages.slice(0, sessionLimit);
+    // Return ALL start pages - sessionLimit controls concurrent sessions, not total URLs
+    return site.config.startPages;
   }
   
   /**
@@ -238,7 +240,7 @@ export class SiteManager {
   }
 
   /**
-   * Get all start pages from all sites, respecting sessionLimit
+   * Get all start pages from all sites
    */
   async getAllStartPages(): Promise<Array<{ url: string; domain: string }>> {
     const urls: Array<{ url: string; domain: string }> = [];
