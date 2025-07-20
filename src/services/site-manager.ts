@@ -240,6 +240,52 @@ export class SiteManager {
   }
 
   /**
+   * Get unprocessed start pages for all sites, respecting session limits
+   * This returns start pages that haven't been completed yet, up to the session limit per domain
+   */
+  async getUnprocessedStartPagesWithLimits(sites: string[]): Promise<Array<{ url: string; domain: string }>> {
+    const results: Array<{ url: string; domain: string }> = [];
+    
+    for (const domain of sites) {
+      const site = this.getSite(domain);
+      if (!site || !site.config.startPages?.length) {
+        continue;
+      }
+      
+      // Get session limit for this domain
+      const sessionLimit = await this.getSessionLimitForDomain(domain);
+      
+      // Get all start pages
+      const allStartPages = site.config.startPages;
+      
+      // Find which ones are not completed
+      const unprocessedPages: string[] = [];
+      for (const url of allStartPages) {
+        // Check if this URL has a pagination state and if it's completed
+        const partialRun = this.partialRuns.get(domain);
+        const state = partialRun?.paginationStates.get(url);
+        
+        // If no state exists or it's not completed, it's unprocessed
+        if (!state || !state.completed) {
+          unprocessedPages.push(url);
+          
+          // Stop if we've reached the session limit
+          if (unprocessedPages.length >= sessionLimit) {
+            break;
+          }
+        }
+      }
+      
+      // Add to results
+      for (const url of unprocessedPages) {
+        results.push({ url, domain });
+      }
+    }
+    
+    return results;
+  }
+
+  /**
    * Get all start pages from all sites
    */
   async getAllStartPages(): Promise<Array<{ url: string; domain: string }>> {

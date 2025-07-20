@@ -90,22 +90,36 @@ export class PaginateEngine {
         };
       }
       
-      // Step 2: Collect all start page URLs from all sites (without starting pagination tracking yet)
-      const { allTargets, urlToSite, siteStartPages } = await this.collectStartPageUrls(sitesToProcess);
-      log.normal(`Collected ${allTargets.length} unique start page URLs across all sites`);
-      
-      // Step 3: Start pagination tracking ONCE for all sites and their start pages
-      for (const [site, startPages] of siteStartPages) {
-        await this.siteManager.startPagination(site, startPages);
+      // Step 2: Start pagination tracking for all sites
+      const siteStartPages = new Map<string, string[]>();
+      for (const site of sitesToProcess) {
+        const allStartPages = await this.siteManager.getStartPagesForDomain(site);
+        if (allStartPages.length > 0) {
+          siteStartPages.set(site, allStartPages);
+          await this.siteManager.startPagination(site, allStartPages);
+        }
       }
       log.normal(`Started pagination tracking for ${siteStartPages.size} sites`);
       
-      // Process all targets in batches
+      // Process in batches, getting unprocessed URLs each time
       const processedUrls = new Set<string>();
       let batchNumber = 1;
       let cacheStats: CacheStats | undefined;
       
-      while (processedUrls.size < allTargets.length) {
+      while (true) {
+        // Get unprocessed start pages respecting session limits
+        const unprocessedStartPages = await this.siteManager.getUnprocessedStartPagesWithLimits(sitesToProcess);
+        if (unprocessedStartPages.length === 0) {
+          log.normal('All start pages have been processed');
+          break;
+        }
+        
+        // Convert to targets and create URL to site mapping
+        const allTargets = urlsToScrapeTargets(unprocessedStartPages.map(sp => sp.url));
+        const urlToSite = new Map<string, string>();
+        unprocessedStartPages.forEach(sp => urlToSite.set(sp.url, sp.domain));
+        
+        log.normal(`Collected ${allTargets.length} unprocessed start page URLs across all sites`);
         // Get unprocessed targets for this batch
         const remainingTargets = allTargets.filter(t => !processedUrls.has(t.url));
         if (remainingTargets.length === 0) break;
@@ -347,41 +361,6 @@ export class PaginateEngine {
     return sitesToProcess;
   }
   
-  private async collectStartPageUrls(sites: string[]): Promise<{
-    allTargets: ScrapeTarget[];
-    urlToSite: Map<string, string>;
-    siteStartPages: Map<string, string[]>;
-  }> {
-    const allTargets: ScrapeTarget[] = [];
-    const urlToSite = new Map<string, string>();
-    const siteStartPages = new Map<string, string[]>();
-    
-    for (const site of sites) {
-      const siteConfig = this.siteManager.getSite(site);
-      if (!siteConfig?.config.startPages?.length) {
-        log.error(`No start pages for ${site}, skipping`);
-        continue;
-      }
-      
-      // Get start pages respecting sessionLimit
-      const startPagesToProcess = await this.siteManager.getStartPagesForDomain(site);
-      siteStartPages.set(site, startPagesToProcess);
-      
-      // Convert to targets and track which site each URL belongs to
-      const targets = urlsToScrapeTargets(startPagesToProcess);
-      for (const target of targets) {
-        // Deduplicate URLs across sites
-        if (!urlToSite.has(target.url)) {
-          allTargets.push(target);
-          urlToSite.set(target.url, site);
-        } else {
-          log.debug(`Skipping duplicate URL ${target.url} (already assigned to ${urlToSite.get(target.url)})`);
-        }
-      }
-    }
-    
-    return { allTargets, urlToSite, siteStartPages };
-  }
   
   private convertSessionsToSessionData(
     sessions: Session[],
