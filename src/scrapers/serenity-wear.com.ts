@@ -295,3 +295,12 @@ export async function scrapeItem(page: Page, options?: {
     // await browser.close(); // Browser lifecycle managed by the caller
   }
 }
+
+// Define the scraper object
+const scraper: Scraper = {
+  paginate,
+  getItemUrls,
+  scrapeItem
+};
+
+export default scraper;
