@@ -34,7 +34,25 @@ const log = logger.createContext('scrape-runs-driver');
 export async function listRuns(options: ListScrapeRunsOptions = {}): Promise<{ runs: ScrapeRun[] }> {
   try {
     log.debug('Listing scrape runs', options);
-    return await listScrapeRuns(options);
+    
+    // Translate driver parameters to provider parameters
+    const providerOptions: any = {
+      domain: options.domain,
+      status: options.status,
+      limit: options.limit,
+      offset: options.offset,
+      until: options.until,
+      page: options.page,
+      sortBy: options.sortBy,
+      sortOrder: options.sortOrder
+    };
+    
+    // Driver translates 'since' to 'startTimeAfter' for the API
+    if (options.since) {
+      providerOptions.startTimeAfter = options.since;
+    }
+    
+    return await listScrapeRuns(providerOptions);
   } catch (error) {
     log.error('Failed to list scrape runs', { error });
     throw error;

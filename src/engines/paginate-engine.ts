@@ -230,25 +230,42 @@ export class PaginateEngine {
       log.debug('Using all sites with start pages:', sitesToProcess.length);
     }
     
-    // If since is specified, filter out sites with recent runs
+    // If since is specified, filter out sites that have been successfully completed recently
     if (since) {
-      const sitesWithRecentRuns = new Set<string>();
+      const sitesWithRecentCompletedRuns = new Set<string>();
+      const sitesWithActiveRuns = new Set<string>();
       
-      // For each site we want to process, check if it has recent runs
+      // For each site we want to process, check if it has recent completed runs or active runs
       for (const site of sitesToProcess) {
-        const recentRuns = await this.siteManager.listRuns({ 
+        // Check for completed runs since the date
+        const completedRuns = await this.siteManager.listRuns({ 
           domain: site,
+          status: 'completed',
           since 
         });
-        if (recentRuns.runs.length > 0) {
-          sitesWithRecentRuns.add(site);
+        
+        // Check for currently active runs (processing)
+        const activeRuns = await this.siteManager.listRuns({
+          domain: site,
+          status: 'processing',
+          limit: 1
+        });
+        
+        if (completedRuns.runs.length > 0) {
+          sitesWithRecentCompletedRuns.add(site);
+        }
+        
+        if (activeRuns.runs.length > 0) {
+          sitesWithActiveRuns.add(site);
         }
       }
       
-      // Filter out sites that already have recent runs
-      const filteredSites = sitesToProcess.filter(site => !sitesWithRecentRuns.has(site));
+      // Filter out sites that have been completed recently OR are currently processing
+      const filteredSites = sitesToProcess.filter(site => 
+        !sitesWithRecentCompletedRuns.has(site) && !sitesWithActiveRuns.has(site)
+      );
       
-      log.normal(`Since ${since.toISOString()}: ${sitesWithRecentRuns.size} sites have recent runs, ${filteredSites.length} sites need pagination`);
+      log.normal(`Since ${since.toISOString()}: ${sitesWithRecentCompletedRuns.size} sites completed recently, ${sitesWithActiveRuns.size} sites currently active, ${filteredSites.length} sites need pagination`);
       
       return filteredSites;
     }

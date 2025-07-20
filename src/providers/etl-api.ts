@@ -13,7 +13,7 @@ import type {
   CreateScrapeRunRequest,
   UpdateScrapeRunItemRequest,
   FinalizeRunRequest,
-  ListScrapeRunsQuery,
+  ListScrapeRunsProviderQuery,
   ListScrapeRunsResponse
 } from '../types/scrape-run.js';
 import type { Item } from '../types/item.js';
@@ -252,12 +252,12 @@ export async function fetchScrapeRun(runId: string): Promise<ScrapeRun> {
  * @param query.sortBy - Field to sort by (startTime, createdAt, domain, endTime)
  * @param query.sortOrder - Sort direction (asc, desc) - default: desc
  */
-export async function listScrapeRuns(query?: ListScrapeRunsQuery): Promise<ListScrapeRunsResponse> {
+export async function listScrapeRuns(query?: ListScrapeRunsProviderQuery): Promise<ListScrapeRunsResponse> {
   const params = new URLSearchParams();
   if (query?.domain) params.append('domain', query.domain);
   if (query?.status) params.append('status', query.status);
-  // API expects 'startTimeAfter' not 'since'
-  if (query?.since) params.append('startTimeAfter', query.since.toISOString());
+  // Provider should NOT translate parameters - that's the driver's job
+  if (query?.startTimeAfter) params.append('startTimeAfter', query.startTimeAfter.toISOString());
   if (query?.until) params.append('until', query.until.toISOString());
   if (query?.limit) params.append('limit', query.limit.toString());
   if (query?.offset) params.append('offset', query.offset.toString());

@@ -71,12 +71,27 @@ export interface FinalizeRunRequest {
   finalize: boolean;
 }
 
+// Driver interface - uses friendly parameter names
 export interface ListScrapeRunsQuery {
   domain?: string;
   status?: string;
   limit?: number;
   offset?: number;
-  since?: Date;  // Maps to startTimeAfter in API
+  since?: Date;  // Driver translates to startTimeAfter
+  until?: Date;
+  // Additional optional parameters supported by the API
+  page?: number;
+  sortBy?: 'startTime' | 'createdAt' | 'domain' | 'endTime';
+  sortOrder?: 'asc' | 'desc';
+}
+
+// Provider interface - uses exact API parameter names
+export interface ListScrapeRunsProviderQuery {
+  domain?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+  startTimeAfter?: Date;  // API parameter name
   until?: Date;
   // Additional optional parameters supported by the API
   page?: number;
