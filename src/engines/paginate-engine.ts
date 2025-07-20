@@ -230,10 +230,15 @@ export class PaginateEngine {
     if (since) {
       const sitesWithRecentRuns = new Set<string>();
       
-      // Check for runs created after the since date
-      const recentRuns = await this.siteManager.listRuns({ since });
-      for (const run of recentRuns.runs) {
-        sitesWithRecentRuns.add(run.domain);
+      // For each site we want to process, check if it has recent runs
+      for (const site of sitesToProcess) {
+        const recentRuns = await this.siteManager.listRuns({ 
+          domain: site,
+          since 
+        });
+        if (recentRuns.runs.length > 0) {
+          sitesWithRecentRuns.add(site);
+        }
       }
       
       // Filter out sites that already have recent runs
