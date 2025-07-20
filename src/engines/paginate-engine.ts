@@ -94,106 +94,136 @@ export class PaginateEngine {
       const { allTargets, urlToSite, siteStartPages } = await this.collectStartPageUrls(sitesToProcess);
       log.normal(`Collected ${allTargets.length} unique start page URLs across all sites`);
       
-      // Limit targets to instance limit
-      const targetsToProcess = allTargets.slice(0, instanceLimit);
+      // Process all targets in batches
+      let processedCount = 0;
+      let batchNumber = 1;
+      let cacheStats: CacheStats | undefined;
+      const allProcessedSites = new Set<string>(); // Track all sites processed across all batches
       
-      // Step 3: Start pagination tracking only for URLs that will actually be processed
-      const sitesToTrack = new Set<string>();
-      const urlsPerSite = new Map<string, string[]>();
-      
-      for (const target of targetsToProcess) {
-        const site = urlToSite.get(target.url);
-        if (site) {
-          sitesToTrack.add(site);
-          if (!urlsPerSite.has(site)) {
-            urlsPerSite.set(site, []);
+      while (processedCount < allTargets.length) {
+        const batchStart = processedCount;
+        const batchEnd = Math.min(processedCount + instanceLimit, allTargets.length);
+        const targetsToProcess = allTargets.slice(batchStart, batchEnd);
+        
+        log.normal(`\nBatch ${batchNumber}: Processing URLs ${batchStart + 1}-${batchEnd} of ${allTargets.length}`);
+        
+        // Start pagination tracking only for URLs that will actually be processed in this batch
+        const sitesToTrack = new Set<string>();
+        const urlsPerSite = new Map<string, string[]>();
+        
+        for (const target of targetsToProcess) {
+          const site = urlToSite.get(target.url);
+          if (site) {
+            sitesToTrack.add(site);
+            if (!urlsPerSite.has(site)) {
+              urlsPerSite.set(site, []);
+            }
+            urlsPerSite.get(site)!.push(target.url);
           }
-          urlsPerSite.get(site)!.push(target.url);
         }
-      }
-      
-      // Start pagination tracking only for sites and URLs we'll actually process
-      for (const [site, urls] of urlsPerSite) {
-        await this.siteManager.startPagination(site, urls);
-      }
-      
-      log.normal(`Started pagination tracking for ${sitesToTrack.size} sites with ${targetsToProcess.length} URLs`);
-      
-      // Step 3: Get existing sessions
-      const existingSessions = await this.sessionManager.getActiveSessions();
-      const sessionDataMap = new Map<string, SessionWithBrowser>();
-      
-      // Convert existing sessions to SessionWithBrowser format
-      const existingSessionData = this.convertSessionsToSessionData(existingSessions, sessionDataMap);
-      log.normal(`Found ${existingSessionData.length} existing sessions`);
-      
-      // Step 4: Get site configs with blocked proxies
-      const siteConfigs = await this.siteManager.getSiteConfigsWithBlockedProxies();
-      const relevantSiteConfigs = siteConfigs.filter(config => 
-        sitesToProcess.includes(config.domain)
-      );
-      
-      // Step 5: First pass - match with existing sessions
-      const firstPassPairs = targetsToSessions(
-        targetsToProcess,
-        existingSessionData.map(s => s.sessionInfo),
-        relevantSiteConfigs
-      );
-      
-      log.normal(`First pass: Matched ${firstPassPairs.length} URLs to existing sessions`);
-      
-      // Mark used sessions
-      firstPassPairs.forEach(pair => {
-        const session = sessionDataMap.get(pair.sessionId);
-        if (session) session.inUse = true;
-      });
-      
-      // Step 6: Terminate excess sessions
-      const excessSessions = existingSessionData.filter(s => !s.inUse);
-      if (excessSessions.length > 0) {
-        log.normal(`Terminating ${excessSessions.length} excess sessions`);
-        await Promise.all(excessSessions.map(s => s.session.cleanup()));
-      }
-      
-      // Step 7: Calculate how many new sessions we need
-      const sessionsNeeded = Math.min(
-        instanceLimit - firstPassPairs.length, 
-        targetsToProcess.length - firstPassPairs.length
-      );
-      
-      let finalPairs = firstPassPairs;
-      
-      if (sessionsNeeded > 0) {
-        // Create new sessions and do second pass
-        await this.createNewSessions(
-          sessionsNeeded, 
-          targetsToProcess, 
-          firstPassPairs, 
-          urlToSite, 
-          sessionDataMap, 
-          existingSessionData,
-          options
+        
+        // Start pagination tracking only for sites and URLs we'll actually process
+        for (const [site, urls] of urlsPerSite) {
+          await this.siteManager.startPagination(site, urls);
+          allProcessedSites.add(site); // Track this site as processed
+        }
+        
+        log.normal(`Started pagination tracking for ${sitesToTrack.size} sites with ${targetsToProcess.length} URLs`);
+        
+        // Get existing sessions
+        const existingSessions = await this.sessionManager.getActiveSessions();
+        const sessionDataMap = new Map<string, SessionWithBrowser>();
+        
+        // Convert existing sessions to SessionWithBrowser format
+        const existingSessionData = this.convertSessionsToSessionData(existingSessions, sessionDataMap);
+        log.normal(`Found ${existingSessionData.length} existing sessions`);
+        
+        // Get site configs with blocked proxies
+        const siteConfigs = await this.siteManager.getSiteConfigsWithBlockedProxies();
+        const relevantSiteConfigs = siteConfigs.filter(config => 
+          sitesToProcess.includes(config.domain)
         );
         
-        // Second pass with all sessions
-        finalPairs = targetsToSessions(
+        // First pass - match with existing sessions
+        const firstPassPairs = targetsToSessions(
           targetsToProcess,
           existingSessionData.map(s => s.sessionInfo),
           relevantSiteConfigs
         );
         
-        log.normal(`Second pass: Matched ${finalPairs.length} URLs total (limit: ${instanceLimit})`);
+        log.normal(`First pass: Matched ${firstPassPairs.length} URLs to existing sessions`);
+        
+        // Mark used sessions
+        firstPassPairs.forEach(pair => {
+          const session = sessionDataMap.get(pair.sessionId);
+          if (session) session.inUse = true;
+        });
+        
+        // Terminate excess sessions
+        const excessSessions = existingSessionData.filter(s => !s.inUse);
+        if (excessSessions.length > 0) {
+          log.normal(`Terminating ${excessSessions.length} excess sessions`);
+          await Promise.all(excessSessions.map(s => s.session.cleanup()));
+        }
+        
+        // Calculate how many new sessions we need
+        const sessionsNeeded = Math.min(
+          instanceLimit - firstPassPairs.length, 
+          targetsToProcess.length - firstPassPairs.length
+        );
+        
+        let finalPairs = firstPassPairs;
+        
+        if (sessionsNeeded > 0) {
+          // Create new sessions and do second pass
+          await this.createNewSessions(
+            sessionsNeeded, 
+            targetsToProcess, 
+            firstPassPairs, 
+            urlToSite, 
+            sessionDataMap, 
+            existingSessionData,
+            options
+          );
+          
+          // Second pass with all sessions
+          finalPairs = targetsToSessions(
+            targetsToProcess,
+            existingSessionData.map(s => s.sessionInfo),
+            relevantSiteConfigs
+          );
+          
+          log.normal(`Second pass: Matched ${finalPairs.length} URLs total (limit: ${instanceLimit})`);
+        }
+        
+        // Process URL-session pairs
+        const batchCacheStats = await this.processUrlSessionPairs(
+          finalPairs,
+          sessionDataMap,
+          urlToSite,
+          maxPages,
+          maxRetries,
+          options.disableCache ? undefined : { cacheSizeMB, cacheTTLSeconds }
+        );
+        
+        // Merge cache stats
+        if (batchCacheStats) {
+          if (!cacheStats) {
+            cacheStats = batchCacheStats;
+          } else {
+            cacheStats.hits += batchCacheStats.hits;
+            cacheStats.misses += batchCacheStats.misses;
+            cacheStats.totalSizeMB = Math.max(cacheStats.totalSizeMB, batchCacheStats.totalSizeMB);
+            cacheStats.hitRate = (cacheStats.hits * 100) / (cacheStats.hits + cacheStats.misses);
+          }
+        }
+        
+        // Clean up browsers for this batch
+        await this.cleanupBrowsers(sessionDataMap);
+        
+        processedCount += targetsToProcess.length;
+        batchNumber++;
       }
-      
-      // Step 8: Process URL-session pairs
-      const cacheStats = await this.processUrlSessionPairs(
-        finalPairs,
-        sessionDataMap,
-        urlToSite,
-        maxPages,
-        maxRetries,
-        options.disableCache ? undefined : { cacheSizeMB, cacheTTLSeconds }
-      );
       
       // Step 9: Collect results BEFORE committing (while partial runs still exist)
       for (const site of sitesToProcess) {
@@ -215,12 +245,9 @@ export class PaginateEngine {
       
       // Step 10: Commit partial runs if not noSave
       if (!options.noSave) {
-        // Only commit runs for sites we actually started tracking
-        await this.commitPartialRuns(sitesToTrack, errors);
+        // Commit runs for ALL sites we processed across all batches
+        await this.commitPartialRuns(allProcessedSites, errors);
       }
-      
-      // Step 11: Clean up all browsers
-      await this.cleanupBrowsers(sessionDataMap);
       
       const totalUrls = Array.from(urlsBySite.values()).reduce((sum, urls) => sum + urls.length, 0);
       
