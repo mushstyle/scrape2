@@ -94,40 +94,25 @@ export class PaginateEngine {
       const { allTargets, urlToSite, siteStartPages } = await this.collectStartPageUrls(sitesToProcess);
       log.normal(`Collected ${allTargets.length} unique start page URLs across all sites`);
       
+      // Step 3: Start pagination tracking ONCE for all sites and their start pages
+      for (const [site, startPages] of siteStartPages) {
+        await this.siteManager.startPagination(site, startPages);
+      }
+      log.normal(`Started pagination tracking for ${siteStartPages.size} sites`);
+      
       // Process all targets in batches
-      let processedCount = 0;
+      const processedUrls = new Set<string>();
       let batchNumber = 1;
       let cacheStats: CacheStats | undefined;
       
-      while (processedCount < allTargets.length) {
-        const batchStart = processedCount;
-        const batchEnd = Math.min(processedCount + instanceLimit, allTargets.length);
-        const targetsToProcess = allTargets.slice(batchStart, batchEnd);
+      while (processedUrls.size < allTargets.length) {
+        // Get unprocessed targets for this batch
+        const remainingTargets = allTargets.filter(t => !processedUrls.has(t.url));
+        if (remainingTargets.length === 0) break;
         
-        log.normal(`\nBatch ${batchNumber}: Processing URLs ${batchStart + 1}-${batchEnd} of ${allTargets.length}`);
+        const targetsToProcess = remainingTargets.slice(0, instanceLimit);
         
-        // Start pagination tracking only for URLs that will actually be processed in this batch
-        const sitesToTrack = new Set<string>();
-        const urlsPerSite = new Map<string, string[]>();
-        
-        for (const target of targetsToProcess) {
-          const site = urlToSite.get(target.url);
-          if (site) {
-            sitesToTrack.add(site);
-            if (!urlsPerSite.has(site)) {
-              urlsPerSite.set(site, []);
-            }
-            urlsPerSite.get(site)!.push(target.url);
-          }
-        }
-        
-        // Start pagination tracking only for sites and URLs we'll actually process
-        for (const [site, urls] of urlsPerSite) {
-          // startPagination expects siteId (domain), which is what we have
-          await this.siteManager.startPagination(site, urls);
-        }
-        
-        log.normal(`Started pagination tracking for ${sitesToTrack.size} sites with ${targetsToProcess.length} URLs`);
+        log.normal(`\nBatch ${batchNumber}: Processing up to ${targetsToProcess.length} URLs (${processedUrls.size} already processed, ${allTargets.length} total)`);
         
         // Get existing sessions
         const existingSessions = await this.sessionManager.getActiveSessions();
@@ -247,7 +232,10 @@ export class PaginateEngine {
           }
         }
         
-        processedCount += targetsToProcess.length;
+        // Mark URLs as processed based on what was actually matched
+        for (const pair of finalPairs) {
+          processedUrls.add(pair.url);
+        }
         batchNumber++;
       }
       
@@ -399,9 +387,11 @@ export class PaginateEngine {
     sessions: Session[],
     sessionDataMap: Map<string, SessionWithBrowser>
   ): SessionWithBrowser[] {
-    return sessions.map((session, i) => {
+    return sessions.map((session) => {
+      // Use the actual session ID so it can be matched across batches
+      const sessionId = this.getSessionId(session);
       const sessionInfo: SessionInfo = {
-        id: `existing-${i}`,
+        id: sessionId,
         proxyType: session.local?.proxy?.type as any || 'none',
         proxyId: session.local?.proxy?.id,
         proxyGeo: session.local?.proxy?.geo
@@ -410,6 +400,15 @@ export class PaginateEngine {
       sessionDataMap.set(sessionInfo.id, data);
       return data;
     });
+  }
+  
+  private getSessionId(session: Session): string {
+    if (session.provider === 'browserbase') {
+      return session.browserbase!.id;
+    } else {
+      // For local sessions, generate a stable ID
+      return `local-${session.local?.id || 'unknown'}`;
+    }
   }
   
   private async createNewSessions(
@@ -471,8 +470,10 @@ export class PaginateEngine {
     // Add new sessions to our tracking
     newSessions.forEach((session, i) => {
       const originalRequest = newSessionRequests[i];
+      // Use the actual session ID so it can be matched across batches
+      const sessionId = this.getSessionId(session);
       const sessionInfo: SessionInfo = {
-        id: `new-${i}`,
+        id: sessionId,
         proxyType: originalRequest.proxy?.type as any || 'none',
         proxyId: originalRequest.proxy?.id,
         proxyGeo: originalRequest.proxy?.geo

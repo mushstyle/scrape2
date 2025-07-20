@@ -723,6 +723,12 @@ export class SiteManager {
    * Start pagination tracking for a site
    */
   async startPagination(siteId: string, startPages: string[]): Promise<void> {
+    // Check if pagination already started for this site
+    if (this.partialRuns.has(siteId)) {
+      log.debug(`Pagination already started for ${siteId}, skipping initialization`);
+      return;
+    }
+    
     const partialRun: PartialScrapeRun = {
       siteId,
       paginationStates: new Map(
