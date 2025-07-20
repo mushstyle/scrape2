@@ -1,7 +1,7 @@
 /**
- * Pending Items Driver
+ * ETL Driver
  * 
- * This driver provides a high-level interface for managing pending items,
+ * This driver provides a high-level interface for ETL operations,
  * wrapping the ETL API provider functions with additional functionality
  * like ID generation, validation, and batch operations.
  */
@@ -11,9 +11,9 @@ import { mkItemId } from '../db/db-utils.js';
 import { logger } from '../utils/logger.js';
 import type { Item } from '../types/item.js';
 
-const log = logger.createContext('pending-items-driver');
+const log = logger.createContext('etl-driver');
 
-export interface PendingItemsOptions {
+export interface ETLDriverOptions {
   batchSize?: number;
   retryAttempts?: number;
   retryDelay?: number;
@@ -32,12 +32,12 @@ export interface BatchAddResult {
 }
 
 /**
- * Driver for managing pending items in the ETL system
+ * Driver for ETL operations including pending items management
  */
-export class PendingItemsDriver {
-  private options: Required<PendingItemsOptions>;
+export class ETLDriver {
+  private options: Required<ETLDriverOptions>;
 
-  constructor(options: PendingItemsOptions = {}) {
+  constructor(options: ETLDriverOptions = {}) {
     this.options = {
       batchSize: options.batchSize || 10,
       retryAttempts: options.retryAttempts || 2,
@@ -226,4 +226,4 @@ export class PendingItemsDriver {
 /**
  * Create a singleton instance for convenience
  */
-export const pendingItemsDriver = new PendingItemsDriver();
+export const etlDriver = new ETLDriver();

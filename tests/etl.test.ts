@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { PendingItemsDriver } from '../src/drivers/pending-items.js';
+import { ETLDriver } from '../src/drivers/etl.js';
 import * as etlApi from '../src/providers/etl-api.js';
 import * as dbUtils from '../src/db/db-utils.js';
 import type { Item } from '../src/types/item.js';
@@ -18,8 +18,8 @@ vi.mock('../src/db/db-utils.js', () => ({
   })
 }));
 
-describe('PendingItemsDriver', () => {
-  let driver: PendingItemsDriver;
+describe('ETLDriver', () => {
+  let driver: ETLDriver;
   const mockAddPendingItem = vi.mocked(etlApi.addPendingItem);
   const mockGetPendingItem = vi.mocked(etlApi.getPendingItem);
   const mockMkItemId = vi.mocked(dbUtils.mkItemId);
@@ -35,7 +35,7 @@ describe('PendingItemsDriver', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    driver = new PendingItemsDriver();
+    driver = new ETLDriver();
   });
 
   describe('addItem', () => {
@@ -71,7 +71,7 @@ describe('PendingItemsDriver', () => {
         .mockRejectedValueOnce(new Error('Network error'))
         .mockResolvedValueOnce(undefined);
 
-      const driverWithRetry = new PendingItemsDriver({ 
+      const driverWithRetry = new ETLDriver({ 
         retryAttempts: 2, 
         retryDelay: 10 
       });
@@ -85,7 +85,7 @@ describe('PendingItemsDriver', () => {
     it('should fail after max retry attempts', async () => {
       mockAddPendingItem.mockRejectedValue(new Error('Persistent error'));
 
-      const driverWithRetry = new PendingItemsDriver({ 
+      const driverWithRetry = new ETLDriver({ 
         retryAttempts: 3, 
         retryDelay: 10 
       });
@@ -108,7 +108,7 @@ describe('PendingItemsDriver', () => {
         product_id: `${i}`
       }));
 
-      const driverWithBatch = new PendingItemsDriver({ batchSize: 10 });
+      const driverWithBatch = new ETLDriver({ batchSize: 10 });
       const result = await driverWithBatch.addItemsBatch(items);
 
       expect(result.totalProcessed).toBe(25);
@@ -133,7 +133,7 @@ describe('PendingItemsDriver', () => {
         product_id: `${i}`
       }));
 
-      const driverWithRetry = new PendingItemsDriver({ 
+      const driverWithRetry = new ETLDriver({ 
         retryAttempts: 2, 
         retryDelay: 10 
       });
