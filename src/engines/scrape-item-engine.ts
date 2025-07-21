@@ -291,7 +291,7 @@ export class ScrapeItemEngine {
             // Mark successfully uploaded items as done in the database
             // We trust that if ETL batch was successful, all items can be marked done
             if (successfulUrls.length > 0 && batchResult.successful.length > 0) {
-              log.debug(`Marking ${successfulUrls.length} items as done in database`);
+              log.normal(`Batch ${batchNumber} complete: ${successfulUrls.length} items scraped and saved`);
               const updates = successfulUrls.map(({ url, runId }) => ({
                 url,
                 runId,
