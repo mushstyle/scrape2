@@ -222,12 +222,29 @@ export class SiteManager {
   }
   
   /**
+   * Get blocked proxy IDs for proxy selection
+   * Uses the existing blocklist system which already handles cooldowns
+   * @param domain - The domain to check
+   * @returns Array of proxy IDs that are still blocked
+   */
+  private async getActiveBlockedProxyIds(domain: string): Promise<string[]> {
+    // getBlockedProxies already handles cooldown and returns proxy strings
+    const blockedProxyStrings = await this.getBlockedProxies(domain);
+    
+    // Extract proxy IDs from the proxy strings
+    // The proxy string format might be like "datacenter:proxy-id" or just "proxy-id"
+    // For now, we'll use the whole string as the ID until we understand the format better
+    return blockedProxyStrings;
+  }
+
+  /**
    * Get proxy for a domain based on its strategy
    * @param domain - The domain to get proxy for
    * @returns Selected proxy or null
    */
   async getProxyForDomain(domain: string): Promise<Proxy | null> {
-    return selectProxyForDomain(domain);
+    const blockedProxyIds = await this.getActiveBlockedProxyIds(domain);
+    return selectProxyForDomain(domain, blockedProxyIds);
   }
   
   /**
@@ -538,18 +555,26 @@ export class SiteManager {
    * @param runId - The run ID
    * @param limit - Optional limit on number of items to return
    */
-  async getPendingItems(runId: string, limit?: number): Promise<ScrapeRunItem[]> {
+  async getPendingItems(runId: string, limit?: number, includeFailedItems = false): Promise<ScrapeRunItem[]> {
     // Check if it's an uncommitted run
     const pendingRun = this.uncommittedRuns.get(runId);
     if (pendingRun) {
-      const pending = pendingRun.items.filter(item => !item.done && !item.failed && !item.invalid);
+      const pending = pendingRun.items.filter(item => 
+        !item.done && 
+        !item.invalid && 
+        (includeFailedItems || !item.failed)
+      );
       return limit ? pending.slice(0, limit) : pending;
     }
     
     try {
       const run = await fetchRun(runId);
-      const pendingItems = run.items.filter((item: ScrapeRunItem) => !item.done && !item.failed && !item.invalid);
-      log.debug(`Found ${pendingItems.length} pending items in run ${runId}`);
+      const pendingItems = run.items.filter((item: ScrapeRunItem) => 
+        !item.done && 
+        !item.invalid && 
+        (includeFailedItems || !item.failed)
+      );
+      log.debug(`Found ${pendingItems.length} pending items in run ${runId}${includeFailedItems ? ' (including failed)' : ''}`);
       return limit ? pendingItems.slice(0, limit) : pendingItems;
     } catch (error) {
       log.error(`Failed to get pending items for run ${runId}`, { error });
@@ -566,7 +591,8 @@ export class SiteManager {
    */
   async getPendingItemsWithLimits(
     sites: string[], 
-    totalLimit: number = Infinity
+    totalLimit: number = Infinity,
+    includeFailedItems = false
   ): Promise<Array<{ url: string; runId: string; domain: string }>> {
     const results: Array<{ url: string; runId: string; domain: string }> = [];
     let totalCollected = 0;
@@ -592,7 +618,7 @@ export class SiteManager {
       const domainLimit = Math.min(sessionLimit, remainingCapacity);
       
       // Get pending items up to the domain limit
-      const pendingItems = await this.getPendingItems(activeRun.id, domainLimit);
+      const pendingItems = await this.getPendingItems(activeRun.id, domainLimit, includeFailedItems);
       
       // Add items to results
       for (const item of pendingItems) {
@@ -991,6 +1017,18 @@ export class SiteManager {
     }
     
     log.debug(`Added proxy ${proxy} to blocklist for ${domain}`, { error });
+  }
+
+  /**
+   * Add a proxy to blocklist by proxy object (for engines)
+   * @param domain - The domain
+   * @param proxy - The proxy object with id field
+   * @param error - The error message
+   */
+  async addBlockedProxy(domain: string, proxy: Proxy, error: string = 'Network error'): Promise<void> {
+    // Use the proxy ID as the blocklist key
+    await this.addProxyToBlocklist(domain, proxy.id, error);
+    log.normal(`Blocked proxy ${proxy.id} for ${domain} after repeated failures`);
   }
 
   /**

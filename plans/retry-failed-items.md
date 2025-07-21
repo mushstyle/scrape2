@@ -37,17 +37,48 @@ async getPendingItemsWithLimits(
 ): Promise<Array<{ url: string; runId: string; domain: string }>>
 ```
 
-#### Make getProxyForDomain respect blockedProxies
+#### Add in-memory tracking of when proxies were blocked
+```typescript
+// Add to SiteManager class
+private proxyBlockTimestamps = new Map<string, Map<string, Date>>(); // domain -> proxyId -> blockedAt
+
+// Helper to get blocked proxies with cooldown
+private getActiveBlockedProxies(domain: string): string[] {
+  const allBlocked = this.sites.get(domain)?.config.blockedProxies || [];
+  const domainTimestamps = this.proxyBlockTimestamps.get(domain);
+  if (!domainTimestamps) return allBlocked;
+  
+  const now = Date.now();
+  const strategy = await getProxyStrategy(domain);
+  const cooldownMs = strategy.cooldownMinutes * 60 * 1000;
+  
+  // Filter out cooled-down proxies
+  return allBlocked.filter(proxyId => {
+    const blockedAt = domainTimestamps.get(proxyId);
+    if (!blockedAt) return true; // No timestamp = permanently blocked
+    return now - blockedAt.getTime() < cooldownMs;
+  });
+}
+```
+
+#### Make getProxyForDomain respect blockedProxies with cooldown
 ```typescript
 async getProxyForDomain(domain: string): Promise<Proxy | null> {
-  const blockedProxies = await this.getBlockedProxies(domain);
-  return selectProxyForDomain(domain, blockedProxies);
+  const activeBlockedProxies = this.getActiveBlockedProxies(domain);
+  return selectProxyForDomain(domain, activeBlockedProxies);
 }
 ```
 
 #### Add method to block a proxy for a domain
 ```typescript
 async addBlockedProxy(domain: string, proxyId: string): Promise<void> {
+  // Track when it was blocked in memory
+  if (!this.proxyBlockTimestamps.has(domain)) {
+    this.proxyBlockTimestamps.set(domain, new Map());
+  }
+  this.proxyBlockTimestamps.get(domain)!.set(proxyId, new Date());
+  
+  // Update the persistent list
   const current = await this.getBlockedProxies(domain);
   if (!current.includes(proxyId)) {
     await updateSiteBlockedProxies(domain, [...current, proxyId]);
@@ -132,6 +163,8 @@ if (isNetworkError && attempt === maxRetries) {
 3. **Automatic Proxy Rotation**: Failed proxies excluded on retry
 4. **Learning System**: Builds up blockedProxies list over time
 5. **Flexible**: Can manually manage blockedProxies via API
+6. **Smart Cooldown**: Proxies automatically unblock after strategy's cooldownMinutes
+7. **Memory Efficient**: Cooldown tracking only in memory, not persisted
 
 ## Usage Examples
 
@@ -156,3 +189,12 @@ npm run sites:config:get example.com | grep blockedProxies
 4. Run with --retry-failed-items
 5. Verify different proxy selected
 6. Verify successful items marked as done
+7. Wait for cooldownMinutes and verify proxy is available again
+
+## Notes on Cooldown
+
+- Each domain's proxy strategy defines `cooldownMinutes` (e.g., 30 for datacenter)
+- When a proxy fails, it's blocked with a timestamp in memory
+- When selecting proxies, we filter out any that haven't cooled down yet
+- Proxies that pre-existed in blockedProxies (no timestamp) are permanently blocked
+- On restart, all proxies start fresh (timestamps are not persisted)

@@ -29,6 +29,7 @@ export interface ScrapeItemOptions {
   localHeaded?: boolean;  // Use local browser in headed mode
   sessionTimeout?: number;  // Session timeout in seconds (browserbase only)
   maxRetries?: number;  // Default: 2 (for network errors)
+  retryFailedItems?: boolean;  // Include previously failed items
 }
 
 export interface ScrapeItemResult {
@@ -107,6 +108,9 @@ export class ScrapeItemEngine {
     }
     if (options.noSave) {
       log.normal(`  Save to ETL: disabled`);
+    }
+    if (options.retryFailedItems) {
+      log.normal(`  Retry failed items: enabled`);
     }
     
     try {
@@ -405,7 +409,8 @@ export class ScrapeItemEngine {
     // Get pending items from all sites, respecting session limits
     const urlsWithRunInfo = await this.siteManager.getPendingItemsWithLimits(
       sitesToProcess,
-      itemLimit
+      itemLimit,
+      options.retryFailedItems
     );
     
     // Build urlToSite map
@@ -702,6 +707,15 @@ export class ScrapeItemEngine {
           if (isNetworkError) {
             // Network error after retries - mark as failed
             await this.siteManager.updateItemStatus(runInfo.runId, url, { failed: true });
+            
+            // Auto-block the proxy if it's a datacenter proxy
+            const proxy = sessionData.session.provider === 'browserbase' 
+              ? sessionData.session.browserbase?.proxy 
+              : sessionData.session.local?.proxy;
+              
+            if (proxy && proxy.type === 'datacenter') {
+              await this.siteManager.addBlockedProxy(runInfo.domain, proxy, lastError.message);
+            }
           } else {
             // Other error - mark as invalid
             await this.siteManager.updateItemStatus(runInfo.runId, url, { invalid: true });
