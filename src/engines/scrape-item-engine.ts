@@ -388,16 +388,18 @@ export class ScrapeItemEngine {
     if (sites && sites.length > 0) {
       sitesToProcess = sites;
     } else {
-      // Get all sites with active runs
-      const runs = await this.siteManager.listRuns({ status: 'processing', since });
-      const pendingRuns = await this.siteManager.listRuns({ status: 'pending', since });
+      // Get all sites with active runs - don't filter by date for items!
+      const runs = await this.siteManager.listRuns({ status: 'processing' });
+      const pendingRuns = await this.siteManager.listRuns({ status: 'pending' });
       const allRuns = [...runs.runs, ...pendingRuns.runs];
       
       // Get unique domains
       sitesToProcess = Array.from(new Set(allRuns.map(run => run.domain)));
       
-      if (since) {
-        log.normal(`Processing runs created after ${since.toISOString()}: ${allRuns.length} active runs found`);
+      log.normal(`Found ${allRuns.length} active runs across ${sitesToProcess.length} sites`);
+      
+      if (allRuns.length === 0) {
+        log.normal('No active runs found. To process specific sites, use --sites');
       }
     }
     
