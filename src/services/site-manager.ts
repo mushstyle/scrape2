@@ -657,23 +657,39 @@ export class SiteManager {
     status: { done?: boolean; failed?: boolean; invalid?: boolean },
     data?: any
   ): Promise<void> {
+    // Ensure mutual exclusivity of status flags
+    let finalStatus = { ...status };
+    
+    // If marking as done, clear other flags
+    if (status.done === true) {
+      finalStatus = { done: true, failed: false, invalid: false };
+    } 
+    // If marking as failed, clear other flags
+    else if (status.failed === true) {
+      finalStatus = { done: false, failed: true, invalid: false };
+    } 
+    // If marking as invalid, clear other flags (invalid overrules everything)
+    else if (status.invalid === true) {
+      finalStatus = { done: false, failed: false, invalid: true };
+    }
+    
     // Check if it's an uncommitted run
     const pendingRun = this.uncommittedRuns.get(runId);
     if (pendingRun) {
       log.error(`CRITICAL: Trying to update item in uncommitted run ${runId} - this won't persist!`);
       const item = pendingRun.items.find(i => i.url === url);
       if (item) {
-        Object.assign(item, status);
+        Object.assign(item, finalStatus);
       }
       return;
     }
     
     try {
-      await updateRunItem(runId, url, status);
-      log.debug(`Updated item ${url} in run ${runId}`, status);
+      await updateRunItem(runId, url, finalStatus);
+      log.debug(`Updated item ${url} in run ${runId}`, finalStatus);
       
       // Update retry tracking
-      if (status.failed) {
+      if (finalStatus.failed) {
         const run = await fetchRun(runId);
         const site = this.getSite(run.domain);
         if (site) {
@@ -708,6 +724,7 @@ export class SiteManager {
     for (let i = 0; i < updates.length; i += batchSize) {
       const batch = updates.slice(i, i + batchSize);
       await Promise.all(
+        // updateItemStatus will ensure mutual exclusivity
         batch.map(({ url, status, data }) => this.updateItemStatus(runId, url, status, data))
       );
     }
