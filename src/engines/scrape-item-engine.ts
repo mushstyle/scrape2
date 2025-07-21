@@ -388,17 +388,14 @@ export class ScrapeItemEngine {
     if (sites && sites.length > 0) {
       sitesToProcess = sites;
     } else {
-      // Get all sites with active runs - don't filter by date for items!
-      const runs = await this.siteManager.listRuns({ status: 'processing' });
-      const pendingRuns = await this.siteManager.listRuns({ status: 'pending' });
-      const allRuns = [...runs.runs, ...pendingRuns.runs];
+      // Get all unique domains that have active runs
+      // SiteManager.getPendingItemsWithLimits will handle getting only the LATEST run per domain
+      const sitesWithActiveRuns = await this.siteManager.getSitesWithActiveRuns();
+      sitesToProcess = sitesWithActiveRuns;
       
-      // Get unique domains
-      sitesToProcess = Array.from(new Set(allRuns.map(run => run.domain)));
+      log.normal(`Found ${sitesToProcess.length} sites with active runs`);
       
-      log.normal(`Found ${allRuns.length} active runs across ${sitesToProcess.length} sites`);
-      
-      if (allRuns.length === 0) {
+      if (sitesToProcess.length === 0) {
         log.normal('No active runs found. To process specific sites, use --sites');
       }
     }
@@ -411,6 +408,7 @@ export class ScrapeItemEngine {
     }
     
     // Get pending items from all sites, respecting session limits
+    // This method automatically gets only the LATEST run per domain
     const urlsWithRunInfo = await this.siteManager.getPendingItemsWithLimits(
       sitesToProcess,
       itemLimit,

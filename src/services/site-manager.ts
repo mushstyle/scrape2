@@ -818,6 +818,33 @@ export class SiteManager {
   }
   
   /**
+   * Get all sites that have active runs (latest run is pending or processing)
+   * @returns Array of domain names with active runs
+   */
+  async getSitesWithActiveRuns(): Promise<string[]> {
+    // Get all runs with processing or pending status
+    const [processingRuns, pendingRuns] = await Promise.all([
+      listRuns({ status: 'processing' }),
+      listRuns({ status: 'pending' })
+    ]);
+    
+    const allRuns = [...processingRuns.runs, ...pendingRuns.runs];
+    
+    // Group runs by domain and keep only the latest per domain
+    const latestRunsByDomain = new Map<string, ScrapeRun>();
+    
+    for (const run of allRuns) {
+      const existing = latestRunsByDomain.get(run.domain);
+      if (!existing || new Date(run.createdAt) > new Date(existing.createdAt)) {
+        latestRunsByDomain.set(run.domain, run);
+      }
+    }
+    
+    // Return unique domains that have active runs
+    return Array.from(latestRunsByDomain.keys());
+  }
+
+  /**
    * Get URLs that need retry for a domain
    */
   getRetryUrls(domain: string, maxRetries: number = 3): string[] {
