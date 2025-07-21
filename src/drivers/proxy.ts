@@ -50,17 +50,23 @@ export async function getProxyStrategy(domain: string): Promise<ProxyStrategy> {
 /**
  * Select a proxy based on domain and strategy
  * @param domain - The domain to select proxy for
+ * @param excludeProxyIds - Array of proxy IDs to exclude from selection
  * @returns Selected proxy or null if no proxy should be used
  */
-export async function selectProxyForDomain(domain: string): Promise<Proxy | null> {
+export async function selectProxyForDomain(domain: string, excludeProxyIds: string[] = []): Promise<Proxy | null> {
   // Get strategy for domain
   const strategy = await getProxyStrategy(domain);
   
   // Load proxies if not cached
   const proxyStore = await loadProxies();
   
-  // Filter proxies based on strategy
+  // Filter proxies based on strategy and exclusions
   const candidateProxies = proxyStore.proxies.filter(proxy => {
+    // Exclude blocked proxies
+    if (excludeProxyIds.includes(proxy.id)) {
+      return false;
+    }
+    
     // Match proxy type to strategy
     if (strategy.strategy === 'datacenter' && proxy.type !== 'datacenter') {
       return false;
@@ -78,7 +84,8 @@ export async function selectProxyForDomain(domain: string): Promise<Proxy | null
   });
   
   if (candidateProxies.length === 0) {
-    log.error(`No proxies found for strategy: ${strategy.strategy}, geo: ${strategy.geo}`);
+    const excludeInfo = excludeProxyIds.length > 0 ? ` (excluded ${excludeProxyIds.length} proxies)` : '';
+    log.error(`No proxies found for strategy: ${strategy.strategy}, geo: ${strategy.geo}${excludeInfo}`);
     return null;
   }
   
@@ -86,7 +93,12 @@ export async function selectProxyForDomain(domain: string): Promise<Proxy | null
   // In production, this could consider proxy health, usage, etc.
   const selected = candidateProxies[Math.floor(Math.random() * candidateProxies.length)];
   
-  log.debug(`Selected proxy ${selected.id} for ${domain} (${strategy.strategy})`);
+  if (!selected) {
+    return null;
+  }
+  
+  const excludeInfo = excludeProxyIds.length > 0 ? ` (excluded ${excludeProxyIds.length} blocked)` : '';
+  log.debug(`Selected proxy ${selected.id} for ${domain} (${strategy.strategy})${excludeInfo}`);
   return selected;
 }
 

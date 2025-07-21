@@ -28,7 +28,8 @@ export interface ScrapeItemOptions {
   localHeadless?: boolean;  // Use local browser in headless mode
   localHeaded?: boolean;  // Use local browser in headed mode
   sessionTimeout?: number;  // Session timeout in seconds (browserbase only)
-  maxRetries?: number;  // Default: 2 (for network errors)
+  maxRetries?: number;  // Default: 1 (for network errors)
+  retryFailedItems?: boolean;  // Include previously failed items
 }
 
 export interface ScrapeItemResult {
@@ -87,7 +88,7 @@ export class ScrapeItemEngine {
     const itemLimit = options.itemLimit || Infinity;  // NO LIMIT by default!
     const cacheSizeMB = options.cacheSizeMB || 250;
     const cacheTTLSeconds = options.cacheTTLSeconds || 300;
-    const maxRetries = options.maxRetries || 2;
+    const maxRetries = options.maxRetries || 1;
     
     // Log configuration
     log.normal('Scrape items configuration:');
@@ -107,6 +108,9 @@ export class ScrapeItemEngine {
     }
     if (options.noSave) {
       log.normal(`  Save to ETL: disabled`);
+    }
+    if (options.retryFailedItems) {
+      log.normal(`  Retry failed items: enabled`);
     }
     
     try {
@@ -129,7 +133,8 @@ export class ScrapeItemEngine {
           options.sites,
           instanceLimit,  // Only collect up to instanceLimit items per batch
           options.since,
-          options.exclude
+          options.exclude,
+          options.retryFailedItems
         );
         
         if (batchUrlsWithRunInfo.length === 0) {
@@ -370,7 +375,8 @@ export class ScrapeItemEngine {
     sites: string[] | undefined,
     itemLimit: number,
     since?: Date,
-    exclude?: string[]
+    exclude?: string[],
+    retryFailedItems?: boolean
   ): Promise<{
     urlsWithRunInfo: UrlWithRunInfo[];
     urlToSite: Map<string, string>;
@@ -382,16 +388,15 @@ export class ScrapeItemEngine {
     if (sites && sites.length > 0) {
       sitesToProcess = sites;
     } else {
-      // Get all sites with active runs
-      const runs = await this.siteManager.listRuns({ status: 'processing', since });
-      const pendingRuns = await this.siteManager.listRuns({ status: 'pending', since });
-      const allRuns = [...runs.runs, ...pendingRuns.runs];
+      // Get all unique domains that have active runs
+      // SiteManager.getPendingItemsWithLimits will handle getting only the LATEST run per domain
+      const sitesWithActiveRuns = await this.siteManager.getSitesWithActiveRuns();
+      sitesToProcess = sitesWithActiveRuns;
       
-      // Get unique domains
-      sitesToProcess = Array.from(new Set(allRuns.map(run => run.domain)));
+      log.normal(`Found ${sitesToProcess.length} sites with active runs`);
       
-      if (since) {
-        log.normal(`Processing runs created after ${since.toISOString()}: ${allRuns.length} active runs found`);
+      if (sitesToProcess.length === 0) {
+        log.normal('No active runs found. To process specific sites, use --sites');
       }
     }
     
@@ -403,9 +408,11 @@ export class ScrapeItemEngine {
     }
     
     // Get pending items from all sites, respecting session limits
+    // This method automatically gets only the LATEST run per domain
     const urlsWithRunInfo = await this.siteManager.getPendingItemsWithLimits(
       sitesToProcess,
-      itemLimit
+      itemLimit,
+      retryFailedItems
     );
     
     // Build urlToSite map
@@ -702,6 +709,15 @@ export class ScrapeItemEngine {
           if (isNetworkError) {
             // Network error after retries - mark as failed
             await this.siteManager.updateItemStatus(runInfo.runId, url, { failed: true });
+            
+            // Auto-block the proxy if it's a datacenter proxy
+            const proxy = sessionData.session.provider === 'browserbase' 
+              ? sessionData.session.browserbase?.proxy 
+              : sessionData.session.local?.proxy;
+              
+            if (proxy && proxy.type === 'datacenter') {
+              await this.siteManager.addBlockedProxy(runInfo.domain, proxy, lastError.message);
+            }
           } else {
             // Other error - mark as invalid
             await this.siteManager.updateItemStatus(runInfo.runId, url, { invalid: true });

@@ -79,6 +79,8 @@ export function parseArgs(args: string[]): ParsedArgs {
       options.exclude = arg.replace('--exclude=', '').split(',').map(s => s.trim());
     } else if (arg === '--exclude' && i + 1 < args.length) {
       options.exclude = args[++i].split(',').map(s => s.trim());
+    } else if (arg === '--retry-failed') {
+      options.retryFailedItems = true;
     }
   }
   

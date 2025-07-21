@@ -170,7 +170,8 @@ async function main() {
       console.log('  --local-headless          Use local browser in headless mode');
       console.log('  --local-headed            Use local browser in headed mode');
       console.log('  --session-timeout N       Session timeout in seconds');
-      console.log('  --max-retries N           Max retries for network errors (default: 2)');
+      console.log('  --max-retries N           Max retries for network errors (default: 1)');
+      console.log('  --retry-failed            Include previously failed items in scraping');
       process.exit(1);
     }
     

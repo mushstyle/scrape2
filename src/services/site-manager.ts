@@ -222,12 +222,29 @@ export class SiteManager {
   }
   
   /**
+   * Get blocked proxy IDs for proxy selection
+   * Uses the existing blocklist system which already handles cooldowns
+   * @param domain - The domain to check
+   * @returns Array of proxy IDs that are still blocked
+   */
+  private async getActiveBlockedProxyIds(domain: string): Promise<string[]> {
+    // getBlockedProxies already handles cooldown and returns proxy strings
+    const blockedProxyStrings = await this.getBlockedProxies(domain);
+    
+    // Extract proxy IDs from the proxy strings
+    // The proxy string format might be like "datacenter:proxy-id" or just "proxy-id"
+    // For now, we'll use the whole string as the ID until we understand the format better
+    return blockedProxyStrings;
+  }
+
+  /**
    * Get proxy for a domain based on its strategy
    * @param domain - The domain to get proxy for
    * @returns Selected proxy or null
    */
   async getProxyForDomain(domain: string): Promise<Proxy | null> {
-    return selectProxyForDomain(domain);
+    const blockedProxyIds = await this.getActiveBlockedProxyIds(domain);
+    return selectProxyForDomain(domain, blockedProxyIds);
   }
   
   /**
@@ -497,33 +514,25 @@ export class SiteManager {
     }
     
     try {
+      // Get the latest run regardless of status
       const response = await listRuns({
         domain,
-        status: 'processing',
         limit: 1
       });
       
       if (response.runs.length > 0) {
         const run = response.runs[0];
-        if (site) {
-          site.activeRun = run;
+        
+        // Only return runs that might have pending items
+        if (run.status === 'processing' || run.status === 'pending' || run.status === 'created') {
+          if (site) {
+            site.activeRun = run;
+          }
+          log.debug(`Found ${run.status} run ${run.id} for ${domain}`);
+          return run;
+        } else {
+          log.debug(`Latest run for ${domain} has status ${run.status}, skipping`);
         }
-        return run;
-      }
-      
-      // Check for pending runs if no processing runs
-      const pendingResponse = await listRuns({
-        domain,
-        status: 'pending',
-        limit: 1
-      });
-      
-      if (pendingResponse.runs.length > 0) {
-        const run = pendingResponse.runs[0];
-        if (site) {
-          site.activeRun = run;
-        }
-        return run;
       }
       
       return null;
@@ -538,18 +547,35 @@ export class SiteManager {
    * @param runId - The run ID
    * @param limit - Optional limit on number of items to return
    */
-  async getPendingItems(runId: string, limit?: number): Promise<ScrapeRunItem[]> {
+  async getPendingItems(runId: string, limit?: number, includeFailedItems = false): Promise<ScrapeRunItem[]> {
     // Check if it's an uncommitted run
     const pendingRun = this.uncommittedRuns.get(runId);
     if (pendingRun) {
-      const pending = pendingRun.items.filter(item => !item.done && !item.failed && !item.invalid);
+      const pending = pendingRun.items.filter(item => 
+        !item.done && 
+        !item.invalid && 
+        (includeFailedItems || !item.failed)
+      );
+      log.debug(`Found ${pending.length} pending items in uncommitted run ${runId}${includeFailedItems ? ' (including failed)' : ''}`);
       return limit ? pending.slice(0, limit) : pending;
     }
     
     try {
       const run = await fetchRun(runId);
-      const pendingItems = run.items.filter((item: ScrapeRunItem) => !item.done && !item.failed && !item.invalid);
-      log.debug(`Found ${pendingItems.length} pending items in run ${runId}`);
+      
+      // Debug: log item counts
+      const doneCount = run.items.filter((item: ScrapeRunItem) => item.done).length;
+      const failedCount = run.items.filter((item: ScrapeRunItem) => item.failed).length;
+      const invalidCount = run.items.filter((item: ScrapeRunItem) => item.invalid).length;
+      
+      log.debug(`Run ${runId} items breakdown: total=${run.items.length}, done=${doneCount}, failed=${failedCount}, invalid=${invalidCount}`);
+      
+      const pendingItems = run.items.filter((item: ScrapeRunItem) => 
+        !item.done && 
+        !item.invalid && 
+        (includeFailedItems || !item.failed)
+      );
+      log.debug(`Found ${pendingItems.length} pending items in run ${runId}${includeFailedItems ? ' (including failed)' : ''}, returning ${limit ? Math.min(limit, pendingItems.length) : pendingItems.length}`);
       return limit ? pendingItems.slice(0, limit) : pendingItems;
     } catch (error) {
       log.error(`Failed to get pending items for run ${runId}`, { error });
@@ -566,10 +592,13 @@ export class SiteManager {
    */
   async getPendingItemsWithLimits(
     sites: string[], 
-    totalLimit: number = Infinity
+    totalLimit: number = Infinity,
+    includeFailedItems = false
   ): Promise<Array<{ url: string; runId: string; domain: string }>> {
     const results: Array<{ url: string; runId: string; domain: string }> = [];
     let totalCollected = 0;
+    
+    log.debug(`getPendingItemsWithLimits called for ${sites.length} sites, totalLimit: ${totalLimit}, includeFailedItems: ${includeFailedItems}`);
     
     for (const domain of sites) {
       // Stop if we've reached the total limit
@@ -584,6 +613,8 @@ export class SiteManager {
         continue;
       }
       
+      log.debug(`Found active run ${activeRun.id} for ${domain} - status: ${activeRun.status}, total items: ${activeRun.items.length}`);
+      
       // Get session limit for this domain
       const sessionLimit = await this.getSessionLimitForDomain(domain);
       
@@ -591,8 +622,12 @@ export class SiteManager {
       const remainingCapacity = totalLimit - totalCollected;
       const domainLimit = Math.min(sessionLimit, remainingCapacity);
       
+      log.debug(`Domain ${domain}: sessionLimit=${sessionLimit}, remainingCapacity=${remainingCapacity}, domainLimit=${domainLimit}`);
+      
       // Get pending items up to the domain limit
-      const pendingItems = await this.getPendingItems(activeRun.id, domainLimit);
+      const pendingItems = await this.getPendingItems(activeRun.id, domainLimit, includeFailedItems);
+      
+      log.debug(`Got ${pendingItems.length} pending items for ${domain}`);
       
       // Add items to results
       for (const item of pendingItems) {
@@ -609,6 +644,7 @@ export class SiteManager {
       }
     }
     
+    log.normal(`getPendingItemsWithLimits returning ${results.length} total items across ${sites.length} sites`);
     return results;
   }
   
@@ -621,23 +657,39 @@ export class SiteManager {
     status: { done?: boolean; failed?: boolean; invalid?: boolean },
     data?: any
   ): Promise<void> {
+    // Ensure mutual exclusivity of status flags
+    let finalStatus = { ...status };
+    
+    // If marking as done, clear other flags
+    if (status.done === true) {
+      finalStatus = { done: true, failed: false, invalid: false };
+    } 
+    // If marking as failed, clear other flags
+    else if (status.failed === true) {
+      finalStatus = { done: false, failed: true, invalid: false };
+    } 
+    // If marking as invalid, clear other flags (invalid overrules everything)
+    else if (status.invalid === true) {
+      finalStatus = { done: false, failed: false, invalid: true };
+    }
+    
     // Check if it's an uncommitted run
     const pendingRun = this.uncommittedRuns.get(runId);
     if (pendingRun) {
       log.error(`CRITICAL: Trying to update item in uncommitted run ${runId} - this won't persist!`);
       const item = pendingRun.items.find(i => i.url === url);
       if (item) {
-        Object.assign(item, status);
+        Object.assign(item, finalStatus);
       }
       return;
     }
     
     try {
-      await updateRunItem(runId, url, status);
-      log.debug(`Updated item ${url} in run ${runId}`, status);
+      await updateRunItem(runId, url, finalStatus);
+      log.debug(`Updated item ${url} in run ${runId}`, finalStatus);
       
       // Update retry tracking
-      if (status.failed) {
+      if (finalStatus.failed) {
         const run = await fetchRun(runId);
         const site = this.getSite(run.domain);
         if (site) {
@@ -672,6 +724,7 @@ export class SiteManager {
     for (let i = 0; i < updates.length; i += batchSize) {
       const batch = updates.slice(i, i + batchSize);
       await Promise.all(
+        // updateItemStatus will ensure mutual exclusivity
         batch.map(({ url, status, data }) => this.updateItemStatus(runId, url, status, data))
       );
     }
@@ -791,6 +844,44 @@ export class SiteManager {
     return this.createRun(domain, urls);
   }
   
+  /**
+   * Get all sites that have active runs (latest run is pending or processing)
+   * @returns Array of domain names with active runs
+   */
+  async getSitesWithActiveRuns(): Promise<string[]> {
+    // First, get all sites
+    const response = await getSites();
+    const allSites = response.sites || [];
+    
+    log.debug(`Checking ${allSites.length} sites for active runs`);
+    
+    const domainsWithActiveRuns: string[] = [];
+    
+    // For each site, check if it has an active run (like sites:manage does)
+    for (const site of allSites) {
+      const domain = site._id;
+      
+      // Get the most recent run for this domain (regardless of status)
+      const runsResponse = await listRuns({ 
+        domain, 
+        limit: 1,
+        sortBy: 'createdAt',
+        sortOrder: 'desc'
+      });
+      
+      if (runsResponse.runs.length > 0) {
+        const run = runsResponse.runs[0];
+        // Only include if the run is pending or processing
+        if (run.status === 'pending' || run.status === 'processing') {
+          domainsWithActiveRuns.push(domain);
+        }
+      }
+    }
+    
+    log.normal(`Found ${domainsWithActiveRuns.length} domains with active runs`);
+    return domainsWithActiveRuns;
+  }
+
   /**
    * Get URLs that need retry for a domain
    */
@@ -991,6 +1082,18 @@ export class SiteManager {
     }
     
     log.debug(`Added proxy ${proxy} to blocklist for ${domain}`, { error });
+  }
+
+  /**
+   * Add a proxy to blocklist by proxy object (for engines)
+   * @param domain - The domain
+   * @param proxy - The proxy object with id field
+   * @param error - The error message
+   */
+  async addBlockedProxy(domain: string, proxy: Proxy, error: string = 'Network error'): Promise<void> {
+    // Use the proxy ID as the blocklist key
+    await this.addProxyToBlocklist(domain, proxy.id, error);
+    log.normal(`Blocked proxy ${proxy.id} for ${domain} after repeated failures`);
   }
 
   /**

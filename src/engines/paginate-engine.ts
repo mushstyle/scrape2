@@ -27,7 +27,8 @@ export interface PaginateOptions {
   localHeadless?: boolean;  // Use local browser in headless mode
   localHeaded?: boolean;  // Use local browser in headed mode
   sessionTimeout?: number;  // Session timeout in seconds (browserbase only)
-  maxRetries?: number;  // Default: 2 (for network errors)
+  maxRetries?: number;  // Default: 1 (for network errors)
+  // Note: retryFailedItems not applicable to pagination (deals with start pages, not items)
 }
 
 export interface PaginateResult {
@@ -75,7 +76,7 @@ export class PaginateEngine {
     const maxPages = options.maxPages || Infinity;  // NO LIMIT by default!
     const cacheSizeMB = options.cacheSizeMB || 250;
     const cacheTTLSeconds = options.cacheTTLSeconds || 300;
-    const maxRetries = options.maxRetries || 2;
+    const maxRetries = options.maxRetries || 1;
     
     // Log configuration
     log.normal('Paginate configuration:');
@@ -669,6 +670,18 @@ export class PaginateEngine {
         if (!isNetworkError || attempt === maxRetries) {
           // Non-network error or final attempt
           log.error(`Failed to process ${url} (attempt ${attempt + 1}/${maxRetries + 1}): ${lastError.message}`);
+          
+          // Auto-block the proxy if it's a network error and datacenter proxy
+          if (isNetworkError && attempt === maxRetries) {
+            const proxy = sessionData.session.provider === 'browserbase' 
+              ? sessionData.session.browserbase?.proxy 
+              : sessionData.session.local?.proxy;
+              
+            if (proxy && proxy.type === 'datacenter') {
+              await this.siteManager.addBlockedProxy(site, proxy, lastError.message);
+            }
+          }
+          
           this.siteManager.updatePaginationState(url, {
             collectedUrls: [],
             completed: true,
