@@ -7,6 +7,10 @@
 
 import { VerifyPaginateEngine } from '../src/engines/verify-paginate-engine.js';
 import { logger } from '../src/utils/logger.js';
+import { installGlobalErrorHandlers } from '../src/utils/error-handlers.js';
+
+// Install global error handlers to prevent crashes from browser disconnections
+installGlobalErrorHandlers();
 
 const log = logger.createContext('verify-paginate');
 

@@ -16,6 +16,10 @@ import { SessionManager } from '../src/services/session-manager.js';
 import { logger } from '../src/utils/logger.js';
 import { formatDate } from '../src/utils/time-parser.js';
 import { parseArgs } from '../src/utils/cli-args.js';
+import { installGlobalErrorHandlers } from '../src/utils/error-handlers.js';
+
+// Install global error handlers to prevent crashes from browser disconnections
+installGlobalErrorHandlers();
 
 const log = logger.createContext('scrape-cli');
 
