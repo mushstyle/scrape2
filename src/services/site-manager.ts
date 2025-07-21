@@ -600,13 +600,6 @@ export class SiteManager {
     
     log.debug(`getPendingItemsWithLimits called for ${sites.length} sites, totalLimit: ${totalLimit}, includeFailedItems: ${includeFailedItems}`);
     
-    // Specifically check if cos.com is in the list
-    if (sites.includes('cos.com')) {
-      log.normal(`cos.com is in the sites list!`);
-    } else {
-      log.normal(`cos.com is NOT in the sites list. Sites: ${sites.slice(0, 5).join(', ')}...`);
-    }
-    
     for (const domain of sites) {
       // Stop if we've reached the total limit
       if (totalCollected >= totalLimit) {
