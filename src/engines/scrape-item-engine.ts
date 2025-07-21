@@ -133,7 +133,8 @@ export class ScrapeItemEngine {
           options.sites,
           instanceLimit,  // Only collect up to instanceLimit items per batch
           options.since,
-          options.exclude
+          options.exclude,
+          options.retryFailedItems
         );
         
         if (batchUrlsWithRunInfo.length === 0) {
@@ -374,7 +375,8 @@ export class ScrapeItemEngine {
     sites: string[] | undefined,
     itemLimit: number,
     since?: Date,
-    exclude?: string[]
+    exclude?: string[],
+    retryFailedItems?: boolean
   ): Promise<{
     urlsWithRunInfo: UrlWithRunInfo[];
     urlToSite: Map<string, string>;
@@ -410,7 +412,7 @@ export class ScrapeItemEngine {
     const urlsWithRunInfo = await this.siteManager.getPendingItemsWithLimits(
       sitesToProcess,
       itemLimit,
-      options.retryFailedItems
+      retryFailedItems
     );
     
     // Build urlToSite map
