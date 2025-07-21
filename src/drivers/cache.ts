@@ -6,7 +6,7 @@ import type { CacheOptions, CacheStats, CacheEntry } from '../types/cache.js';
  */
 export class RequestCache {
   private cache: Map<string, CacheEntry> = new Map();
-  private stats = { hits: 0, misses: 0 };
+  private stats = { hits: 0, misses: 0, bytesSaved: 0, bytesDownloaded: 0 };
   private totalSize = 0;
   private maxSizeBytes: number;
   private ttlSeconds?: number;
@@ -41,6 +41,7 @@ export class RequestCache {
       const cached = this.get(url);
       if (cached) {
         this.stats.hits++;
+        this.stats.bytesSaved += cached.size;
         return await route.fulfill({
           status: cached.status,
           headers: cached.headers,
@@ -65,13 +66,16 @@ export class RequestCache {
             headers[key] = value;
           }
 
+          const size = body.length;
+          this.stats.bytesDownloaded += size;
+
           this.set(url, {
             url,
             response: body,
             headers,
             status: response.status(),
             timestamp: Date.now(),
-            size: body.length
+            size
           });
         }
 
@@ -172,12 +176,14 @@ export class RequestCache {
   /**
    * Get cache statistics
    */
-  getStats(): CacheStats {
+  getStats(): CacheStats & { bytesSaved: number; bytesDownloaded: number } {
     return {
       hits: this.stats.hits,
       misses: this.stats.misses,
       sizeBytes: this.totalSize,
-      itemCount: this.cache.size
+      itemCount: this.cache.size,
+      bytesSaved: this.stats.bytesSaved,
+      bytesDownloaded: this.stats.bytesDownloaded
     };
   }
 

@@ -465,7 +465,7 @@ async function main() {
         let filterSince = since;
         
         if (!filterSince) {
-          const period = await rl.question('\nFilter by time period (e.g., 1d, 24h, 7d, 1w, or press Enter for all): ');
+          const period = await rl.question('\nFilter by time period (e.g., 1d, 24h, 7d, 1w, or press Enter for 2d): ');
           
           if (period.trim()) {
             filterSince = parsePeriodToDate(period.trim());

@@ -55,6 +55,7 @@ interface SessionWithBrowser {
   inUse?: boolean;
   cache?: RequestCache;
   invalidated?: boolean;  // Set to true when browser crashes
+  statsBeforeUrl?: any;  // Temporary cache stats tracking
 }
 
 interface UrlWithRunInfo {
@@ -89,6 +90,15 @@ export class ScrapeItemEngine {
     const maxRetries = options.maxRetries || 2;
     
     try {
+      // Create global cache once at the start if caching enabled
+      if (!options.disableCache && !this.globalCache) {
+        this.globalCache = new RequestCache({
+          maxSizeBytes: cacheSizeMB * 1024 * 1024,
+          ttlSeconds: cacheTTLSeconds
+        });
+        log.normal(`Created global cache (${cacheSizeMB}MB, TTL: ${cacheTTLSeconds}s)`);
+      }
+      
       // Process all items in batches
       let batchNumber = 1;
       let cacheStats: CacheStats | undefined;
@@ -517,15 +527,7 @@ export class ScrapeItemEngine {
           sessionData.context = await createContext();
           
           // Use global cache if caching enabled
-          if (cacheOptions) {
-            // Create global cache once if not already created
-            if (!this.globalCache) {
-              this.globalCache = new RequestCache({
-                maxSizeBytes: cacheOptions.cacheSizeMB * 1024 * 1024,
-                ttlSeconds: cacheOptions.cacheTTLSeconds
-              });
-              log.normal(`Created global cache (${cacheOptions.cacheSizeMB}MB, TTL: ${cacheOptions.cacheTTLSeconds}s)`);
-            }
+          if (cacheOptions && this.globalCache) {
             // All sessions share the same cache
             sessionData.cache = this.globalCache;
           }
@@ -578,8 +580,24 @@ export class ScrapeItemEngine {
         ? (totalHits / (totalHits + totalMisses)) * 100
         : 0;
       
-      // TEMPORARY DEBUG: Log cache stats
-      log.normal(`[CACHE DEBUG] Batch complete - Hits: ${totalHits}, Misses: ${totalMisses}, Hit Rate: ${hitRate.toFixed(1)}%, Size: ${(totalSizeBytes / 1024 / 1024).toFixed(1)}MB`);
+      // TEMPORARY DEBUG: Log cache stats with bandwidth savings
+      let totalBytesSaved = 0;
+      let totalBytesDownloaded = 0;
+      
+      Array.from(sessionDataMap.values()).forEach(sessionData => {
+        if (sessionData.cache) {
+          const stats = sessionData.cache.getStats();
+          totalBytesSaved += stats.bytesSaved;
+          totalBytesDownloaded += stats.bytesDownloaded;
+        }
+      });
+      
+      const totalBandwidthNeeded = totalBytesDownloaded + totalBytesSaved;
+      const bandwidthSavedPercent = totalBandwidthNeeded > 0 
+        ? ((totalBytesSaved / totalBandwidthNeeded) * 100).toFixed(1)
+        : '0.0';
+      
+      log.normal(`[CACHE DEBUG] Batch complete - ${bandwidthSavedPercent}% saved (${(totalBytesSaved / 1024 / 1024).toFixed(1)}/${(totalBandwidthNeeded / 1024 / 1024).toFixed(1)}MB)`);
       
       return {
         hits: totalHits,
@@ -604,6 +622,11 @@ export class ScrapeItemEngine {
   ): Promise<void> {
     let lastError: Error | undefined;
     
+    // Capture cache stats before processing this URL
+    if (sessionData.cache) {
+      sessionData.statsBeforeUrl = sessionData.cache.getStats();
+    }
+    
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         const item = await this.processItem(url, runInfo.domain, sessionData);
@@ -616,10 +639,19 @@ export class ScrapeItemEngine {
         // Track successful URL for batch update
         successfulUrls.push({ url, runId: runInfo.runId });
         
-        // TEMPORARY DEBUG: Show cache stats for this session after scraping
+        // TEMPORARY DEBUG: Show cache stats for this URL
         if (sessionData.cache) {
-          const stats = sessionData.cache.getStats();
-          log.normal(`✓ Scraped ${url} [CACHE: ${stats.hits} hits, ${stats.misses} misses]`);
+          const statsAfter = sessionData.cache.getStats();
+          // Calculate hits/misses for just this URL by subtracting previous stats
+          const hitsForUrl = statsAfter.hits - (sessionData.statsBeforeUrl?.hits || 0);
+          const missesForUrl = statsAfter.misses - (sessionData.statsBeforeUrl?.misses || 0);
+          const bytesSavedForUrl = statsAfter.bytesSaved - (sessionData.statsBeforeUrl?.bytesSaved || 0);
+          const bytesDownloadedForUrl = statsAfter.bytesDownloaded - (sessionData.statsBeforeUrl?.bytesDownloaded || 0);
+          
+          const totalBytesForUrl = bytesDownloadedForUrl + bytesSavedForUrl;
+          const savedPercentForUrl = totalBytesForUrl > 0 ? ((bytesSavedForUrl / totalBytesForUrl) * 100).toFixed(1) : '0.0';
+          
+          log.normal(`✓ Scraped ${url} [CACHE: ${hitsForUrl}/${hitsForUrl + missesForUrl}, ${savedPercentForUrl}% saved]`);
         } else {
           log.normal(`✓ Scraped ${url} [CACHE: disabled]`);
         }

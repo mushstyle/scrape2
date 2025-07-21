@@ -78,6 +78,15 @@ export class PaginateEngine {
     const maxRetries = options.maxRetries || 2;
     
     try {
+      // Create global cache once at the start if caching enabled
+      if (!options.disableCache && !this.globalCache) {
+        this.globalCache = new RequestCache({
+          maxSizeBytes: cacheSizeMB * 1024 * 1024,
+          ttlSeconds: cacheTTLSeconds
+        });
+        log.normal(`Created global cache (${cacheSizeMB}MB, TTL: ${cacheTTLSeconds}s)`);
+      }
+      
       // Step 1: Get sites to process
       const sitesToProcess = await this.getSitesToProcess(options.sites, options.since, options.force, options.exclude);
       log.normal(`Will paginate ${sitesToProcess.length} sites`);
@@ -507,15 +516,7 @@ export class PaginateEngine {
             sessionData.context = await createContext();
             
             // Use global cache if caching enabled
-            if (cacheOptions) {
-              // Create global cache once if not already created
-              if (!this.globalCache) {
-                this.globalCache = new RequestCache({
-                  maxSizeBytes: cacheOptions.cacheSizeMB * 1024 * 1024,
-                  ttlSeconds: cacheOptions.cacheTTLSeconds
-                });
-                log.normal(`Created global cache (${cacheOptions.cacheSizeMB}MB, TTL: ${cacheOptions.cacheTTLSeconds}s)`);
-              }
+            if (cacheOptions && this.globalCache) {
               // All sessions share the same cache
               sessionData.cache = this.globalCache;
             }
