@@ -514,33 +514,25 @@ export class SiteManager {
     }
     
     try {
+      // Get the latest run regardless of status
       const response = await listRuns({
         domain,
-        status: 'processing',
         limit: 1
       });
       
       if (response.runs.length > 0) {
         const run = response.runs[0];
-        if (site) {
-          site.activeRun = run;
+        
+        // Only return runs that might have pending items
+        if (run.status === 'processing' || run.status === 'pending' || run.status === 'created') {
+          if (site) {
+            site.activeRun = run;
+          }
+          log.debug(`Found ${run.status} run ${run.id} for ${domain}`);
+          return run;
+        } else {
+          log.debug(`Latest run for ${domain} has status ${run.status}, skipping`);
         }
-        return run;
-      }
-      
-      // Check for pending runs if no processing runs
-      const pendingResponse = await listRuns({
-        domain,
-        status: 'pending',
-        limit: 1
-      });
-      
-      if (pendingResponse.runs.length > 0) {
-        const run = pendingResponse.runs[0];
-        if (site) {
-          site.activeRun = run;
-        }
-        return run;
       }
       
       return null;
@@ -564,17 +556,26 @@ export class SiteManager {
         !item.invalid && 
         (includeFailedItems || !item.failed)
       );
+      log.debug(`Found ${pending.length} pending items in uncommitted run ${runId}${includeFailedItems ? ' (including failed)' : ''}`);
       return limit ? pending.slice(0, limit) : pending;
     }
     
     try {
       const run = await fetchRun(runId);
+      
+      // Debug: log item counts
+      const doneCount = run.items.filter((item: ScrapeRunItem) => item.done).length;
+      const failedCount = run.items.filter((item: ScrapeRunItem) => item.failed).length;
+      const invalidCount = run.items.filter((item: ScrapeRunItem) => item.invalid).length;
+      
+      log.debug(`Run ${runId} items breakdown: total=${run.items.length}, done=${doneCount}, failed=${failedCount}, invalid=${invalidCount}`);
+      
       const pendingItems = run.items.filter((item: ScrapeRunItem) => 
         !item.done && 
         !item.invalid && 
         (includeFailedItems || !item.failed)
       );
-      log.debug(`Found ${pendingItems.length} pending items in run ${runId}${includeFailedItems ? ' (including failed)' : ''}`);
+      log.debug(`Found ${pendingItems.length} pending items in run ${runId}${includeFailedItems ? ' (including failed)' : ''}, returning ${limit ? Math.min(limit, pendingItems.length) : pendingItems.length}`);
       return limit ? pendingItems.slice(0, limit) : pendingItems;
     } catch (error) {
       log.error(`Failed to get pending items for run ${runId}`, { error });
@@ -597,6 +598,15 @@ export class SiteManager {
     const results: Array<{ url: string; runId: string; domain: string }> = [];
     let totalCollected = 0;
     
+    log.debug(`getPendingItemsWithLimits called for ${sites.length} sites, totalLimit: ${totalLimit}, includeFailedItems: ${includeFailedItems}`);
+    
+    // Specifically check if cos.com is in the list
+    if (sites.includes('cos.com')) {
+      log.normal(`cos.com is in the sites list!`);
+    } else {
+      log.normal(`cos.com is NOT in the sites list. Sites: ${sites.slice(0, 5).join(', ')}...`);
+    }
+    
     for (const domain of sites) {
       // Stop if we've reached the total limit
       if (totalCollected >= totalLimit) {
@@ -610,6 +620,8 @@ export class SiteManager {
         continue;
       }
       
+      log.debug(`Found active run ${activeRun.id} for ${domain} - status: ${activeRun.status}, total items: ${activeRun.items.length}`);
+      
       // Get session limit for this domain
       const sessionLimit = await this.getSessionLimitForDomain(domain);
       
@@ -617,8 +629,12 @@ export class SiteManager {
       const remainingCapacity = totalLimit - totalCollected;
       const domainLimit = Math.min(sessionLimit, remainingCapacity);
       
+      log.debug(`Domain ${domain}: sessionLimit=${sessionLimit}, remainingCapacity=${remainingCapacity}, domainLimit=${domainLimit}`);
+      
       // Get pending items up to the domain limit
       const pendingItems = await this.getPendingItems(activeRun.id, domainLimit, includeFailedItems);
+      
+      log.debug(`Got ${pendingItems.length} pending items for ${domain}`);
       
       // Add items to results
       for (const item of pendingItems) {
@@ -635,6 +651,7 @@ export class SiteManager {
       }
     }
     
+    log.normal(`getPendingItemsWithLimits returning ${results.length} total items across ${sites.length} sites`);
     return results;
   }
   
