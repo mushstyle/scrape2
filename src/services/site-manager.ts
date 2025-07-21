@@ -839,26 +839,41 @@ export class SiteManager {
    * @returns Array of domain names with active runs
    */
   async getSitesWithActiveRuns(): Promise<string[]> {
-    // Get all runs with processing or pending status
-    const [processingRuns, pendingRuns] = await Promise.all([
-      listRuns({ status: 'processing' }),
-      listRuns({ status: 'pending' })
-    ]);
+    // First, get all sites
+    const response = await getSites();
+    const allSites = response.sites || [];
     
-    const allRuns = [...processingRuns.runs, ...pendingRuns.runs];
+    log.debug(`Checking ${allSites.length} sites for active runs`);
     
-    // Group runs by domain and keep only the latest per domain
-    const latestRunsByDomain = new Map<string, ScrapeRun>();
+    const domainsWithActiveRuns: string[] = [];
     
-    for (const run of allRuns) {
-      const existing = latestRunsByDomain.get(run.domain);
-      if (!existing || new Date(run.createdAt) > new Date(existing.createdAt)) {
-        latestRunsByDomain.set(run.domain, run);
+    // For each site, check if it has an active run (like sites:manage does)
+    for (const site of allSites) {
+      const domain = site._id;
+      
+      // Get the most recent run for this domain (regardless of status)
+      const runsResponse = await listRuns({ 
+        domain, 
+        limit: 1,
+        sortBy: 'createdAt',
+        sortOrder: 'desc'
+      });
+      
+      if (runsResponse.runs.length > 0) {
+        const run = runsResponse.runs[0];
+        // Only include if the run is pending or processing
+        if (run.status === 'pending' || run.status === 'processing') {
+          domainsWithActiveRuns.push(domain);
+          
+          if (domain === 'cos.com') {
+            log.normal(`cos.com found! Run status: ${run.status}, created: ${run.createdAt}`);
+          }
+        }
       }
     }
     
-    // Return unique domains that have active runs
-    return Array.from(latestRunsByDomain.keys());
+    log.normal(`Found ${domainsWithActiveRuns.length} domains with active runs`);
+    return domainsWithActiveRuns;
   }
 
   /**

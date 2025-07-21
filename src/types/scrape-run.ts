@@ -103,4 +103,10 @@ export interface ListScrapeRunsResponse {
   runs: ScrapeRun[];
   total: number;
   data?: ScrapeRun[];  // API sometimes returns data instead of runs
+  pagination?: {
+    currentPage: number;
+    totalPages: number;
+    totalItems: number;
+    limit: number;
+  };
 }

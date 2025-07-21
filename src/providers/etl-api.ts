@@ -290,7 +290,8 @@ export async function listScrapeRuns(query?: ListScrapeRunsProviderQuery): Promi
     const runs = data.data || data.runs || (Array.isArray(data) ? data : []);
     return {
       runs: runs.map(normalizeRunResponse),
-      total: data.total || runs.length
+      total: data.total || runs.length,
+      pagination: data.pagination
     };
   } catch (error) {
     log.error('Error listing scrape runs', { error });
