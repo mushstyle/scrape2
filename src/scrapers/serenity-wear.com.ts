@@ -157,6 +157,23 @@ export async function scrapeItem(page: Page, options?: {
 }): Promise<Item> {
   const sourceUrl = page.url();
   try {
+    // First check if this is a 404/not found page
+    const is404 = await page.evaluate(() => {
+      // Check for various 404 indicators
+      const has404Class = document.querySelector('.content404') !== null;
+      const has404Title = Array.from(document.querySelectorAll('h4')).some(h4 => 
+        h4.textContent?.includes('Page not found') || h4.textContent?.includes('Oops!')
+      );
+      const hasEmptyCircle = document.querySelector('.empty-circle') !== null;
+      
+      return has404Class || has404Title || hasEmptyCircle;
+    });
+    
+    if (is404) {
+      log.debug(`404 page detected for ${sourceUrl} - marking as invalid`);
+      throw new Error('Product not found - 404 page detected');
+    }
+    
     // Page is already at sourceUrl, ensure content is loaded.
     await page.waitForSelector(SELECTORS.product.title, { timeout: 10000 });
 
