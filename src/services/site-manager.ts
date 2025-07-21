@@ -857,10 +857,6 @@ export class SiteManager {
         // Only include if the run is pending or processing
         if (run.status === 'pending' || run.status === 'processing') {
           domainsWithActiveRuns.push(domain);
-          
-          if (domain === 'cos.com') {
-            log.normal(`cos.com found! Run status: ${run.status}, created: ${run.createdAt}`);
-          }
         }
       }
     }
