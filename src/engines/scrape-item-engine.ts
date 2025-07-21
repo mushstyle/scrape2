@@ -570,6 +570,9 @@ export class ScrapeItemEngine {
         ? (totalHits / (totalHits + totalMisses)) * 100
         : 0;
       
+      // TEMPORARY DEBUG: Log cache stats
+      log.normal(`[CACHE DEBUG] Batch complete - Hits: ${totalHits}, Misses: ${totalMisses}, Hit Rate: ${hitRate.toFixed(1)}%, Size: ${(totalSizeBytes / 1024 / 1024).toFixed(1)}MB`);
+      
       return {
         hits: totalHits,
         misses: totalMisses,
@@ -605,7 +608,13 @@ export class ScrapeItemEngine {
         // Track successful URL for batch update
         successfulUrls.push({ url, runId: runInfo.runId });
         
-        log.normal(`✓ Scraped ${url}`);
+        // TEMPORARY DEBUG: Show cache stats for this session after scraping
+        if (sessionData.cache) {
+          const stats = sessionData.cache.getStats();
+          log.normal(`✓ Scraped ${url} [CACHE: ${stats.hits} hits, ${stats.misses} misses]`);
+        } else {
+          log.normal(`✓ Scraped ${url} [CACHE: disabled]`);
+        }
         return; // Success
         
       } catch (error) {
