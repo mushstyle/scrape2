@@ -104,11 +104,22 @@ function extractSizes(page: Page): Promise<Size[]> {
 }
 
 function extractColor(page: Page): Promise<string> {
-  return page.$eval('input[name="options[Колір]"][checked]',
-    input => input.getAttribute('value') || ''
-  ).catch((err) => {
-    log.error('Could not extract color, might not exist:', err);
-    return '';
+  // Try the new structure first (color shown in siblings/swatches)
+  return page.$eval('.product__page__siblings a[aria-current="true"]',
+    el => {
+      const fullTitle = el.getAttribute('data-swapper-hover') || '';
+      // Extract color from title - it's usually after the last dash
+      const parts = fullTitle.split(' - ');
+      return parts.length > 1 ? parts[parts.length - 1].trim() : '';
+    }
+  ).catch(() => {
+    // Fallback to old structure if it exists
+    return page.$eval('input[name="options[Колір]"][checked]',
+      input => input.getAttribute('value') || ''
+    ).catch(() => {
+      // Color variant might not exist for all products, this is normal
+      return '';
+    });
   });
 }
 

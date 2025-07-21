@@ -21,7 +21,7 @@ export interface PaginateOptions {
   instanceLimit?: number;  // Default: 10
   maxPages?: number;  // Default: 5
   disableCache?: boolean;  // Cache ON by default
-  cacheSizeMB?: number;  // Default: 100
+  cacheSizeMB?: number;  // Default: 250
   cacheTTLSeconds?: number;  // Default: 300 (5 minutes)
   noSave?: boolean;  // Save to DB by default
   localHeadless?: boolean;  // Use local browser in headless mode
@@ -58,6 +58,7 @@ interface SessionWithBrowser {
 
 export class PaginateEngine {
   private sessionDataMap = new Map<string, SessionWithBrowser>();
+  private globalCache: RequestCache | null = null;
   
   constructor(
     private siteManager: SiteManager,
@@ -72,11 +73,20 @@ export class PaginateEngine {
     // Set defaults
     const instanceLimit = options.instanceLimit || 10;
     const maxPages = options.maxPages || Infinity;  // NO LIMIT by default!
-    const cacheSizeMB = options.cacheSizeMB || 100;
+    const cacheSizeMB = options.cacheSizeMB || 250;
     const cacheTTLSeconds = options.cacheTTLSeconds || 300;
     const maxRetries = options.maxRetries || 2;
     
     try {
+      // Create global cache once at the start if caching enabled
+      if (!options.disableCache && !this.globalCache) {
+        this.globalCache = new RequestCache({
+          maxSizeBytes: cacheSizeMB * 1024 * 1024,
+          ttlSeconds: cacheTTLSeconds
+        });
+        log.normal(`Created global cache (${cacheSizeMB}MB, TTL: ${cacheTTLSeconds}s)`);
+      }
+      
       // Step 1: Get sites to process
       const sitesToProcess = await this.getSitesToProcess(options.sites, options.since, options.force, options.exclude);
       log.normal(`Will paginate ${sitesToProcess.length} sites`);
@@ -317,6 +327,8 @@ export class PaginateEngine {
       // Clean up all sessions at the very end
       log.debug('Cleaning up all sessions');
       await this.sessionManager.destroyAllSessions();
+      this.sessionDataMap.clear();
+      this.globalCache = null;
     }
   }
   
@@ -503,12 +515,10 @@ export class PaginateEngine {
             sessionData.browser = browser;
             sessionData.context = await createContext();
             
-            // Create cache for this session if caching enabled
-            if (cacheOptions) {
-              sessionData.cache = new RequestCache({
-                maxSizeBytes: cacheOptions.cacheSizeMB * 1024 * 1024,
-                ttlSeconds: cacheOptions.cacheTTLSeconds
-              });
+            // Use global cache if caching enabled
+            if (cacheOptions && this.globalCache) {
+              // All sessions share the same cache
+              sessionData.cache = this.globalCache;
             }
           } catch (error: any) {
             log.error(`Failed to create browser for session ${sessionId}: ${error.message}`);
