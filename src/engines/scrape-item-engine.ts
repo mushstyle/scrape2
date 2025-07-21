@@ -262,7 +262,7 @@ export class ScrapeItemEngine {
             batchItemsArray.push(...items);
           });
           if (batchItemsArray.length > 0) {
-            log.normal(`Uploading ${batchItemsArray.length} items to ETL API`);
+            log.debug(`Uploading ${batchItemsArray.length} items to ETL API`);
             const batchResult = await this.etlDriver.addItemsBatch(batchItemsArray);
             if (batchResult.failed.length > 0) {
               log.error(`Failed to upload ${batchResult.failed.length} items in batch ${batchNumber}`);
@@ -271,7 +271,7 @@ export class ScrapeItemEngine {
             // Mark successfully uploaded items as done in the database
             // We trust that if ETL batch was successful, all items can be marked done
             if (successfulUrls.length > 0 && batchResult.successful.length > 0) {
-              log.normal(`Marking ${successfulUrls.length} items as done in database`);
+              log.debug(`Marking ${successfulUrls.length} items as done in database`);
               const updates = successfulUrls.map(({ url, runId }) => ({
                 url,
                 runId,

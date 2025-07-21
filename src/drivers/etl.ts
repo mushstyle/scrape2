@@ -136,7 +136,7 @@ export class ETLDriver {
       }
     }
     
-    log.normal(`ETL batch complete: ${successful.length} successful, ${failed.length} failed`);
+    log.debug(`ETL batch complete: ${successful.length} successful, ${failed.length} failed`);
     
     return {
       successful,
