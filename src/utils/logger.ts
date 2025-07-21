@@ -20,7 +20,28 @@ class Logger {
     colorize: true
   };
 
-  private constructor() {}
+  private constructor() {
+    // Initialize log level from environment variable
+    const envLogLevel = process.env.LOG_LEVEL?.toUpperCase();
+    if (envLogLevel) {
+      switch (envLogLevel) {
+        case 'QUIET':
+          this.config.level = LogLevel.QUIET;
+          break;
+        case 'NORMAL':
+          this.config.level = LogLevel.NORMAL;
+          break;
+        case 'VERBOSE':
+          this.config.level = LogLevel.VERBOSE;
+          break;
+        case 'DEBUG':
+          this.config.level = LogLevel.DEBUG;
+          break;
+        default:
+          console.warn(`Unknown LOG_LEVEL: ${envLogLevel}, using NORMAL`);
+      }
+    }
+  }
 
   static getInstance(): Logger {
     if (!Logger.instance) {
