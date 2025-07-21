@@ -22,7 +22,7 @@ export interface ScrapeItemOptions {
   instanceLimit?: number;  // Default: 10
   itemLimit?: number;  // Max items per site, default: 100
   disableCache?: boolean;  // Cache ON by default
-  cacheSizeMB?: number;  // Default: 100
+  cacheSizeMB?: number;  // Default: 250
   cacheTTLSeconds?: number;  // Default: 300 (5 minutes)
   noSave?: boolean;  // Save to ETL by default
   localHeadless?: boolean;  // Use local browser in headless mode
@@ -66,7 +66,7 @@ interface UrlWithRunInfo {
 export class ScrapeItemEngine {
   private etlDriver: ETLDriver;
   private sessionDataMap: Map<string, SessionWithBrowser> = new Map();
-  private domainCaches: Map<string, RequestCache> = new Map();
+  private globalCache: RequestCache | null = null;
   
   constructor(
     private siteManager: SiteManager,
@@ -84,7 +84,7 @@ export class ScrapeItemEngine {
     // Set defaults
     const instanceLimit = options.instanceLimit || 10;
     const itemLimit = options.itemLimit || Infinity;  // NO LIMIT by default!
-    const cacheSizeMB = options.cacheSizeMB || 100;
+    const cacheSizeMB = options.cacheSizeMB || 250;
     const cacheTTLSeconds = options.cacheTTLSeconds || 300;
     const maxRetries = options.maxRetries || 2;
     
@@ -329,6 +329,7 @@ export class ScrapeItemEngine {
       await this.cleanupBrowsers(this.sessionDataMap);
       await this.sessionManager.destroyAllSessions();
       this.sessionDataMap.clear();
+      this.globalCache = null;
     }
   }
   
@@ -515,12 +516,18 @@ export class ScrapeItemEngine {
           sessionData.browser = browser;
           sessionData.context = await createContext();
           
-          // Create cache for this session if caching enabled
+          // Use global cache if caching enabled
           if (cacheOptions) {
-            sessionData.cache = new RequestCache({
-              maxSizeBytes: cacheOptions.cacheSizeMB * 1024 * 1024,
-              ttlSeconds: cacheOptions.cacheTTLSeconds
-            });
+            // Create global cache once if not already created
+            if (!this.globalCache) {
+              this.globalCache = new RequestCache({
+                maxSizeBytes: cacheOptions.cacheSizeMB * 1024 * 1024,
+                ttlSeconds: cacheOptions.cacheTTLSeconds
+              });
+              log.normal(`Created global cache (${cacheOptions.cacheSizeMB}MB, TTL: ${cacheOptions.cacheTTLSeconds}s)`);
+            }
+            // All sessions share the same cache
+            sessionData.cache = this.globalCache;
           }
         }
       })

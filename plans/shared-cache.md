@@ -8,45 +8,43 @@ Currently, each session gets its own isolated RequestCache, meaning:
 - 0% cache hit rate for item scraping
 
 ## Solution
-Implement domain-based cache sharing where all sessions scraping the same domain share a single RequestCache instance.
+Implement a single global cache shared by all sessions in an engine run.
 
 ## Implementation
 
-### 1. Add Domain Cache Map to Engines
+### 1. Add Global Cache to Engines
 In both `paginate-engine.ts` and `scrape-item-engine.ts`:
 ```typescript
-private domainCaches = new Map<string, RequestCache>();
+private globalCache: RequestCache | null = null;
 ```
 
-### 2. Create/Get Domain Cache
-When creating browsers for sessions, instead of creating cache per session:
+### 2. Create Global Cache Once
+At the start of the run, create a single cache instance:
 ```typescript
-// Get or create cache for this domain
-const domain = /* extract domain from session/target */;
-let domainCache = this.domainCaches.get(domain);
-if (!domainCache && cacheOptions) {
-  domainCache = new RequestCache({
+// Create global cache once if caching enabled
+if (cacheOptions && !this.globalCache) {
+  this.globalCache = new RequestCache({
     maxSizeBytes: cacheOptions.cacheSizeMB * 1024 * 1024,
     ttlSeconds: cacheOptions.cacheTTLSeconds
   });
-  this.domainCaches.set(domain, domainCache);
 }
 
-// Assign same cache to all sessions for this domain
-sessionData.cache = domainCache;
+// Assign same cache to all sessions
+sessionData.cache = this.globalCache;
 ```
 
-### 3. Clean Up Domain Caches
-In cleanup methods, clear the domainCaches map:
+### 3. Clean Up Global Cache
+In cleanup methods:
 ```typescript
-this.domainCaches.clear();
+this.globalCache = null;
 ```
 
 ## Benefits
-- Sessions scraping cos.com share all cached resources
+- All sessions share cached resources regardless of domain
 - Cache persists across batches within an engine run
 - Massive reduction in redundant downloads
-- Simple implementation with minimal changes
+- Simpler implementation - just one cache to manage
+- Single memory limit prevents explosion
 
 ## Testing
 1. Run item scraper on cos.com with multiple sessions
