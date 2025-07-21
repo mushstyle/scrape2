@@ -694,6 +694,21 @@ export class PaginateEngine {
     const scraper = await loadScraper(site);
     const page: Page = await sessionData.context.newPage();
     
+    // Add error handler to prevent crashes from disconnected pages
+    page.on('error', (error) => {
+      log.error(`Page error for ${url}:`, error.message);
+    });
+    
+    // Listen for page crashes
+    page.on('crash', () => {
+      log.error(`Page crashed for ${url}`);
+    });
+    
+    // Listen for page close events
+    page.on('close', () => {
+      log.debug(`Page closed for ${url}`);
+    });
+    
     try {
       // Enable caching for this page
       if (sessionData.cache) {

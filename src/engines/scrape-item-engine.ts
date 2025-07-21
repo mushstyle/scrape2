@@ -724,6 +724,21 @@ export class ScrapeItemEngine {
     const scraper = await loadScraper(site);
     const page: Page = await sessionData.context.newPage();
     
+    // Add error handler to prevent crashes from disconnected pages
+    page.on('error', (error) => {
+      log.error(`Page error for ${url}:`, error.message);
+    });
+    
+    // Listen for page crashes
+    page.on('crash', () => {
+      log.error(`Page crashed for ${url}`);
+    });
+    
+    // Listen for page close events
+    page.on('close', () => {
+      log.debug(`Page closed for ${url}`);
+    });
+    
     try {
       // Enable caching for this page
       if (sessionData.cache) {
@@ -762,7 +777,15 @@ export class ScrapeItemEngine {
     return message.includes('target page, context or browser has been closed') ||
            message.includes('browser has been closed') ||
            message.includes('context has been closed') ||
-           message.includes('target closed');
+           message.includes('target closed') ||
+           message.includes('session not found') ||
+           message.includes('session expired') ||
+           message.includes('websocket') ||
+           message.includes('disconnected') ||
+           message.includes('connection closed') ||
+           message.includes('browser is closed') ||
+           message.includes('execution context was destroyed') ||
+           message.includes('page has been closed');
   }
   
   private async cleanupBrowsers(sessionDataMap: Map<string, SessionWithBrowser>): Promise<void> {

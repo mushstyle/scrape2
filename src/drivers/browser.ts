@@ -6,6 +6,9 @@ import { createSession as createBrowserbaseSessionProvider } from '../providers/
 import { createSession as createLocalSessionProvider } from '../providers/local-browser.js';
 import { UnifiedRouteHandler } from './unified-route-handler.js';
 import type { RequestCache } from './cache.js';
+import { logger } from '../utils/logger.js';
+
+const log = logger.createContext('browser');
 
 export interface BrowserFromSessionOptions {
   blockImages?: boolean; // Block image downloads, defaults to true
@@ -40,6 +43,19 @@ export async function createBrowserFromSession(
     // Connect to Browserbase via CDP with better error handling
     try {
       browser = await chromium.connectOverCDP(session.browserbase.connectUrl);
+      
+      // Add error handlers to prevent crashes when browser disconnects
+      const sessionId = session.browserbase.id;
+      
+      browser.on('disconnected', () => {
+        // Log but don't throw - this is expected when sessions expire
+        log.error(`Browser disconnected for session ${sessionId}`);
+      });
+      
+      // Catch any errors emitted by the browser
+      browser.on('error', (error) => {
+        log.error(`Browser error for session ${sessionId}:`, error.message);
+      });
     } catch (error: any) {
       // Add session ID to error message for better debugging
       const sessionId = session.browserbase.id;
@@ -55,6 +71,15 @@ export async function createBrowserFromSession(
     
     // Use the browser from the session
     browser = session.local.browser;
+    
+    // Add error handlers for local browser too
+    browser.on('disconnected', () => {
+      log.error('Local browser disconnected');
+    });
+    
+    browser.on('error', (error) => {
+      log.error('Local browser error:', error.message);
+    });
   } else {
     throw new Error(`Unknown session provider: ${session.provider}`);
   }
@@ -70,6 +95,16 @@ export async function createBrowserFromSession(
     }
 
     const context = await browser.newContext(contextOptions);
+    
+    // Add error handler to prevent crashes from disconnected contexts
+    context.on('error', (error) => {
+      log.error('Browser context error:', error.message);
+    });
+    
+    // Listen for context close events
+    context.on('close', () => {
+      log.debug('Browser context closed');
+    });
 
     // Add image blocking if requested
     // Note: Cache handler is added separately and takes priority
