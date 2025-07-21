@@ -292,11 +292,14 @@ export class ScrapeItemEngine {
               
               // Batch update for each run
               for (const [runId, runUpdates] of Array.from(updatesByRun.entries())) {
-                log.normal(`Updating ${runUpdates.length} items in run ${runId}`);
-                await this.siteManager.updateItemStatuses(runId, runUpdates.map(u => ({
-                  url: u.url,
-                  status: u.status
-                })));
+                try {
+                  await this.siteManager.updateItemStatuses(runId, runUpdates.map(u => ({
+                    url: u.url,
+                    status: u.status
+                  })));
+                } catch (error) {
+                  log.error(`Failed to update ${runUpdates.length} items in run ${runId}:`, error);
+                }
               }
             }
           }

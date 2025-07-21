@@ -675,7 +675,7 @@ export class SiteManager {
         batch.map(({ url, status, data }) => this.updateItemStatus(runId, url, status, data))
       );
     }
-    log.normal(`Updated ${updates.length} items in run ${runId}`);
+    log.debug(`Updated ${updates.length} items in run ${runId}`);
   }
   
   /**
