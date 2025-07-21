@@ -66,6 +66,7 @@ interface UrlWithRunInfo {
 export class ScrapeItemEngine {
   private etlDriver: ETLDriver;
   private sessionDataMap: Map<string, SessionWithBrowser> = new Map();
+  private domainCaches: Map<string, RequestCache> = new Map();
   
   constructor(
     private siteManager: SiteManager,
