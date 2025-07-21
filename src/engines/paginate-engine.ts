@@ -77,6 +77,29 @@ export class PaginateEngine {
     const cacheTTLSeconds = options.cacheTTLSeconds || 300;
     const maxRetries = options.maxRetries || 2;
     
+    // Log configuration
+    log.normal('Paginate configuration:');
+    log.normal(`  Instance limit: ${instanceLimit}`);
+    log.normal(`  Max pages: ${maxPages === Infinity ? 'unlimited' : maxPages}`);
+    log.normal(`  Cache: ${options.disableCache ? 'disabled' : `${cacheSizeMB}MB, TTL: ${cacheTTLSeconds}s`}`);
+    log.normal(`  Max retries: ${maxRetries}`);
+    if (options.sessionTimeout) {
+      log.normal(`  Session timeout: ${options.sessionTimeout}s`);
+    }
+    if (options.localHeaded) {
+      log.normal(`  Browser: local (headed)`);
+    } else if (options.localHeadless) {
+      log.normal(`  Browser: local (headless)`);
+    } else {
+      log.normal(`  Browser: browserbase`);
+    }
+    if (options.noSave) {
+      log.normal(`  Save to DB: disabled`);
+    }
+    if (options.force) {
+      log.normal(`  Force: enabled (ignore recent runs)`);
+    }
+    
     try {
       // Create global cache once at the start if caching enabled
       if (!options.disableCache && !this.globalCache) {
@@ -84,7 +107,7 @@ export class PaginateEngine {
           maxSizeBytes: cacheSizeMB * 1024 * 1024,
           ttlSeconds: cacheTTLSeconds
         });
-        log.normal(`Created global cache (${cacheSizeMB}MB, TTL: ${cacheTTLSeconds}s)`);
+        log.normal(`Created global cache`);
       }
       
       // Step 1: Get sites to process
