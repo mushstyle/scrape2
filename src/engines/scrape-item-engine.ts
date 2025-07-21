@@ -730,7 +730,7 @@ export class ScrapeItemEngine {
         await sessionData.cache.enableForPage(page);
       }
       
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
       
       // Scrape the item
       const item = await scraper.scrapeItem(page);

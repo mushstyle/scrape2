@@ -700,7 +700,7 @@ export class PaginateEngine {
         await sessionData.cache.enableForPage(page);
       }
       
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
       
       const uniqueUrls = new Set<string>();
       let currentPage = 1;

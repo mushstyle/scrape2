@@ -79,7 +79,7 @@ export class VerifyItemEngine {
       
       // Navigate to item URL
       log.normal(`Navigating to ${options.url}`);
-      await page.goto(options.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.goto(options.url, { waitUntil: 'domcontentloaded', timeout: 15000 });
       
       // Scrape item
       log.normal('Scraping item...');

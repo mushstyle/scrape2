@@ -149,7 +149,7 @@ export class VerifyPaginateEngine {
           // Create page and navigate ONCE
           const page = await sessionData.context!.newPage();
           log.normal(`Navigating to ${pair.url}`);
-          await page.goto(pair.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          await page.goto(pair.url, { waitUntil: 'domcontentloaded', timeout: 15000 });
           
           let pageCount = 0;
           let hasMore = true;
