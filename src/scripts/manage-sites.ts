@@ -471,8 +471,12 @@ async function main() {
             filterSince = parsePeriodToDate(period.trim());
             if (!filterSince) {
               console.log('Invalid time period format. Use format like: 1d, 24h, 7d, 1w, 30m');
-              console.log('Showing all outstanding runs.');
+              console.log('Defaulting to 2d.');
+              filterSince = parsePeriodToDate('2d');
             }
+          } else {
+            // Default to 2d when user presses Enter
+            filterSince = parsePeriodToDate('2d');
           }
         }
         
