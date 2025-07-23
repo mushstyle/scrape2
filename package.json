@@ -15,6 +15,7 @@
     "example:distributor-pagination": "tsx --no-warnings --env-file=.env examples/distributor-pagination.ts",
     "example:pagination:live": "tsx --no-warnings --env-file=.env examples/pagination-live.ts",
     "example:pagination:mock": "tsx --no-warnings --env-file=.env examples/pagination-mock.ts",
+    "example:cache-experiment": "tsx --no-warnings --env-file=.env examples/cache-experiment.ts",
     "scrape": "tsx --no-warnings --env-file=.env scripts/scrape.ts",
     "verify:paginate": "tsx --no-warnings --env-file=.env scripts/verify-paginate.ts",
     "verify:item": "tsx --no-warnings --env-file=.env scripts/verify-item.ts",
