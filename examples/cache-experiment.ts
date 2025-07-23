@@ -2,21 +2,20 @@
 /**
  * Cache Experiment Example
  * 
- * Demonstrates the effectiveness of caching by scraping a fixed set of URLs
- * with and without caching enabled. Shows bandwidth usage and cost savings.
+ * Simple benchmark that scrapes URLs once to measure cache effectiveness.
+ * NO DATABASE WRITES. NO INFINITE LOOPS. JUST A SIMPLE BENCHMARK.
  * 
  * Usage:
  *   npm run example:cache-experiment                    # Run with caching (default)
  *   npm run example:cache-experiment -- --no-cache     # Run without caching
- *   npm run example:cache-experiment -- --cache-size-mb 500 --cache-ttl 600
  *   npm run example:cache-experiment -- --local        # Use local browser
  */
 
+import { createBrowserFromSession } from '../src/drivers/browser.js';
 import { SessionManager } from '../src/services/session-manager.js';
-import { SiteManager } from '../src/services/site-manager.js';
-import { ScrapeItemEngine } from '../src/engines/scrape-item-engine.js';
+import { getProxyById } from '../src/drivers/proxy.js';
 import { logger } from '../src/utils/logger.js';
-import type { ScrapeItemOptions, ScrapeItemResult } from '../src/engines/scrape-item-engine.js';
+import type { Browser } from 'playwright';
 
 const log = logger.createContext('cache-experiment');
 
@@ -34,164 +33,185 @@ const TEST_URLS = [
 ];
 
 const COST_PER_GB = 0.20;
+const ESTIMATED_PAGE_SIZE_MB = 5; // Rough estimate for cos.com pages
 
 interface ExperimentOptions {
   noCache: boolean;
-  cacheSizeMB: number;
-  cacheTTLSeconds: number;
   local: boolean;
+}
+
+interface CacheStats {
+  hits: number;
+  misses: number;
+  requestsIntercepted: number;
 }
 
 function parseArgs(): ExperimentOptions {
   const args = process.argv.slice(2);
-  
   return {
     noCache: args.includes('--no-cache'),
-    cacheSizeMB: parseInt(args.find(arg => arg.startsWith('--cache-size-mb'))?.split(/[= ]/)[1] || '250'),
-    cacheTTLSeconds: parseInt(args.find(arg => arg.startsWith('--cache-ttl'))?.split(/[= ]/)[1] || '300'),
     local: args.includes('--local')
   };
-}
-
-function formatBytes(bytes: number): string {
-  const mb = bytes / (1024 * 1024);
-  return `${mb.toFixed(1)} MB`;
 }
 
 function calculateCost(mbDownloaded: number): number {
   return (mbDownloaded / 1024) * COST_PER_GB;
 }
 
-async function runExperiment(options: ExperimentOptions) {
-  const siteManager = new SiteManager({ autoLoad: false });
+async function runExperiment(options: ExperimentOptions): Promise<{ stats: CacheStats; duration: number; errors: string[] }> {
   const sessionManager = new SessionManager();
-  
-  const engine = new ScrapeItemEngine(siteManager, sessionManager);
+  let browser: Browser | null = null;
+  const errors: string[] = [];
+  const stats: CacheStats = { hits: 0, misses: 0, requestsIntercepted: 0 };
   
   try {
-    await siteManager.loadSites();
+    // Get residential proxy for accurate cache testing
+    const proxy = options.local ? undefined : await getProxyById('oxylabs-us-1');
     
-    const sites = ['cos.com'];
-    for (const site of sites) {
-      const run = await siteManager.createRun(site, TEST_URLS);
-      log.debug(`Created run ${run.id} for ${site} with ${TEST_URLS.length} URLs`);
-    }
-    
-    const scrapeOptions: ScrapeItemOptions = {
-      sites,
-      instanceLimit: 1,
-      itemLimit: 10,
-      disableCache: options.noCache,
-      cacheSizeMB: options.cacheSizeMB,
-      cacheTTLSeconds: options.cacheTTLSeconds,
-      noSave: true,
-      retryFailedItems: false
-    };
-    
-    if (options.local) {
-      scrapeOptions.localHeadless = true;
-    }
+    // Create session using SessionManager
+    const session = await sessionManager.createSession({
+      domain: 'cos.com',
+      proxy: proxy
+    });
     
     log.normal(`Starting cache experiment with ${TEST_URLS.length} URLs...`);
     log.normal(`Cache: ${options.noCache ? 'DISABLED' : 'ENABLED'}`);
-    if (!options.noCache) {
-      log.normal(`Cache size: ${options.cacheSizeMB} MB, TTL: ${options.cacheTTLSeconds}s`);
+    log.normal(`Browser: ${options.local ? 'Local' : 'Browserbase'}`);
+    
+    // Create browser with cache settings
+    const browserResult = await createBrowserFromSession(session, {
+      blockImages: true
+    });
+    browser = browserResult.browser;
+    
+    const context = await browserResult.createContext({
+      cache: options.noCache ? undefined : {} // Enable cache if not disabled
+    });
+    const page = await context.newPage();
+    
+    // Simple cache tracking via CDP if not local
+    if (!options.local && !options.noCache) {
+      const cdpSession = await page.context().newCDPSession(page);
+      await cdpSession.send('Network.enable');
+      
+      cdpSession.on('Network.requestServedFromCache', () => {
+        stats.hits++;
+      });
+      
+      cdpSession.on('Network.requestWillBeSent', () => {
+        stats.requestsIntercepted++;
+      });
     }
     
     const startTime = Date.now();
-    const result = await engine.scrapeItems(scrapeOptions);
+    
+    // Process each URL exactly once
+    for (let i = 0; i < TEST_URLS.length; i++) {
+      const url = TEST_URLS[i];
+      log.normal(`[${i + 1}/${TEST_URLS.length}] Scraping: ${url}`);
+      
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await page.waitForTimeout(1000); // Brief wait for any dynamic content
+      } catch (error) {
+        const errorMsg = `Failed to scrape ${url}: ${error}`;
+        log.error(errorMsg);
+        errors.push(errorMsg);
+      }
+    }
+    
     const endTime = Date.now();
     
-    return { result, duration: endTime - startTime };
+    // Calculate misses
+    if (!options.noCache && stats.requestsIntercepted > 0) {
+      stats.misses = stats.requestsIntercepted - stats.hits;
+    }
+    
+    return { stats, duration: endTime - startTime, errors };
+    
   } finally {
+    if (browser) await browser.close();
     await sessionManager.destroyAllSessions();
   }
 }
 
-async function displayResults(
+function displayResults(
   options: ExperimentOptions,
-  result: ScrapeItemResult,
-  duration: number
+  stats: CacheStats,
+  duration: number,
+  errors: string[]
 ) {
   console.log('\n=== Cache Experiment Results ===\n');
   
   console.log('Configuration:');
   console.log(`- URLs tested: ${TEST_URLS.length}`);
   console.log(`- Cache enabled: ${options.noCache ? 'No' : 'Yes'}`);
-  if (!options.noCache) {
-    console.log(`- Cache size: ${options.cacheSizeMB} MB`);
-    console.log(`- Cache TTL: ${options.cacheTTLSeconds} seconds`);
-  }
   console.log(`- Browser: ${options.local ? 'Local' : 'Browserbase'}`);
   
   console.log('\nResults:');
-  console.log(`- Items successfully scraped: ${result.itemsScraped}/${TEST_URLS.length}`);
+  console.log(`- Items successfully scraped: ${TEST_URLS.length - errors.length}/${TEST_URLS.length}`);
   console.log(`- Total duration: ${(duration / 1000).toFixed(1)}s`);
+  console.log(`- Average per URL: ${(duration / TEST_URLS.length / 1000).toFixed(1)}s`);
   
-  if (result.cacheStats && !options.noCache) {
-    const stats = result.cacheStats;
+  if (!options.noCache && stats.requestsIntercepted > 0) {
+    const hitRate = stats.hits > 0 ? (stats.hits / stats.requestsIntercepted) * 100 : 0;
+    console.log('\nCache Performance:');
+    console.log(`- Total requests: ${stats.requestsIntercepted}`);
     console.log(`- Cache hits: ${stats.hits}`);
     console.log(`- Cache misses: ${stats.misses}`);
-    console.log(`- Cache hit rate: ${stats.hitRate.toFixed(1)}%`);
-    console.log(`- Total cache size: ${stats.totalSizeMB.toFixed(1)} MB`);
+    console.log(`- Cache hit rate: ${hitRate.toFixed(1)}%`);
     
-    const estimatedDownloadMB = stats.misses * 5;
-    const estimatedSavedMB = stats.hits * 5;
+    // Estimate bandwidth (very rough)
+    const estimatedDownloadMB = (stats.misses / 100) * ESTIMATED_PAGE_SIZE_MB; // Assume ~100 requests per page
+    const estimatedSavedMB = (stats.hits / 100) * ESTIMATED_PAGE_SIZE_MB;
     const totalBandwidthMB = estimatedDownloadMB + estimatedSavedMB;
     
     console.log('\nBandwidth Analysis (estimated):');
-    console.log(`- Network downloaded: ~${estimatedDownloadMB} MB`);
-    console.log(`- Served from cache: ~${estimatedSavedMB} MB`);
-    console.log(`- Total bandwidth needed: ~${totalBandwidthMB} MB`);
-    console.log(`- Bandwidth saved: ${((estimatedSavedMB / totalBandwidthMB) * 100).toFixed(1)}%`);
+    console.log(`- Network downloaded: ~${estimatedDownloadMB.toFixed(1)} MB`);
+    console.log(`- Served from cache: ~${estimatedSavedMB.toFixed(1)} MB`);
+    console.log(`- Total bandwidth needed: ~${totalBandwidthMB.toFixed(1)} MB`);
+    console.log(`- Bandwidth saved: ${estimatedSavedMB > 0 ? ((estimatedSavedMB / totalBandwidthMB) * 100).toFixed(1) : '0.0'}%`);
     
     console.log('\nCost Analysis:');
     const costWithoutCache = calculateCost(totalBandwidthMB);
     const actualCost = calculateCost(estimatedDownloadMB);
     const savings = costWithoutCache - actualCost;
-    const savingsPercent = (savings / costWithoutCache) * 100;
+    const savingsPercent = costWithoutCache > 0 ? (savings / costWithoutCache) * 100 : 0;
     
-    console.log(`- Cost without cache: $${costWithoutCache.toFixed(3)}`);
-    console.log(`- Actual cost with cache: $${actualCost.toFixed(3)}`);
-    console.log(`- Savings: $${savings.toFixed(3)} (${savingsPercent.toFixed(1)}%)`);
+    console.log(`- Cost without cache: $${costWithoutCache.toFixed(4)}`);
+    console.log(`- Actual cost with cache: $${actualCost.toFixed(4)}`);
+    console.log(`- Savings: $${savings.toFixed(4)} (${savingsPercent.toFixed(1)}%)`);
   } else if (options.noCache) {
-    const estimatedTotalMB = result.itemsScraped * 5;
+    const estimatedTotalMB = TEST_URLS.length * ESTIMATED_PAGE_SIZE_MB;
     const cost = calculateCost(estimatedTotalMB);
     
     console.log('\nBandwidth Analysis:');
     console.log(`- Total downloaded: ~${estimatedTotalMB} MB`);
-    console.log(`- Cost: $${cost.toFixed(3)}`);
+    console.log(`- Cost: $${cost.toFixed(4)}`);
     console.log('\nNote: Enable caching to see potential savings');
+  } else if (options.local) {
+    console.log('\nNote: Cache tracking not available with local browser');
   }
   
-  if (result.errors.size > 0) {
+  if (errors.length > 0) {
     console.log('\nErrors:');
-    for (const [url, error] of result.errors) {
-      console.log(`- ${url}: ${error}`);
-    }
-  }
-  
-  console.log('\nCache Performance:');
-  if (!options.noCache && result.cacheStats) {
-    console.log(`- Cache hits: ${result.cacheStats.hits}`);
-    console.log(`- Cache misses: ${result.cacheStats.misses}`);
-    console.log(`- Total requests: ${result.cacheStats.hits + result.cacheStats.misses}`);
-  } else {
-    console.log('- Cache disabled for this run');
+    errors.forEach(error => console.log(`- ${error}`));
   }
 }
 
 async function main() {
   try {
     const options = parseArgs();
-    const { result, duration } = await runExperiment(options);
-    await displayResults(options, result, duration);
+    const { stats, duration, errors } = await runExperiment(options);
+    displayResults(options, stats, duration, errors);
     
     if (!options.noCache) {
       console.log('\nTip: Run with --no-cache to see the cost without caching');
     } else {
       console.log('\nTip: Run without --no-cache to see the savings with caching enabled');
     }
+    
+    console.log('\n✓ Experiment complete. Processed all URLs once and exited.');
   } catch (error) {
     log.error('Cache experiment failed:', error);
     process.exit(1);
