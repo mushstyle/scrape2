@@ -65,13 +65,14 @@ async function runExperiment(options: ExperimentOptions): Promise<{ stats: Cache
   const stats: CacheStats = { hits: 0, misses: 0, requestsIntercepted: 0 };
   
   try {
-    // Get residential proxy for accurate cache testing
-    const proxy = options.local ? undefined : await getProxyById('oxylabs-us-1');
+    // Always use residential proxy for accurate cache testing
+    const proxy = await getProxyById('oxylabs-us-1');
     
     // Create session using SessionManager
     const session = await sessionManager.createSession({
       domain: 'cos.com',
-      proxy: proxy
+      proxy: proxy,
+      localHeadless: options.local  // Use headless mode when local
     });
     
     log.normal(`Starting cache experiment with ${TEST_URLS.length} URLs...`);
