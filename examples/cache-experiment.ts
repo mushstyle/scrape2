@@ -44,6 +44,10 @@ interface CacheStats {
   hits: number;
   misses: number;
   requestsIntercepted: number;
+  requestsSentToNetwork: number;
+  bytesFromNetwork: number;
+  bytesFromCache: number;
+  requestDetails: Map<string, { fromCache: boolean; size: number }>;
 }
 
 function parseArgs(): ExperimentOptions {
@@ -62,7 +66,15 @@ async function runExperiment(options: ExperimentOptions): Promise<{ stats: Cache
   const sessionManager = new SessionManager();
   let browser: Browser | null = null;
   const errors: string[] = [];
-  const stats: CacheStats = { hits: 0, misses: 0, requestsIntercepted: 0 };
+  const stats: CacheStats = { 
+    hits: 0, 
+    misses: 0, 
+    requestsIntercepted: 0,
+    requestsSentToNetwork: 0,
+    bytesFromNetwork: 0,
+    bytesFromCache: 0,
+    requestDetails: new Map()
+  };
   
   try {
     // Always use residential proxy for accurate cache testing
@@ -81,7 +93,7 @@ async function runExperiment(options: ExperimentOptions): Promise<{ stats: Cache
     
     // Create browser with cache settings
     const browserResult = await createBrowserFromSession(session, {
-      blockImages: true
+      blockImages: false  // Enable images to measure real bandwidth
     });
     browser = browserResult.browser;
     
@@ -90,17 +102,57 @@ async function runExperiment(options: ExperimentOptions): Promise<{ stats: Cache
     });
     const page = await context.newPage();
     
-    // Simple cache tracking via CDP if not local
-    if (!options.local && !options.noCache) {
+    // Enhanced cache tracking via CDP
+    if (!options.local) {
       const cdpSession = await page.context().newCDPSession(page);
       await cdpSession.send('Network.enable');
       
-      cdpSession.on('Network.requestServedFromCache', () => {
-        stats.hits++;
+      // Track requests
+      cdpSession.on('Network.requestWillBeSent', (params) => {
+        stats.requestsIntercepted++;
+        const url = params.request.url;
+        if (!stats.requestDetails.has(url)) {
+          stats.requestDetails.set(url, { fromCache: false, size: 0 });
+        }
       });
       
-      cdpSession.on('Network.requestWillBeSent', () => {
-        stats.requestsIntercepted++;
+      // Track cache hits
+      cdpSession.on('Network.requestServedFromCache', (params) => {
+        stats.hits++;
+        const url = params.requestId;
+        log.debug(`Cache hit for: ${url}`);
+      });
+      
+      // Track responses and sizes
+      cdpSession.on('Network.responseReceived', (params) => {
+        const url = params.response.url;
+        const fromCache = params.response.fromDiskCache || params.response.fromServiceWorker;
+        // Use headers Content-Length if encodedDataLength is 0
+        const size = params.response.encodedDataLength || 
+                    parseInt(params.response.headers['content-length'] || '0') || 
+                    0;
+        
+        if (fromCache) {
+          stats.bytesFromCache += size;
+          log.debug(`CACHE HIT: ${url.substring(0, 60)}... ${(size/1024).toFixed(1)}KB`);
+        } else {
+          stats.bytesFromNetwork += size;
+          stats.requestsSentToNetwork++;
+        }
+        
+        stats.requestDetails.set(url, { fromCache, size });
+        
+        // Debug large resources
+        if (size > 50000) { // 50KB+
+          log.normal(`Resource: ${url.substring(0, 80)}... - ${(size/1024).toFixed(1)}KB ${fromCache ? '(FROM CACHE)' : '(FROM NETWORK)'}`);
+        }
+      });
+      
+      // Track actual data received
+      cdpSession.on('Network.loadingFinished', (params) => {
+        if (params.encodedDataLength > 0) {
+          log.debug(`Loading finished: ${params.requestId} - ${(params.encodedDataLength/1024).toFixed(1)}KB`);
+        }
       });
     }
     
@@ -125,8 +177,12 @@ async function runExperiment(options: ExperimentOptions): Promise<{ stats: Cache
     
     // Calculate misses
     if (!options.noCache && stats.requestsIntercepted > 0) {
-      stats.misses = stats.requestsIntercepted - stats.hits;
+      stats.misses = stats.requestsSentToNetwork;
     }
+    
+    // Log cache summary
+    log.normal(`Cache summary: ${stats.hits} hits, ${stats.requestsSentToNetwork} network requests`);
+    log.normal(`Bandwidth: ${(stats.bytesFromNetwork/1024/1024).toFixed(1)}MB from network, ${(stats.bytesFromCache/1024/1024).toFixed(1)}MB from cache`);
     
     return { stats, duration: endTime - startTime, errors };
     
@@ -162,20 +218,27 @@ function displayResults(
     console.log(`- Cache misses: ${stats.misses}`);
     console.log(`- Cache hit rate: ${hitRate.toFixed(1)}%`);
     
-    // Estimate bandwidth (very rough)
-    const estimatedDownloadMB = (stats.misses / 100) * ESTIMATED_PAGE_SIZE_MB; // Assume ~100 requests per page
-    const estimatedSavedMB = (stats.hits / 100) * ESTIMATED_PAGE_SIZE_MB;
-    const totalBandwidthMB = estimatedDownloadMB + estimatedSavedMB;
+    // Use actual bandwidth measurements
+    const actualDownloadMB = stats.bytesFromNetwork / (1024 * 1024);
+    const actualCacheMB = stats.bytesFromCache / (1024 * 1024);
+    const totalBandwidthMB = actualDownloadMB + actualCacheMB;
     
-    console.log('\nBandwidth Analysis (estimated):');
-    console.log(`- Network downloaded: ~${estimatedDownloadMB.toFixed(1)} MB`);
-    console.log(`- Served from cache: ~${estimatedSavedMB.toFixed(1)} MB`);
-    console.log(`- Total bandwidth needed: ~${totalBandwidthMB.toFixed(1)} MB`);
-    console.log(`- Bandwidth saved: ${estimatedSavedMB > 0 ? ((estimatedSavedMB / totalBandwidthMB) * 100).toFixed(1) : '0.0'}%`);
+    console.log('\nBandwidth Analysis (actual):');
+    console.log(`- Network downloaded: ${actualDownloadMB.toFixed(1)} MB`);
+    console.log(`- Served from cache: ${actualCacheMB.toFixed(1)} MB`);
+    console.log(`- Total bandwidth if no cache: ${totalBandwidthMB.toFixed(1)} MB`);
+    console.log(`- Bandwidth saved: ${actualCacheMB > 0 ? ((actualCacheMB / totalBandwidthMB) * 100).toFixed(1) : '0.0'}%`);
+    
+    // Debug info
+    if (stats.hits > 0) {
+      console.log('\nCache Debug:');
+      console.log(`- Requests with size data: ${stats.requestDetails.size}`);
+      console.log(`- Bytes tracked: ${((stats.bytesFromNetwork + stats.bytesFromCache) / 1024 / 1024).toFixed(1)} MB total`);
+    }
     
     console.log('\nCost Analysis:');
     const costWithoutCache = calculateCost(totalBandwidthMB);
-    const actualCost = calculateCost(estimatedDownloadMB);
+    const actualCost = calculateCost(actualDownloadMB);
     const savings = costWithoutCache - actualCost;
     const savingsPercent = costWithoutCache > 0 ? (savings / costWithoutCache) * 100 : 0;
     
