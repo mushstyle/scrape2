@@ -14,7 +14,10 @@
 import { createBrowserFromSession } from '../src/drivers/browser.js';
 import { SessionManager } from '../src/services/session-manager.js';
 import { getProxyById } from '../src/drivers/proxy.js';
+import { RequestCache } from '../src/drivers/cache.js';
 import { logger } from '../src/utils/logger.js';
+import { writeFileSync, appendFileSync } from 'fs';
+import { join } from 'path';
 import type { Browser } from 'playwright';
 
 const log = logger.createContext('cache-experiment');
@@ -76,6 +79,19 @@ async function runExperiment(options: ExperimentOptions): Promise<{ stats: Cache
     requestDetails: new Map()
   };
   
+  // Track unique vs shared resources
+  const resourceTypes = new Map<string, { count: number; urls: Set<string> }>();
+  
+  // Create log file
+  const logFile = join(process.cwd(), `cache-experiment-${Date.now()}.log`);
+  const logToFile = (msg: string) => {
+    appendFileSync(logFile, `${new Date().toISOString()} - ${msg}\n`);
+  };
+  logToFile('=== Cache Experiment Log ===');
+  logToFile(`Cache enabled: ${!options.noCache}`);
+  logToFile(`Browser: ${options.local ? 'Local' : 'Browserbase'}`);
+  logToFile('');
+  
   try {
     // Always use residential proxy for accurate cache testing
     const proxy = await getProxyById('oxylabs-us-1');
@@ -91,35 +107,70 @@ async function runExperiment(options: ExperimentOptions): Promise<{ stats: Cache
     log.normal(`Cache: ${options.noCache ? 'DISABLED' : 'ENABLED'}`);
     log.normal(`Browser: ${options.local ? 'Local' : 'Browserbase'}`);
     
-    // Create browser with cache settings
+    // Create browser
+    const blockImages = false; // We'll handle image blocking in the cache
     const browserResult = await createBrowserFromSession(session, {
-      blockImages: false  // Enable images to measure real bandwidth
+      blockImages: blockImages
     });
     browser = browserResult.browser;
     
-    const context = await browserResult.createContext({
-      cache: options.noCache ? undefined : {} // Enable cache if not disabled
-    });
+    const context = await browserResult.createContext();
     const page = await context.newPage();
+    
+    // Create and enable cache if not disabled
+    let cache: RequestCache | null = null;
+    if (!options.noCache) {
+      cache = new RequestCache({
+        maxSizeBytes: 100 * 1024 * 1024, // 100MB cache
+        ttlSeconds: 300, // 5 minute TTL
+        blockImages: true  // ALWAYS block images in cache for bandwidth savings
+      });
+      await cache.enableForPage(page);
+      log.normal(`Cache enabled for page (image blocking: true)`);
+    }
     
     // Enhanced cache tracking via CDP
     if (!options.local) {
       const cdpSession = await page.context().newCDPSession(page);
       await cdpSession.send('Network.enable');
       
+      // Map request IDs to URLs
+      const requestIdToUrl = new Map<string, string>();
+      
       // Track requests
       cdpSession.on('Network.requestWillBeSent', (params) => {
         stats.requestsIntercepted++;
         const url = params.request.url;
+        requestIdToUrl.set(params.requestId, url);
+        
         if (!stats.requestDetails.has(url)) {
           stats.requestDetails.set(url, { fromCache: false, size: 0 });
         }
+        
+        // Categorize resource type
+        let resourceType = 'other';
+        if (url.includes('/_next/static/')) resourceType = 'static-js-css';
+        else if (url.match(/\.(jpg|jpeg|png|gif|webp)/i)) resourceType = 'image';
+        else if (url.includes('/api/')) resourceType = 'api';
+        else if (url.endsWith('.js')) resourceType = 'external-js';
+        else if (url.endsWith('.css')) resourceType = 'external-css';
+        else if (url.includes('.com/') && !url.includes('/api/') && !url.includes('/_next/')) resourceType = 'html';
+        
+        if (!resourceTypes.has(resourceType)) {
+          resourceTypes.set(resourceType, { count: 0, urls: new Set() });
+        }
+        const typeData = resourceTypes.get(resourceType)!;
+        typeData.count++;
+        typeData.urls.add(url);
+        
+        logToFile(`REQUEST: ${params.requestId} -> ${url}`);
       });
       
       // Track cache hits
       cdpSession.on('Network.requestServedFromCache', (params) => {
         stats.hits++;
-        const url = params.requestId;
+        const url = requestIdToUrl.get(params.requestId) || params.requestId;
+        logToFile(`CACHE HIT: ${params.requestId} -> ${url}`);
         log.debug(`Cache hit for: ${url}`);
       });
       
@@ -129,8 +180,10 @@ async function runExperiment(options: ExperimentOptions): Promise<{ stats: Cache
         const fromCache = params.response.fromDiskCache || params.response.fromServiceWorker;
         // Use headers Content-Length if encodedDataLength is 0
         const size = params.response.encodedDataLength || 
-                    parseInt(params.response.headers['content-length'] || '0') || 
+                    parseInt(params.response.headers['content-length'] || params.response.headers['Content-Length'] || '0') || 
                     0;
+        
+        logToFile(`RESPONSE: ${params.requestId} -> ${url} - ${(size/1024).toFixed(1)}KB - fromCache=${fromCache} - fromDisk=${params.response.fromDiskCache} - fromSW=${params.response.fromServiceWorker}`);
         
         if (fromCache) {
           stats.bytesFromCache += size;
@@ -144,13 +197,17 @@ async function runExperiment(options: ExperimentOptions): Promise<{ stats: Cache
         
         // Debug large resources
         if (size > 50000) { // 50KB+
-          log.normal(`Resource: ${url.substring(0, 80)}... - ${(size/1024).toFixed(1)}KB ${fromCache ? '(FROM CACHE)' : '(FROM NETWORK)'}`);
+          const msg = `LARGE: ${url.substring(0, 80)}... - ${(size/1024).toFixed(1)}KB ${fromCache ? '(FROM CACHE)' : '(FROM NETWORK)'}`;
+          log.normal(msg);
+          logToFile(msg);
         }
       });
       
       // Track actual data received
       cdpSession.on('Network.loadingFinished', (params) => {
         if (params.encodedDataLength > 0) {
+          const url = requestIdToUrl.get(params.requestId) || 'unknown';
+          logToFile(`LOADED: ${params.requestId} -> ${url} - ${(params.encodedDataLength/1024).toFixed(1)}KB`);
           log.debug(`Loading finished: ${params.requestId} - ${(params.encodedDataLength/1024).toFixed(1)}KB`);
         }
       });
@@ -162,6 +219,7 @@ async function runExperiment(options: ExperimentOptions): Promise<{ stats: Cache
     for (let i = 0; i < TEST_URLS.length; i++) {
       const url = TEST_URLS[i];
       log.normal(`[${i + 1}/${TEST_URLS.length}] Scraping: ${url}`);
+      logToFile(`\n=== PAGE ${i + 1}/${TEST_URLS.length}: ${url} ===`);
       
       try {
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -175,14 +233,51 @@ async function runExperiment(options: ExperimentOptions): Promise<{ stats: Cache
     
     const endTime = Date.now();
     
-    // Calculate misses
-    if (!options.noCache && stats.requestsIntercepted > 0) {
+    // Get actual cache stats if cache was used
+    if (cache) {
+      const cacheStats = cache.getStats();
+      stats.hits = cacheStats.hits;
+      stats.misses = cacheStats.misses;
+      stats.bytesFromCache = cacheStats.bytesSaved;
+      stats.bytesFromNetwork = cacheStats.bytesDownloaded;
+      log.normal(`Cache stats from RequestCache: ${cacheStats.hits} hits, ${cacheStats.misses} misses, ${cacheStats.blockedImages} images blocked`);
+    } else if (!options.noCache && stats.requestsIntercepted > 0) {
+      // Fallback calculation if no cache object
       stats.misses = stats.requestsSentToNetwork;
     }
     
     // Log cache summary
     log.normal(`Cache summary: ${stats.hits} hits, ${stats.requestsSentToNetwork} network requests`);
     log.normal(`Bandwidth: ${(stats.bytesFromNetwork/1024/1024).toFixed(1)}MB from network, ${(stats.bytesFromCache/1024/1024).toFixed(1)}MB from cache`);
+    
+    logToFile(`\n=== FINAL SUMMARY ===`);
+    logToFile(`Total requests: ${stats.requestsIntercepted}`);
+    logToFile(`Cache hits: ${stats.hits}`);
+    logToFile(`Network requests: ${stats.requestsSentToNetwork}`);
+    logToFile(`Bytes from network: ${(stats.bytesFromNetwork/1024/1024).toFixed(2)}MB`);
+    logToFile(`Bytes from cache: ${(stats.bytesFromCache/1024/1024).toFixed(2)}MB`);
+    
+    // Log resource type analysis
+    if (!options.local && resourceTypes.size > 0) {
+      logToFile(`\n=== RESOURCE TYPE ANALYSIS ===`);
+      for (const [type, data] of resourceTypes.entries()) {
+        const uniqueCount = data.urls.size;
+        const duplicates = data.count - uniqueCount;
+        logToFile(`${type}: ${data.count} requests, ${uniqueCount} unique URLs, ${duplicates} potential cache hits`);
+      }
+      
+      // Calculate cache efficiency
+      const totalStaticResources = (resourceTypes.get('static-js-css')?.urls.size || 0) + 
+                                  (resourceTypes.get('external-js')?.urls.size || 0) + 
+                                  (resourceTypes.get('external-css')?.urls.size || 0);
+      const totalImages = resourceTypes.get('image')?.urls.size || 0;
+      logToFile(`\nShared resources (JS/CSS): ${totalStaticResources} unique files`);
+      logToFile(`Product images: ${totalImages} unique files`);
+      logToFile(`\nCache is most effective for shared resources, less so for unique product content.`);
+    }
+    
+    logToFile(`\nLog file saved to: ${logFile}`);
+    log.normal(`\nDetailed log saved to: ${logFile}`);
     
     return { stats, duration: endTime - startTime, errors };
     
