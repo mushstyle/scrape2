@@ -6,14 +6,16 @@ import type { CacheOptions, CacheStats, CacheEntry } from '../types/cache.js';
  */
 export class RequestCache {
   private cache: Map<string, CacheEntry> = new Map();
-  private stats = { hits: 0, misses: 0, bytesSaved: 0, bytesDownloaded: 0 };
+  private stats = { hits: 0, misses: 0, bytesSaved: 0, bytesDownloaded: 0, blockedImages: 0 };
   private totalSize = 0;
   private maxSizeBytes: number;
   private ttlSeconds?: number;
+  private blockImages: boolean;
 
-  constructor(options: CacheOptions) {
+  constructor(options: CacheOptions & { blockImages?: boolean }) {
     this.maxSizeBytes = options.maxSizeBytes;
     this.ttlSeconds = options.ttlSeconds;
+    this.blockImages = options.blockImages ?? false;
   }
 
   /**
@@ -25,6 +27,13 @@ export class RequestCache {
         const request = route.request();
         const method = request.method();
         const url = request.url();
+        const resourceType = request.resourceType();
+
+        // First priority: Block images if enabled
+        if (this.blockImages && (resourceType === 'image' || url.match(/\.(png|jpg|jpeg|gif|webp|svg|ico)(\?.*)?$/i))) {
+          this.stats.blockedImages++;
+          return await route.abort();
+        }
 
         // Only cache GET requests
         if (method !== 'GET') {
@@ -176,14 +185,15 @@ export class RequestCache {
   /**
    * Get cache statistics
    */
-  getStats(): CacheStats & { bytesSaved: number; bytesDownloaded: number } {
+  getStats(): CacheStats & { bytesSaved: number; bytesDownloaded: number; blockedImages: number } {
     return {
       hits: this.stats.hits,
       misses: this.stats.misses,
       sizeBytes: this.totalSize,
       itemCount: this.cache.size,
       bytesSaved: this.stats.bytesSaved,
-      bytesDownloaded: this.stats.bytesDownloaded
+      bytesDownloaded: this.stats.bytesDownloaded,
+      blockedImages: this.stats.blockedImages
     };
   }
 

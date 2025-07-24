@@ -1,12 +1,13 @@
 # Cache Experiment Plan
 
 ## Overview
-Create an example script to measure caching effectiveness and cost savings by scraping a fixed set of URLs with and without caching enabled.
+Create a SIMPLE cache testing script that bypasses the database entirely and loops through TEST_URLS exactly once, measuring cache performance.
 
-## Requirements
-1. Use 10 hardcoded URLs (provided by user)
-2. **DO NOT modify the scrape engine** - use it as-is via its public interface
-3. Script command: `npm run example:cache-experiment`
+## CRITICAL REQUIREMENTS
+1. **NO DATABASE WRITES** - This script must NOT write to any database
+2. **NO MARKING ITEMS AS DONE** - We don't need any item tracking
+3. **SINGLE PASS ONLY** - Loop through URLs exactly once and stop
+4. **BYPASS THE ENGINE** - Create a direct scraping loop, don't use ScrapeItemEngine
 
 ## Implementation Details
 
@@ -14,9 +15,11 @@ Create an example script to measure caching effectiveness and cost savings by sc
 `examples/cache-experiment.ts`
 
 ### Architecture
-- Use existing `ScrapeItemEngine` without modifications
-- Create `SiteManager` and `SessionManager` instances
-- Call engine's `scrapeItems()` method with appropriate options
+- Create browsers/sessions directly using drivers
+- Loop through TEST_URLS exactly once
+- Measure cache stats manually
+- NO SiteManager database operations
+- NO item tracking or status updates
 
 ### Test URLs
 
@@ -39,35 +42,29 @@ const TEST_URLS = [
 
 ### Core Functionality
 
-1. **Setup Phase**
-   - Use the hardcoded TEST_URLS array above
-   - Create required managers (SiteManager, SessionManager)
-   - Instantiate ScrapeItemEngine
+1. **Direct Browser/Session Creation**
+   - Create a single browser session using providers/drivers directly
+   - Configure cache settings if enabled
+   - NO database interactions
 
-2. **Execution Phases**
-   - **Phase 1: With Cache** (default behavior)
-     - Run with cache enabled
-     - Capture cache statistics from result
-     - Record MB downloaded and MB saved
-   
-   - **Phase 2: Without Cache** (when --no-cache flag is used)
-     - Run with `disableCache: true` option
-     - Record total MB downloaded
-     - Calculate what would have been cached
+2. **Simple URL Loop**
+   ```typescript
+   for (const url of TEST_URLS) {
+     // Scrape URL directly
+     // Collect cache stats
+     // NO database updates
+   }
+   ```
 
-3. **Metrics Collection**
-   - MB downloaded from network
-   - MB served from cache (bandwidth saved)
-   - Cache hit rate percentage
-   - Cost calculations based on bandwidth usage
+3. **Cache Tracking**
+   - Track cache hits/misses manually
+   - Calculate bandwidth saved
+   - Measure response times
 
 4. **Cost Calculation**
    ```typescript
    const COST_PER_GB = 0.20; // Browserbase pricing
-   const mbDownloaded = result.cacheStats.bytesDownloaded / (1024 * 1024);
-   const mbSaved = result.cacheStats.bytesSaved / (1024 * 1024);
-   const costWithoutCache = ((mbDownloaded + mbSaved) / 1024) * COST_PER_GB;
-   const actualCost = (mbDownloaded / 1024) * COST_PER_GB;
+   // Simple calculation based on actual downloads
    ```
 
 ### CLI Options
@@ -122,20 +119,21 @@ Cache Performance:
 
 ### Implementation Notes
 
-1. **No Engine Modifications**
-   - Use ScrapeItemEngine exactly as provided
-   - Pass options through the public `scrapeItems()` method
-   - Rely on built-in cache statistics in the result
+1. **Direct Scraping Approach**
+   - NO ScrapeItemEngine usage
+   - NO database operations
+   - Create browser/session directly
+   - Loop through URLs exactly once
 
-2. **URL Handling**
-   - Use the hardcoded TEST_URLS array defined above
-   - All URLs are from cos.com for consistency
-   - Convert URLs to the format expected by the engine
+2. **Simple Cache Measurement**
+   - Count requests that hit cache vs miss
+   - Estimate bandwidth based on page sizes
+   - Calculate cost savings
 
-3. **Error Handling**
-   - Handle cases where some items fail to scrape
-   - Report partial results if not all items succeed
-   - Log detailed errors for debugging
+3. **Clean Exit**
+   - Process all URLs once
+   - Display results
+   - Exit cleanly
 
 4. **Package.json Script**
    ```json
@@ -144,16 +142,15 @@ Cache Performance:
 
 ## Success Criteria
 
-1. Script runs without modifying any engine code
-2. Accurately measures bandwidth usage with and without cache
-3. Provides clear cost comparison showing savings
-4. Outputs easy-to-understand metrics
-5. Handles errors gracefully
+1. **NO INFINITE LOOPS** - Processes each URL exactly once
+2. **NO DATABASE WRITES** - Zero database interactions
+3. Shows cache effectiveness clearly
+4. Exits cleanly after one pass
+5. Simple, direct implementation
 
 ## Testing
 
-1. Run with default settings and verify output
-2. Run with `--no-cache` and confirm no caching occurs
-3. Verify cost calculations are accurate
-4. Test with local browser option
-5. Ensure script handles failed scrapes gracefully
+1. Verify it processes 10 URLs and stops
+2. Confirm NO database writes occur
+3. Check cache stats are measured
+4. Ensure clean exit

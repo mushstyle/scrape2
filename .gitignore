@@ -13,3 +13,6 @@ smoke_output_*.json
 db/proxies.json
 db/proxy-strategies.json
 db/proxy-cooldowns.json
+
+# logs
+cache-experiment-*
