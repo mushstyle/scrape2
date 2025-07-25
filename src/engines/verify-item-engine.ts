@@ -12,6 +12,7 @@ import { createBrowserFromSession } from '../drivers/browser.js';
 import { logger } from '../utils/logger.js';
 import { loadScraper } from '../drivers/scraper-loader.js';
 import { extractDomain } from '../utils/url-utils.js';
+import { RequestCache } from '../drivers/cache.js';
 
 const log = logger.createContext('verify-item-engine');
 
@@ -76,6 +77,13 @@ export class VerifyItemEngine {
       const { browser, createContext } = await createBrowserFromSession(session);
       const context = await createContext();
       const page = await context.newPage();
+      
+      // Enable caching with image blocking for bandwidth savings
+      const cache = new RequestCache({
+        maxSizeBytes: 50 * 1024 * 1024, // 50MB for single page verification
+        blockImages: true  // Block images by default
+      });
+      await cache.enableForPage(page);
       
       // Navigate to item URL
       log.normal(`Navigating to ${options.url}`);

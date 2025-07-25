@@ -113,3 +113,73 @@ test('RequestCache - TTL expiration', async () => {
 
   await browser.close();
 });
+
+test('RequestCache - image blocking', async () => {
+  const cache = new RequestCache({
+    maxSizeBytes: 10 * 1024 * 1024,
+    blockImages: true
+  });
+
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  
+  // Track requests
+  let imageRequests = 0;
+  page.on('request', (request) => {
+    if (request.resourceType() === 'image' || request.url().match(/\.(png|jpg|jpeg|gif|webp|svg|ico)(\?.*)?$/i)) {
+      imageRequests++;
+    }
+  });
+  
+  await cache.enableForPage(page);
+
+  // Use a simple HTML page with an image
+  await page.setContent(`
+    <html>
+      <body>
+        <img src="https://httpbin.org/image/png" />
+        <img src="https://httpbin.org/image/jpeg" />
+      </body>
+    </html>
+  `);
+  
+  // Wait a bit for image requests to be made
+  await page.waitForTimeout(500);
+  
+  // Should have blocked images
+  const stats = cache.getStats();
+  expect(stats.blockedImages).toBe(imageRequests);
+  expect(stats.blockedImages).toBeGreaterThan(0);
+
+  await browser.close();
+});
+
+test('RequestCache - no image blocking when disabled', async () => {
+  const cache = new RequestCache({
+    maxSizeBytes: 10 * 1024 * 1024,
+    blockImages: false
+  });
+
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  
+  await cache.enableForPage(page);
+
+  // Use a simple HTML page with an image
+  await page.setContent(`
+    <html>
+      <body>
+        <img src="https://httpbin.org/image/png" />
+      </body>
+    </html>
+  `);
+  
+  // Wait a bit for image request
+  await page.waitForTimeout(500);
+  
+  // Should not have blocked any images
+  const stats = cache.getStats();
+  expect(stats.blockedImages).toBe(0);
+
+  await browser.close();
+});

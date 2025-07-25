@@ -15,7 +15,15 @@ The scraping engines use an in-memory request cache to avoid redundant downloads
 --cache-size-mb 250      # Maximum cache size in MB (default: 250)
 --cache-ttl-seconds 300  # Time-to-live in seconds (default: 300 = 5 minutes)
 --disable-cache          # Disable caching entirely
+--no-block-images        # Disable image blocking (images blocked by default)
 ```
+
+### Image Blocking
+The cache now includes integrated image blocking to save bandwidth:
+- **Enabled by default**: Images are automatically blocked to reduce bandwidth usage
+- **85%+ bandwidth savings**: Typical savings when scraping sites with many images
+- **Use `--no-block-images`**: To disable for debugging or when images are needed
+- **Tracked in stats**: See `blockedImages` count in cache statistics
 
 ## When Caching Helps
 - **Item Scraping**: Multiple product pages from the same site share CSS/JS/images

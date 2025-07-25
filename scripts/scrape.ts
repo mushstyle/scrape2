@@ -33,6 +33,7 @@ interface PaginateOptions {
   disableCache?: boolean;
   cacheSizeMB?: number;
   cacheTTLSeconds?: number;
+  blockImages?: boolean;
   noSave?: boolean;
   localHeadless?: boolean;
   localHeaded?: boolean;
@@ -49,6 +50,7 @@ interface ItemsOptions {
   disableCache?: boolean;
   cacheSizeMB?: number;
   cacheTTLSeconds?: number;
+  blockImages?: boolean;
   noSave?: boolean;
   localHeadless?: boolean;
   localHeaded?: boolean;
@@ -166,6 +168,7 @@ async function main() {
       console.log('  --disable-cache           Disable request caching');
       console.log('  --cache-size-mb N         Cache size in MB (default: 100)');
       console.log('  --cache-ttl-seconds N     Cache TTL in seconds (default: 300)');
+      console.log('  --no-block-images         Disable image blocking (images blocked by default)');
       console.log('  --no-save                 Skip saving to database');
       console.log('  --local-headless          Use local browser in headless mode');
       console.log('  --local-headed            Use local browser in headed mode');
