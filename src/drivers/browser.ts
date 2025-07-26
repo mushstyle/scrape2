@@ -49,6 +49,8 @@ export async function createBrowserFromSession(
       browser.on('disconnected', () => {
         // Log but don't throw - this is expected when sessions expire
         log.error(`Browser disconnected for session ${sessionId}`);
+        // Mark browser as disconnected to trigger recreation on next use
+        (browser as any)._isDisconnected = true;
       });
       
       // Catch any errors emitted by the browser
@@ -114,12 +116,18 @@ export async function createBrowserFromSession(
     return context;
   };
 
+  // Add a custom isConnected method that checks our disconnect flag
+  (browser as any).isConnectedSafe = () => {
+    return browser.isConnected() && !(browser as any)._isDisconnected;
+  };
+
   return {
     browser,
     createContext,
     cleanup: async () => {
       await browser.close();
-      await session.cleanup();
+      // Don't call session.cleanup() here - let SessionManager handle session lifecycle
+      // await session.cleanup();
     }
   };
 }

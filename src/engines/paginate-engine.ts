@@ -535,7 +535,11 @@ export class PaginateEngine {
     await Promise.all(
       Array.from(usedSessionIds).map(async sessionId => {
         const sessionData = sessionDataMap.get(sessionId);
-        if (sessionData && !sessionData.browser) {
+        // Check if browser needs to be created or recreated (if disconnected)
+        const needsBrowser = sessionData && (!sessionData.browser || 
+          !(sessionData.browser as any).isConnectedSafe?.() || 
+          !sessionData.browser.isConnected());
+        if (needsBrowser) {
           try {
             const { browser, createContext } = await createBrowserFromSession(sessionData.session);
             sessionData.browser = browser;
