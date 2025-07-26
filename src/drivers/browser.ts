@@ -16,7 +16,6 @@ export interface BrowserFromSessionOptions {
 export interface BrowserFromSessionResult {
   browser: Browser;
   createContext: (options?: BrowserContextOptions) => Promise<BrowserContext>;
-  cleanup: () => Promise<void>;
 }
 
 export interface BrowserContextOptions {
@@ -123,12 +122,7 @@ export async function createBrowserFromSession(
 
   return {
     browser,
-    createContext,
-    cleanup: async () => {
-      await browser.close();
-      // Don't call session.cleanup() here - let SessionManager handle session lifecycle
-      // await session.cleanup();
-    }
+    createContext
   };
 }
 
