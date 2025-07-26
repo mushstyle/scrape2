@@ -18,10 +18,12 @@ async function testRawAPI() {
     throw new Error('Missing BROWSERBASE_API_KEY or BROWSERBASE_PROJECT_ID');
   }
 
-  const url = new URL('https://api.browserbase.com/v1/sessions');
-  url.searchParams.set('projectId', projectId);
+  // Test without status filter
+  log.normal('Testing API without status filter...');
+  const urlAll = new URL('https://api.browserbase.com/v1/sessions');
+  urlAll.searchParams.set('projectId', projectId);
 
-  const response = await fetch(url.toString(), {
+  const responseAll = await fetch(urlAll.toString(), {
     method: 'GET',
     headers: {
       'X-BB-API-Key': apiKey,
@@ -29,9 +31,37 @@ async function testRawAPI() {
     }
   });
 
-  const data = await response.json();
-  log.normal('Raw API response:');
-  console.log(JSON.stringify(data, null, 2));
+  const dataAll = await responseAll.json();
+  log.normal(`Total sessions without filter: ${dataAll.length}`);
+  
+  // Count by status
+  const statusCounts: Record<string, number> = {};
+  dataAll.forEach((session: any) => {
+    statusCounts[session.status] = (statusCounts[session.status] || 0) + 1;
+  });
+  log.normal('Sessions by status:', statusCounts);
+
+  // Test with status=RUNNING filter
+  log.normal('\nTesting API with status=RUNNING filter...');
+  const urlRunning = new URL('https://api.browserbase.com/v1/sessions');
+  urlRunning.searchParams.set('projectId', projectId);
+  urlRunning.searchParams.set('status', 'RUNNING');
+
+  const responseRunning = await fetch(urlRunning.toString(), {
+    method: 'GET',
+    headers: {
+      'X-BB-API-Key': apiKey,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  const dataRunning = await responseRunning.json();
+  log.normal(`Sessions with status=RUNNING filter: ${dataRunning.length}`);
+  
+  if (dataRunning.length > 0) {
+    log.normal('Sample RUNNING session:');
+    console.log(JSON.stringify(dataRunning[0], null, 2));
+  }
 }
 
 async function main() {

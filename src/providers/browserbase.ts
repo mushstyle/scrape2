@@ -89,6 +89,7 @@ export async function listSessions(): Promise<BrowserbaseSession[]> {
 
   const url = new URL('https://api.browserbase.com/v1/sessions');
   url.searchParams.set('projectId', projectId);
+  url.searchParams.set('status', 'RUNNING');  // Only fetch RUNNING sessions
 
   const response = await fetch(url.toString(), {
     method: 'GET',
@@ -104,15 +105,13 @@ export async function listSessions(): Promise<BrowserbaseSession[]> {
   }
 
   const data = await response.json();
-  const allSessions = Array.isArray(data) ? data : (data.sessions || []);
+  const runningSessions = Array.isArray(data) ? data : (data.sessions || []);
   
-  // Filter for only RUNNING sessions (browserbase returns all sessions including COMPLETED)
-  const activeSessions = allSessions.filter((session: any) => {
-    return session.status === 'RUNNING';
-  });
+  // No need to filter - API already returns only RUNNING sessions
+  log.debug(`Found ${runningSessions.length} running sessions`);
 
   // Map to our BrowserbaseSession type
-  return activeSessions.map((session: any) => ({
+  return runningSessions.map((session: any) => ({
     id: session.id,
     connectUrl: session.connectUrl || '',
     projectId: session.projectId
