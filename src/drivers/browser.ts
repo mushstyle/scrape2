@@ -4,7 +4,6 @@ import type { Session } from '../types/session.js';
 import { formatProxyForPlaywright } from './proxy.js';
 import { createSession as createBrowserbaseSessionProvider } from '../providers/browserbase.js';
 import { createSession as createLocalSessionProvider } from '../providers/local-browser.js';
-import { UnifiedRouteHandler } from './unified-route-handler.js';
 import type { RequestCache } from './cache.js';
 import { logger } from '../utils/logger.js';
 
@@ -106,16 +105,10 @@ export async function createBrowserFromSession(
       log.debug('Browser context closed');
     });
 
-    // Add image blocking if requested
-    // Note: Cache handler is added separately and takes priority
+    // Image blocking removed - now handled by RequestCache
+    // The blockImages option is deprecated and will be removed in a future version
     if (blockImages) {
-      await context.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico}', async (route) => {
-        try {
-          await route.abort();
-        } catch (error: any) {
-          // Ignore errors - route might be handled by another handler
-        }
-      });
+      log.debug('blockImages option is deprecated. Image blocking is now handled by RequestCache.');
     }
 
     return context;

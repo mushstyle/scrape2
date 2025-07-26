@@ -222,3 +222,32 @@ Implementation details must not leak across layer boundaries. Change internals w
 - **Easy testing** - Clear mocking boundaries
 - **Parallel development** - Teams can work on different layers
 - **Onboarding speed** - New developers understand structure quickly
+
+## Browser and Cache Architecture
+
+### Browser Creation Flow
+The correct flow for creating browsers is: **Provider → Session → Browser (via browser.ts driver)**
+
+1. **Providers** create platform-specific sessions (Browserbase, local)
+2. **SessionManager** (service) manages session lifecycle
+3. **browser.ts** (driver) creates Playwright browser from session
+4. **Never** call playwright's chromium.launch() directly
+
+### Request Caching and Image Blocking
+The RequestCache (driver) handles both caching and image blocking:
+
+- **Single Route Handler**: Avoids conflicts between multiple handlers
+- **Image Blocking First**: Images blocked before cache checks
+- **Bandwidth Savings**: 85%+ reduction with image blocking enabled
+- **Default Behavior**: Images blocked by default, disable with `--no-block-images`
+
+```typescript
+// ✅ Correct: Cache with integrated image blocking
+const cache = new RequestCache({
+  maxSizeBytes: 100 * 1024 * 1024,
+  blockImages: true  // Images blocked at cache layer
+});
+
+// ❌ Wrong: Separate image blocking (causes conflicts)
+await context.route('**/*.{png,jpg}', route => route.abort());
+```

@@ -12,6 +12,7 @@ import { logger } from '../utils/logger.js';
 import { loadScraper } from '../drivers/scraper-loader.js';
 import { targetsToSessions } from '../core/distributor.js';
 import { urlsToScrapeTargets } from '../utils/scrape-target-utils.js';
+import { RequestCache } from '../drivers/cache.js';
 import type { Session } from '../types/session.js';
 import type { SessionInfo } from '../core/distributor.js';
 import type { ScrapeTarget } from '../types/scrape-target.js';
@@ -148,6 +149,13 @@ export class VerifyPaginateEngine {
           
           // Create page and navigate ONCE
           const page = await sessionData.context!.newPage();
+          
+          // Enable caching with image blocking for bandwidth savings
+          const cache = new RequestCache({
+            maxSizeBytes: 100 * 1024 * 1024, // 100MB for pagination verification
+            blockImages: true  // Block images by default
+          });
+          await cache.enableForPage(page);
           
           log.normal(`Navigating to ${pair.url}`);
           await page.goto(pair.url, { waitUntil: 'domcontentloaded', timeout: 15000 });

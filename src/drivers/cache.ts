@@ -15,7 +15,7 @@ export class RequestCache {
   constructor(options: CacheOptions & { blockImages?: boolean }) {
     this.maxSizeBytes = options.maxSizeBytes;
     this.ttlSeconds = options.ttlSeconds;
-    this.blockImages = options.blockImages ?? false;
+    this.blockImages = options.blockImages ?? true;  // Default to true for bandwidth savings
   }
 
   /**

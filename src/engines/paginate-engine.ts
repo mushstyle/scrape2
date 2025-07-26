@@ -23,6 +23,7 @@ export interface PaginateOptions {
   disableCache?: boolean;  // Cache ON by default
   cacheSizeMB?: number;  // Default: 250
   cacheTTLSeconds?: number;  // Default: 300 (5 minutes)
+  blockImages?: boolean;  // Block images in cache (default: true)
   noSave?: boolean;  // Save to DB by default
   localHeadless?: boolean;  // Use local browser in headless mode
   localHeaded?: boolean;  // Use local browser in headed mode
@@ -106,7 +107,8 @@ export class PaginateEngine {
       if (!options.disableCache && !this.globalCache) {
         this.globalCache = new RequestCache({
           maxSizeBytes: cacheSizeMB * 1024 * 1024,
-          ttlSeconds: cacheTTLSeconds
+          ttlSeconds: cacheTTLSeconds,
+          blockImages: options.blockImages !== false  // Default to true
         });
         log.normal(`Created global cache`);
       }
