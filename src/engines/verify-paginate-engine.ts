@@ -29,6 +29,7 @@ interface SessionWithBrowser {
 
 export interface VerifyPaginateOptions {
   domain: string;
+  specificUrl?: string;  // Optional: test only this specific URL
   maxIterations?: number;
   maxPages?: number;
   useSingleSession?: boolean;
@@ -72,7 +73,12 @@ export class VerifyPaginateEngine {
         throw new Error(`No site config for ${options.domain}`);
       }
       
-      if (!siteConfig.startPages?.length) {
+      // Use specific URL if provided, otherwise use all start pages
+      const startPages = options.specificUrl 
+        ? [options.specificUrl] 
+        : siteConfig.startPages || [];
+      
+      if (!startPages.length) {
         throw new Error(`No start pages configured for ${options.domain}`);
       }
       
@@ -82,10 +88,14 @@ export class VerifyPaginateEngine {
       
       // Get session limit and create sessions
       const sessionLimit = await this.siteManager.getSessionLimitForDomain(options.domain);
-      const sessionsToCreate = Math.min(sessionLimit, siteConfig.startPages.length);
+      const sessionsToCreate = Math.min(sessionLimit, startPages.length);
       
       log.normal(`Site: ${options.domain}`);
-      log.normal(`Start pages: ${siteConfig.startPages.length}`);
+      if (options.specificUrl) {
+        log.normal(`Testing specific URL: ${options.specificUrl}`);
+      } else {
+        log.normal(`Start pages: ${startPages.length}`);
+      }
       log.normal(`Session limit: ${sessionLimit}`);
       log.normal(`Creating ${sessionsToCreate} sessions`);
       
@@ -113,7 +123,7 @@ export class VerifyPaginateEngine {
       }
       
       // Start with initial URLs as ScrapeTargets
-      const targets = urlsToScrapeTargets(siteConfig.startPages);
+      const targets = urlsToScrapeTargets(startPages);
       const maxPages = options.maxPages || Infinity;  // NO LIMIT by default!
       
       // Use distributor to match URLs to sessions
@@ -195,7 +205,7 @@ export class VerifyPaginateEngine {
       const result: VerifyPaginateResult = {
         success: errors.length === 0,
         domain: options.domain,
-        startPagesCount: siteConfig.startPages.length,
+        startPagesCount: startPages.length,
         totalPagesScraped,
         totalUniqueUrls: allUrls.size,
         errors,

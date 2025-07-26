@@ -132,8 +132,29 @@ export class SessionManager {
       }
     });
     
-    // Wait for all sessions to be created
-    const sessions = await Promise.all(sessionPromises);
+    // Wait for all sessions to be created, handling partial failures
+    const results = await Promise.allSettled(sessionPromises);
+    const sessions: Session[] = [];
+    const failures: Error[] = [];
+    
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        sessions.push(result.value);
+      } else {
+        failures.push(result.reason);
+        log.error(`Failed to create session ${index + 1}/${optionsToProcess.length}: ${result.reason.message}`);
+      }
+    });
+    
+    // If all sessions failed, throw the first error
+    if (sessions.length === 0 && failures.length > 0) {
+      throw failures[0];
+    }
+    
+    // Log summary if some failed
+    if (failures.length > 0) {
+      log.normal(`Created ${sessions.length}/${optionsToProcess.length} sessions (${failures.length} failed)`);
+    }
     
     // Return single session or array based on input
     return isArray ? sessions : sessions[0];

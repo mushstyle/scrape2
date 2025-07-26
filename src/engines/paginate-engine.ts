@@ -245,6 +245,7 @@ export class PaginateEngine {
           urlToSite,
           maxPages,
           maxRetries,
+          processedUrls,
           options.disableCache ? undefined : { cacheSizeMB, cacheTTLSeconds }
         );
         
@@ -299,10 +300,8 @@ export class PaginateEngine {
           }
         }
         
-        // Mark URLs as processed based on what was actually matched
-        for (const pair of finalPairs) {
-          processedUrls.add(pair.url);
-        }
+        // Don't mark URLs as processed here - wait until they actually complete
+        // This ensures browser-disconnected URLs get retried
         batchNumber++;
       }
       
@@ -530,18 +529,34 @@ export class PaginateEngine {
     
     // Pass all requests as an array to avoid race condition in session limit check
     const newSessions = await this.sessionManager.createSession(newSessionRequests) as Session[];
-    log.normal(`Created ${newSessions.length} new sessions`);
+    
+    // Handle case where some sessions failed to create
+    if (newSessions.length === 0) {
+      log.error('Failed to create any new sessions');
+      return;
+    }
+    
+    if (newSessions.length < newSessionRequests.length) {
+      log.normal(`Created ${newSessions.length}/${newSessionRequests.length} sessions (some failed)`);
+    } else {
+      log.normal(`Created ${newSessions.length} new sessions`);
+    }
     
     // Add new sessions to our tracking
-    newSessions.forEach((session, i) => {
-      const originalRequest = newSessionRequests[i];
+    newSessions.forEach((session) => {
       // Use the actual session ID so it can be matched across batches
       const sessionId = this.getSessionId(session);
+      
+      // Get proxy info from the session itself
+      const proxyInfo = session.provider === 'browserbase' 
+        ? session.browserbase?.proxy 
+        : session.local?.proxy;
+      
       const sessionInfo: SessionInfo = {
         id: sessionId,
-        proxyType: originalRequest.proxy?.type as any || 'none',
-        proxyId: originalRequest.proxy?.id,
-        proxyGeo: originalRequest.proxy?.geo
+        proxyType: proxyInfo?.type as any || 'none',
+        proxyId: proxyInfo?.id,
+        proxyGeo: proxyInfo?.geo
       };
       const data = { session, sessionInfo };
       sessionDataMap.set(sessionInfo.id, data);
@@ -555,6 +570,7 @@ export class PaginateEngine {
     urlToSite: Map<string, string>,
     maxPages: number,
     maxRetries: number,
+    processedUrls: Set<string>,
     cacheOptions?: { cacheSizeMB: number; cacheTTLSeconds: number }
   ): Promise<CacheStats | undefined> {
     // Create browsers only for sessions that will be used
@@ -628,7 +644,8 @@ export class PaginateEngine {
         site,
         sessionData,
         maxPages,
-        maxRetries
+        maxRetries,
+        processedUrls
       );
     }));
     
@@ -667,13 +684,16 @@ export class PaginateEngine {
     site: string,
     sessionData: SessionWithBrowser,
     maxPages: number,
-    maxRetries: number
+    maxRetries: number,
+    processedUrls: Set<string>
   ): Promise<void> {
     let lastError: Error | undefined;
     
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         await this.processUrl(url, site, sessionData, maxPages);
+        // Mark as processed only on successful completion
+        processedUrls.add(url);
         return; // Success
       } catch (error) {
         lastError = error as Error;
@@ -698,6 +718,8 @@ export class PaginateEngine {
             failureCount: 1,
             failureHistory: [`Missing scraper: ${lastError.message}`]
           });
+          // Mark as processed since we're done with it
+          processedUrls.add(url);
           return;
         }
         
@@ -722,6 +744,8 @@ export class PaginateEngine {
             failureCount: attempt + 1,
             failureHistory: [lastError.message]
           });
+          // Mark as processed since we're done with it (failed permanently)
+          processedUrls.add(url);
           return;
         }
         

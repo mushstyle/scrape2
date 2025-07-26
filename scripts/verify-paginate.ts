@@ -16,7 +16,7 @@ const log = logger.createContext('verify-paginate');
 
 async function main() {
   const args = process.argv.slice(2);
-  const domain = args[0];
+  const input = args[0];
   
   // Parse optional flags
   const useSingleSession = args.includes('--single');
@@ -28,18 +28,26 @@ async function main() {
     maxPages = parseInt(maxPagesArg.replace('--max-pages=', ''), 10);
   }
   
-  if (!domain) {
-    console.log('Usage: npm run verify:paginate <SITE> [--single] [--max-pages=N]');
-    console.log('Example: npm run verify:paginate amgbrand.com');
-    console.log('Example: npm run verify:paginate amgbrand.com --single  # Only scrapes one start page');
-    console.log('Example: npm run verify:paginate amgbrand.com --max-pages=3  # Limit to 3 pages');
+  if (!input) {
+    console.log('Usage: npm run verify:paginate <SITE|URL> [--single] [--max-pages=N]');
+    console.log('Examples:');
+    console.log('  npm run verify:paginate amgbrand.com');
+    console.log('  npm run verify:paginate https://musthave.ua/en/catalog/obuv?page=1');
+    console.log('  npm run verify:paginate amgbrand.com --single  # Only scrapes one start page');
+    console.log('  npm run verify:paginate amgbrand.com --max-pages=3  # Limit to 3 pages');
     process.exit(1);
   }
+  
+  // Determine if input is a URL or domain
+  const isUrl = input.startsWith('http://') || input.startsWith('https://');
+  const domain = isUrl ? new URL(input).hostname : input;
+  const specificUrl = isUrl ? input : undefined;
   
   try {
     const engine = new VerifyPaginateEngine();
     const result = await engine.verify({ 
       domain,
+      specificUrl,
       maxPages,  // NO DEFAULT LIMIT!
       useSingleSession
     });
