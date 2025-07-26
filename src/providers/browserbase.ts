@@ -106,12 +106,9 @@ export async function listSessions(): Promise<BrowserbaseSession[]> {
   const data = await response.json();
   const allSessions = Array.isArray(data) ? data : (data.sessions || []);
   
-  // Filter for only active sessions
+  // Filter for only RUNNING sessions (browserbase returns all sessions including COMPLETED)
   const activeSessions = allSessions.filter((session: any) => {
-    const statusLower = session.status?.toLowerCase();
-    const isActiveStatus = !session.status || statusLower === 'active' || statusLower === 'running';
-    const notExpired = !session.expiresAt || new Date(session.expiresAt) > new Date();
-    return isActiveStatus && notExpired;
+    return session.status === 'RUNNING';
   });
 
   // Map to our BrowserbaseSession type

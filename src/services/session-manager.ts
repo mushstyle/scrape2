@@ -34,6 +34,29 @@ export class SessionManager {
    * Get all active sessions (returns actual Session objects)
    */
   async getActiveSessions(): Promise<Session[]> {
+    // For browserbase, verify which sessions are actually still running
+    if (this.provider === 'browserbase') {
+      const { listSessions } = await import('../providers/browserbase.js');
+      const runningBrowserbaseSessions = await listSessions();
+      const runningIds = new Set(runningBrowserbaseSessions.map(s => s.id));
+      
+      // Remove any sessions that browserbase reports as not running
+      const toRemove: string[] = [];
+      for (const [id, metadata] of this.sessions.entries()) {
+        if (metadata.session.provider === 'browserbase' && 
+            metadata.session.browserbase && 
+            !runningIds.has(metadata.session.browserbase.id)) {
+          toRemove.push(id);
+          log.normal(`Session ${id.substring(0, 8)}... no longer running on browserbase, removing from tracking`);
+        }
+      }
+      
+      // Remove dead sessions
+      for (const id of toRemove) {
+        this.sessions.delete(id);
+      }
+    }
+    
     const activeSessions = Array.from(this.sessions.values())
       .filter(metadata => metadata.isActive)
       .map(metadata => metadata.session);
