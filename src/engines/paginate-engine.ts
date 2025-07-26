@@ -248,6 +248,7 @@ export class PaginateEngine {
           options.disableCache ? undefined : { cacheSizeMB, cacheTTLSeconds }
         );
         
+        // No special handling needed - disconnected URLs just stay unprocessed
         
         // Merge cache stats
         if (batchCacheStats) {
@@ -279,8 +280,15 @@ export class PaginateEngine {
               const hasAnyUrls = Array.from(partialRun.paginationStates.values())
                 .some(state => state.collectedUrls.length > 0);
               
+              // Only commit if ALL paginations are complete AND we have URLs
+              // This prevents committing runs where some URLs failed due to browser disconnection
               if (allStatesCompleted && hasAnyUrls) {
                 completedSites.add(site);
+              } else if (!allStatesCompleted) {
+                // Log why we're not committing yet
+                const incompleteCount = Array.from(partialRun.paginationStates.values())
+                  .filter(state => !state.completed).length;
+                log.debug(`Not committing ${site} yet: ${incompleteCount} pagination(s) still incomplete`);
               }
             }
           }
@@ -319,18 +327,42 @@ export class PaginateEngine {
       // Step 10: Commit any remaining partial runs if not noSave
       if (!options.noSave) {
         const remainingSites = await this.siteManager.getSitesWithPartialRuns();
-        const uncommittedSites = [];
+        const completedSites = [];
+        const incompleteSites = [];
         
         for (const site of remainingSites) {
           const partialRun = this.getPartialRunForSite(site);
           if (partialRun && !partialRun.committedToDb) {
-            uncommittedSites.push(site);
+            // Check if all pagination states are completed
+            const allStatesCompleted = Array.from(partialRun.paginationStates.values())
+              .every(state => state.completed);
+            const hasAnyUrls = Array.from(partialRun.paginationStates.values())
+              .some(state => state.collectedUrls.length > 0);
+            
+            if (allStatesCompleted && hasAnyUrls) {
+              completedSites.push(site);
+            } else {
+              incompleteSites.push(site);
+              // Log details about incomplete runs
+              const incompleteStates = Array.from(partialRun.paginationStates.entries())
+                .filter(([_, state]) => !state.completed)
+                .map(([url, _]) => url);
+              log.normal(`⚠️  ${site}: ${incompleteStates.length} incomplete paginations - run will not be committed`);
+              if (incompleteStates.length > 0) {
+                log.normal(`   Incomplete URLs: ${incompleteStates.join(', ')}`);
+              }
+            }
           }
         }
         
-        if (uncommittedSites.length > 0) {
-          log.normal(`Committing ${uncommittedSites.length} remaining runs`);
-          await this.commitPartialRuns(new Set(uncommittedSites), errors);
+        if (completedSites.length > 0) {
+          log.normal(`Committing ${completedSites.length} completed runs`);
+          await this.commitPartialRuns(new Set(completedSites), errors);
+        }
+        
+        if (incompleteSites.length > 0) {
+          log.normal(`⚠️  ${incompleteSites.length} runs have incomplete paginations and were not committed`);
+          log.normal(`   Re-run pagination for these sites to complete: ${incompleteSites.join(', ')}`);
         }
       }
       
@@ -646,13 +678,13 @@ export class PaginateEngine {
       } catch (error) {
         lastError = error as Error;
         const isNetworkError = this.isNetworkError(error);
-        const isTargetClosedError = lastError.message.includes('Target page, context or browser has been closed');
+        const isBrowserClosedError = this.isBrowserClosedError(lastError);
         
-        if (isTargetClosedError) {
-          // For target closed errors, don't mark as failed - leave for next batch
-          log.error(`Target closed while processing ${url}: ${lastError.message}`);
+        if (isBrowserClosedError) {
+          // Browser disconnected - just skip this URL, it will be picked up in next batch
+          log.error(`Browser disconnected while processing ${url}: ${lastError.message}`);
           log.normal(`URL ${url} will be retried in the next batch`);
-          // Don't update pagination state - leave it incomplete for retry
+          // Don't update pagination state - leave it incomplete
           return;
         }
         
@@ -791,6 +823,22 @@ export class PaginateEngine {
     return message.includes('Failed to load scraper') || 
            message.includes('Cannot find module') ||
            message.includes('ERR_MODULE_NOT_FOUND');
+  }
+  
+  private isBrowserClosedError(error: any): boolean {
+    const message = error?.message?.toLowerCase() || '';
+    return message.includes('target page, context or browser has been closed') ||
+           message.includes('browser has been closed') ||
+           message.includes('context has been closed') ||
+           message.includes('target closed') ||
+           message.includes('session not found') ||
+           message.includes('session expired') ||
+           message.includes('websocket') ||
+           message.includes('disconnected') ||
+           message.includes('connection closed') ||
+           message.includes('browser is closed') ||
+           message.includes('execution context was destroyed') ||
+           message.includes('page has been closed');
   }
   
   private async commitPartialRuns(
