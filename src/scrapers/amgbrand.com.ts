@@ -37,70 +37,56 @@ export async function getItemUrls(page: Page): Promise<Set<string>> {
 }
 
 /**
- * Attempts to load more products using infinite scroll.
+ * Attempts to load more products by appending page numbers to URL.
  * @param page Playwright page object
  * @returns `true` if more products were loaded, `false` if no more products to load.
  */
 export async function paginate(page: Page): Promise<boolean> {
   try {
-    // Get initial product count
-    const initialCount = await page.evaluate((selector) => {
-      return document.querySelectorAll(selector).length;
-    }, SELECTORS.productLinks);
+    // Check if "no products" message is present
+    const noProductsMessage = await page.evaluate(() => {
+      const element = document.querySelector('.spf-col-xl-12.spf-col-lg-12.spf-col-md-12.spf-col-sm-12');
+      return element?.textContent?.includes('Sorry, there are no products in this collection');
+    });
 
-    log.debug(`Current product count: ${initialCount}`);
-
-    // Multiple scroll attempts with different strategies
-    let newCount = initialCount;
-
-    // Strategy 1: Scroll to bottom
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await page.waitForTimeout(3000); // Longer wait for AJAX
-
-    newCount = await page.evaluate((selector) => {
-      return document.querySelectorAll(selector).length;
-    }, SELECTORS.productLinks);
-
-    // Strategy 2: If no new products, try scrolling up slightly then down again
-    if (newCount === initialCount) {
-      await page.evaluate(() => {
-        window.scrollTo(0, document.body.scrollHeight - 100);
-      });
-      await page.waitForTimeout(500);
-      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await page.waitForTimeout(2000);
-
-      newCount = await page.evaluate((selector) => {
-        return document.querySelectorAll(selector).length;
-      }, SELECTORS.productLinks);
+    if (noProductsMessage) {
+      log.debug('No products in collection message found');
+      return false;
     }
 
-    // Strategy 3: Check for loading indicators and wait if present
-    if (newCount === initialCount) {
-      const hasLoader = await page.evaluate(() => {
-        // Common loading indicator selectors
-        const loaders = document.querySelectorAll('.loading, .loader, [class*="load"], .spinner');
-        return loaders.length > 0;
-      });
+    // Get current URL and page number
+    const currentUrl = new URL(page.url());
+    const currentPage = parseInt(currentUrl.searchParams.get('page') || '1');
+    const nextPage = currentPage + 1;
 
-      if (hasLoader) {
-        log.debug('Found loading indicator, waiting...');
-        await page.waitForTimeout(3000);
-        newCount = await page.evaluate((selector) => {
-          return document.querySelectorAll(selector).length;
-        }, SELECTORS.productLinks);
-      }
-    }
+    // Update URL with next page number
+    currentUrl.searchParams.set('page', nextPage.toString());
+    
+    log.debug(`Navigating to page ${nextPage}: ${currentUrl.toString()}`);
+    
+    // Navigate to next page
+    await page.goto(currentUrl.toString(), { waitUntil: 'networkidle' });
 
-    if (newCount > initialCount) {
-      log.debug(`Loaded ${newCount - initialCount} more products via infinite scroll`);
-      return true; // More products were loaded
+    // Check if we have products on this page
+    const hasProducts = await page.evaluate((selector) => {
+      return document.querySelectorAll(selector).length > 0;
+    }, SELECTORS.productLinks);
+
+    // Also check for "no products" message after navigation
+    const noProductsAfterNav = await page.evaluate(() => {
+      const element = document.querySelector('.spf-col-xl-12.spf-col-lg-12.spf-col-md-12.spf-col-sm-12');
+      return element?.textContent?.includes('Sorry, there are no products in this collection');
+    });
+
+    if (hasProducts && !noProductsAfterNav) {
+      log.debug(`Successfully loaded page ${nextPage}`);
+      return true;
     } else {
-      log.debug(`No more products to load via infinite scroll (stuck at ${initialCount} products)`);
-      return false; // No more products
+      log.debug(`No more products found on page ${nextPage}`);
+      return false;
     }
   } catch (error) {
-    log.debug(`Infinite scroll pagination failed:`, error);
+    log.debug(`Pagination failed:`, error);
     return false;
   }
 }
