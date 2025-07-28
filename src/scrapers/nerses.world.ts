@@ -95,7 +95,6 @@ export async function scrapeItem(page: Page, options?: {
   const sourceUrl = page.url();
   try {
     // Page is already at sourceUrl, ensure content is loaded.
-    await page.waitForLoadState('networkidle'); // Retain this if important for the site
     await page.waitForSelector(SELECTORS.product.title, { timeout: 10000 });
 
     // Define intermediate type based on evaluate return
@@ -108,45 +107,67 @@ export async function scrapeItem(page: Page, options?: {
 
     const itemData: ScrapedData = await page.evaluate((s) => {
       const title = document.querySelector(s.product.title)?.textContent?.trim() || '';
-      const priceAttr = document.querySelector(s.product.price)?.getAttribute('content');
-      const priceText = document.querySelector(s.product.price)?.textContent?.trim() || '';
-      const price = priceAttr || priceText.replace(/[^0-9.,]/g, '');
-      const salePriceText = document.querySelector(s.product.salePrice)?.textContent?.trim();
-      const comparePriceText = document.querySelector(s.product.comparePrice)?.textContent?.trim();
-
-      let finalPriceStr = price;
-      let finalSalePriceStr: string | undefined = undefined;
-      if (salePriceText && comparePriceText) {
-        finalPriceStr = comparePriceText.replace(/[^0-9.,]/g, '');
-        finalSalePriceStr = salePriceText.replace(/[^0-9.,]/g, '');
-      } else if (salePriceText && !comparePriceText) {
-        finalPriceStr = salePriceText.replace(/[^0-9.,]/g, '');
-        finalSalePriceStr = finalPriceStr;
-      } else {
-        finalPriceStr = price;
+      
+      // Try to get price from the product JSON first
+      let numericPrice = 0;
+      let numericSalePrice: number | undefined = undefined;
+      let currency = 'EUR';
+      
+      try {
+        const productJsonScript = document.querySelector('script[data-product-json]');
+        if (productJsonScript && productJsonScript.textContent) {
+          const productData = JSON.parse(productJsonScript.textContent);
+          // Price in JSON is in cents (14000 = €140.00)
+          numericPrice = productData.price / 100;
+          if (productData.compare_at_price && productData.compare_at_price > productData.price) {
+            numericSalePrice = numericPrice;
+            numericPrice = productData.compare_at_price / 100;
+          }
+        }
+      } catch (e) {
+        // Fallback to DOM scraping
+        const priceElement = document.querySelector('[data-product-price] .money');
+        if (priceElement) {
+          const priceText = priceElement.textContent?.trim() || '';
+          numericPrice = parseFloat(priceText.replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
+        }
       }
-
-      // Parse prices to numbers within evaluate
-      const numericPrice = parseFloat(String(finalPriceStr || '0').replace(/,/g, '.')) || 0;
-      const numericSalePrice = finalSalePriceStr ? parseFloat(String(finalSalePriceStr).replace(/,/g, '.')) : undefined;
 
       const description = document.querySelector(s.product.description)?.textContent?.trim() || '';
       const product_id = document.querySelector(s.product.productId)?.getAttribute('value') || '';
 
       type IntermediateImage = { sourceUrl: string; alt_text: string }; // alt_text is now required string
       let images: IntermediateImage[] = [];
+      
+      // First try to get images from product JSON
       try {
-        const productImagesJsonScript = document.querySelector(s.product.productImagesJson);
-        if (productImagesJsonScript && productImagesJsonScript.textContent) {
-          const imageData = JSON.parse(productImagesJsonScript.textContent);
-          if (Array.isArray(imageData)) {
-            images = imageData.map(imgData => ({
-              sourceUrl: imgData.fullSizeUrl.startsWith('//') ? `https:${imgData.fullSizeUrl}` : imgData.fullSizeUrl,
+        const productJsonScript = document.querySelector('script[data-product-json]');
+        if (productJsonScript && productJsonScript.textContent) {
+          const productData = JSON.parse(productJsonScript.textContent);
+          if (productData.images && Array.isArray(productData.images)) {
+            images = productData.images.map((imgUrl: string) => ({
+              sourceUrl: imgUrl.startsWith('//') ? `https:${imgUrl}` : imgUrl,
               alt_text: title || 'Product Image'
             }));
           }
         }
-      } catch (e) { log.error("Failed to parse product image JSON:", e); images = []; }
+      } catch (e) {
+        // Try the images JSON script as secondary option
+        try {
+          const productImagesJsonScript = document.querySelector(s.product.productImagesJson);
+          if (productImagesJsonScript && productImagesJsonScript.textContent) {
+            const imageData = JSON.parse(productImagesJsonScript.textContent);
+            if (Array.isArray(imageData)) {
+              images = imageData.map(imgData => ({
+                sourceUrl: imgData.fullSizeUrl.startsWith('//') ? `https:${imgData.fullSizeUrl}` : imgData.fullSizeUrl,
+                alt_text: title || 'Product Image'
+              }));
+            }
+          }
+        } catch (e2) { 
+          console.error("Failed to parse product image JSON:", e2); 
+        }
+      }
 
       if (images.length === 0) {
         log.debug("Falling back to extracting images from slider elements");
@@ -190,17 +211,17 @@ export async function scrapeItem(page: Page, options?: {
 
       // Return object matching ScrapedData
       return {
-        sourceUrl,
+        sourceUrl: window.location.href,
         title,
         description,
         product_status,
         images, // IntermediateImage[] is compatible
-        price: isNaN(numericPrice) ? 0 : numericPrice, // Assign parsed number
-        sale_price: numericSalePrice !== undefined && !isNaN(numericSalePrice) ? numericSalePrice : undefined, // Assign parsed number
+        price: numericPrice,
+        sale_price: numericSalePrice,
         sizes,
         product_id,
         vendor: s.product.vendor,
-        currency: 'EUR',
+        currency: currency,
         tags: [],
         type: undefined
       };
