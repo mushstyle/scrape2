@@ -20,6 +20,8 @@ async function main() {
   
   // Parse optional flags
   const useSingleSession = args.includes('--single');
+  const localHeadless = args.includes('--local-headless');
+  const localHeaded = args.includes('--local-headed');
   
   // Parse maxPages if provided
   let maxPages: number | undefined;
@@ -29,12 +31,18 @@ async function main() {
   }
   
   if (!input) {
-    console.log('Usage: npm run verify:paginate <SITE|URL> [--single] [--max-pages=N]');
+    console.log('Usage: npm run verify:paginate <SITE|URL> [options]');
+    console.log('Options:');
+    console.log('  --single           Only scrapes one start page');
+    console.log('  --max-pages=N      Limit to N pages');
+    console.log('  --local-headless   Use local browser in headless mode');
+    console.log('  --local-headed     Use local browser in headed mode');
     console.log('Examples:');
     console.log('  npm run verify:paginate amgbrand.com');
     console.log('  npm run verify:paginate https://musthave.ua/en/catalog/obuv?page=1');
-    console.log('  npm run verify:paginate amgbrand.com --single  # Only scrapes one start page');
-    console.log('  npm run verify:paginate amgbrand.com --max-pages=3  # Limit to 3 pages');
+    console.log('  npm run verify:paginate amgbrand.com --single');
+    console.log('  npm run verify:paginate amgbrand.com --max-pages=3');
+    console.log('  npm run verify:paginate amgbrand.com --local-headed');
     process.exit(1);
   }
   
@@ -44,12 +52,14 @@ async function main() {
   const specificUrl = isUrl ? input : undefined;
   
   try {
-    const engine = new VerifyPaginateEngine();
+    const engine = new VerifyPaginateEngine({ localHeadless, localHeaded });
     const result = await engine.verify({ 
       domain,
       specificUrl,
       maxPages,  // NO DEFAULT LIMIT!
-      useSingleSession
+      useSingleSession,
+      localHeadless,
+      localHeaded
     });
     
     // Display results
