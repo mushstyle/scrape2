@@ -61,8 +61,13 @@ interface ItemsOptions {
 
 async function runPaginate(options: PaginateOptions) {
   const siteManager = new SiteManager();
+  
+  // Determine provider based on browser flags
+  const provider = (options.localHeaded || options.localHeadless) ? 'local' : 'browserbase';
+  
   const sessionManager = new SessionManager({
-    sessionLimit: options.instanceLimit || 10
+    sessionLimit: options.instanceLimit || 10,
+    provider
   });
   
   await siteManager.loadSites();
@@ -105,8 +110,13 @@ async function runPaginate(options: PaginateOptions) {
 
 async function runItems(options: ItemsOptions) {
   const siteManager = new SiteManager();
+  
+  // Determine provider based on browser flags
+  const provider = (options.localHeaded || options.localHeadless) ? 'local' : 'browserbase';
+  
   const sessionManager = new SessionManager({
-    sessionLimit: options.instanceLimit || 10
+    sessionLimit: options.instanceLimit || 10,
+    provider
   });
   
   await siteManager.loadSites();
