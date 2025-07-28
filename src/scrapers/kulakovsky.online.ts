@@ -16,6 +16,8 @@ export const SELECTORS = {
   productGrid: '.collection-grid__item', // Updated to match new structure
   productLinks: 'product-card a[href*="/products/"]', // Updated to match new product card structure
   pagination: {
+    type: 'load-more' as const,
+    loadMoreSelector: 'button#load-more, button.load-more-button'
   },
   product: {
     title: 'h1.product-title',
@@ -53,26 +55,59 @@ export async function getItemUrls(page: Page): Promise<Set<string>> {
  */
 export async function paginate(page: Page): Promise<boolean> {
   try {
+    // Scroll to bottom first to trigger lazy loading of the button
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    
+    // Wait a bit for any dynamic content to load
+    await page.waitForTimeout(2000);
+    
     // Look for the load more button
     const loadMoreButton = await page.$('button#load-more, button.load-more-button');
     
     if (!loadMoreButton) {
-      log.debug('   No load more button found - pagination ended');
+      log.normal('   No load more button found - checking page structure...');
+      
+      // Check what's at the bottom of the page
+      const pageBottom = await page.evaluate(() => {
+        // Scroll to bottom
+        window.scrollTo(0, document.body.scrollHeight);
+        
+        // Look for any load more related elements
+        const loadMoreElements = {
+          buttons: Array.from(document.querySelectorAll('button')).map(b => ({
+            text: b.textContent?.trim(),
+            id: b.id,
+            className: b.className,
+            isVisible: b.offsetParent !== null
+          })),
+          hasMoreProducts: document.querySelector('.has-more-products'),
+          infiniteScroll: document.querySelector('[data-infinite-scroll]'),
+          pagination: document.querySelector('.pagination'),
+          pageBottom: document.body.scrollHeight
+        };
+        return loadMoreElements;
+      });
+      
+      log.normal('   Page analysis:', JSON.stringify(pageBottom, null, 2));
       return false;
     }
     
     // Check if the button is visible
     const isVisible = await loadMoreButton.isVisible();
     if (!isVisible) {
-      log.debug('   Load more button is not visible - pagination ended');
+      log.normal('   Load more button exists but is not visible - pagination ended');
       return false;
     }
     
+    log.normal('   Found visible load more button');
+    
     // Get the current product count before clicking
-    const productsBefore = await page.$$eval(SELECTORS.productLinks, els => els.length);
+    const productsBefore = await page.evaluate((selector) => {
+      return document.querySelectorAll(selector).length;
+    }, SELECTORS.productLinks);
     
     // Click the load more button
-    log.debug('   Clicking load more button...');
+    log.normal(`   Clicking load more button... (current products: ${productsBefore})`);
     await loadMoreButton.click();
     
     // Wait for new products to load (with timeout)
@@ -87,13 +122,16 @@ export async function paginate(page: Page): Promise<boolean> {
         productsBefore
       );
       
-      const productsAfter = await page.$$eval(SELECTORS.productLinks, els => els.length);
+      const productsAfter = await page.evaluate((selector) => {
+        return document.querySelectorAll(selector).length;
+      }, SELECTORS.productLinks);
       log.debug(`   Loaded more products: ${productsBefore} -> ${productsAfter}`);
       
       // Check if the button still exists and is visible for next iteration
-      const buttonStillVisible = await page.$eval('button#load-more, button.load-more-button', 
-        el => el && (el as HTMLElement).offsetParent !== null
-      ).catch(() => false);
+      const buttonStillVisible = await page.evaluate(() => {
+        const btn = document.querySelector('button#load-more, button.load-more-button');
+        return btn ? (btn as HTMLElement).offsetParent !== null : false;
+      }).catch(() => false);
       
       return buttonStillVisible; // Continue pagination if button is still visible
       
