@@ -8,7 +8,8 @@
  * Usage:
  *   npm run example:cache-experiment                    # Run with caching (default)
  *   npm run example:cache-experiment -- --no-cache     # Run without caching
- *   npm run example:cache-experiment -- --local        # Use local browser
+ *   npm run example:cache-experiment -- --local        # Use local browser (headless)
+ *   npm run example:cache-experiment -- --local-headed # Use local browser (headed)
  */
 
 import { createBrowserFromSession } from '../src/drivers/browser.js';
@@ -41,6 +42,7 @@ const ESTIMATED_PAGE_SIZE_MB = 5; // Rough estimate for cos.com pages
 interface ExperimentOptions {
   noCache: boolean;
   local: boolean;
+  localHeaded: boolean;
 }
 
 interface CacheStats {
@@ -57,7 +59,8 @@ function parseArgs(): ExperimentOptions {
   const args = process.argv.slice(2);
   return {
     noCache: args.includes('--no-cache'),
-    local: args.includes('--local')
+    local: args.includes('--local') || args.includes('--local-headed'),
+    localHeaded: args.includes('--local-headed')
   };
 }
 
@@ -66,7 +69,9 @@ function calculateCost(mbDownloaded: number): number {
 }
 
 async function runExperiment(options: ExperimentOptions): Promise<{ stats: CacheStats; duration: number; errors: string[] }> {
-  const sessionManager = new SessionManager();
+  // Create SessionManager with correct provider
+  const provider = options.local ? 'local' : 'browserbase';
+  const sessionManager = new SessionManager({ provider });
   let browser: Browser | null = null;
   const errors: string[] = [];
   const stats: CacheStats = { 
@@ -100,12 +105,12 @@ async function runExperiment(options: ExperimentOptions): Promise<{ stats: Cache
     const session = await sessionManager.createSession({
       domain: 'cos.com',
       proxy: proxy,
-      localHeadless: options.local  // Use headless mode when local
+      headless: options.local && !options.localHeaded  // Use headed mode only when --local-headed
     });
     
     log.normal(`Starting cache experiment with ${TEST_URLS.length} URLs...`);
     log.normal(`Cache: ${options.noCache ? 'DISABLED' : 'ENABLED'}`);
-    log.normal(`Browser: ${options.local ? 'Local' : 'Browserbase'}`);
+    log.normal(`Browser: ${options.local ? (options.localHeaded ? 'Local (headed)' : 'Local (headless)') : 'Browserbase'}`);
     
     // Create browser
     const blockImages = false; // We'll handle image blocking in the cache
@@ -298,7 +303,7 @@ function displayResults(
   console.log('Configuration:');
   console.log(`- URLs tested: ${TEST_URLS.length}`);
   console.log(`- Cache enabled: ${options.noCache ? 'No' : 'Yes'}`);
-  console.log(`- Browser: ${options.local ? 'Local' : 'Browserbase'}`);
+  console.log(`- Browser: ${options.local ? (options.localHeaded ? 'Local (headed)' : 'Local (headless)') : 'Browserbase'}`);
   
   console.log('\nResults:');
   console.log(`- Items successfully scraped: ${TEST_URLS.length - errors.length}/${TEST_URLS.length}`);
