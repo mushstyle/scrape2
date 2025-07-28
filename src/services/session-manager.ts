@@ -34,6 +34,29 @@ export class SessionManager {
    * Get all active sessions (returns actual Session objects)
    */
   async getActiveSessions(): Promise<Session[]> {
+    // For browserbase, verify which sessions are actually still running
+    if (this.provider === 'browserbase') {
+      const { listSessions } = await import('../providers/browserbase.js');
+      const runningBrowserbaseSessions = await listSessions();
+      const runningIds = new Set(runningBrowserbaseSessions.map(s => s.id));
+      
+      // Remove any sessions that browserbase reports as not running
+      const toRemove: string[] = [];
+      for (const [id, metadata] of this.sessions.entries()) {
+        if (metadata.session.provider === 'browserbase' && 
+            metadata.session.browserbase && 
+            !runningIds.has(metadata.session.browserbase.id)) {
+          toRemove.push(id);
+          log.normal(`Session ${id.substring(0, 8)}... no longer running on browserbase, removing from tracking`);
+        }
+      }
+      
+      // Remove dead sessions
+      for (const id of toRemove) {
+        this.sessions.delete(id);
+      }
+    }
+    
     const activeSessions = Array.from(this.sessions.values())
       .filter(metadata => metadata.isActive)
       .map(metadata => metadata.session);
@@ -109,8 +132,29 @@ export class SessionManager {
       }
     });
     
-    // Wait for all sessions to be created
-    const sessions = await Promise.all(sessionPromises);
+    // Wait for all sessions to be created, handling partial failures
+    const results = await Promise.allSettled(sessionPromises);
+    const sessions: Session[] = [];
+    const failures: Error[] = [];
+    
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        sessions.push(result.value);
+      } else {
+        failures.push(result.reason);
+        log.error(`Failed to create session ${index + 1}/${optionsToProcess.length}: ${result.reason.message}`);
+      }
+    });
+    
+    // If all sessions failed, throw the first error
+    if (sessions.length === 0 && failures.length > 0) {
+      throw failures[0];
+    }
+    
+    // Log summary if some failed
+    if (failures.length > 0) {
+      log.normal(`Created ${sessions.length}/${optionsToProcess.length} sessions (${failures.length} failed)`);
+    }
     
     // Return single session or array based on input
     return isArray ? sessions : sessions[0];

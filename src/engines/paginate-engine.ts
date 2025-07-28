@@ -28,7 +28,7 @@ export interface PaginateOptions {
   localHeadless?: boolean;  // Use local browser in headless mode
   localHeaded?: boolean;  // Use local browser in headed mode
   sessionTimeout?: number;  // Session timeout in seconds (browserbase only)
-  maxRetries?: number;  // Default: 1 (for network errors)
+  maxRetries?: number;  // Default: 2 (for network errors)
   // Note: retryFailedItems not applicable to pagination (deals with start pages, not items)
 }
 
@@ -77,7 +77,7 @@ export class PaginateEngine {
     const maxPages = options.maxPages || Infinity;  // NO LIMIT by default!
     const cacheSizeMB = options.cacheSizeMB || 250;
     const cacheTTLSeconds = options.cacheTTLSeconds || 300;
-    const maxRetries = options.maxRetries || 1;
+    const maxRetries = options.maxRetries || 2;
     
     // Log configuration
     log.normal('Paginate configuration:');
@@ -245,9 +245,11 @@ export class PaginateEngine {
           urlToSite,
           maxPages,
           maxRetries,
+          processedUrls,
           options.disableCache ? undefined : { cacheSizeMB, cacheTTLSeconds }
         );
         
+        // No special handling needed - disconnected URLs just stay unprocessed
         
         // Merge cache stats
         if (batchCacheStats) {
@@ -279,8 +281,15 @@ export class PaginateEngine {
               const hasAnyUrls = Array.from(partialRun.paginationStates.values())
                 .some(state => state.collectedUrls.length > 0);
               
+              // Only commit if ALL paginations are complete AND we have URLs
+              // This prevents committing runs where some URLs failed due to browser disconnection
               if (allStatesCompleted && hasAnyUrls) {
                 completedSites.add(site);
+              } else if (!allStatesCompleted) {
+                // Log why we're not committing yet
+                const incompleteCount = Array.from(partialRun.paginationStates.values())
+                  .filter(state => !state.completed).length;
+                log.debug(`Not committing ${site} yet: ${incompleteCount} pagination(s) still incomplete`);
               }
             }
           }
@@ -291,10 +300,8 @@ export class PaginateEngine {
           }
         }
         
-        // Mark URLs as processed based on what was actually matched
-        for (const pair of finalPairs) {
-          processedUrls.add(pair.url);
-        }
+        // Don't mark URLs as processed here - wait until they actually complete
+        // This ensures browser-disconnected URLs get retried
         batchNumber++;
       }
       
@@ -319,18 +326,42 @@ export class PaginateEngine {
       // Step 10: Commit any remaining partial runs if not noSave
       if (!options.noSave) {
         const remainingSites = await this.siteManager.getSitesWithPartialRuns();
-        const uncommittedSites = [];
+        const completedSites = [];
+        const incompleteSites = [];
         
         for (const site of remainingSites) {
           const partialRun = this.getPartialRunForSite(site);
           if (partialRun && !partialRun.committedToDb) {
-            uncommittedSites.push(site);
+            // Check if all pagination states are completed
+            const allStatesCompleted = Array.from(partialRun.paginationStates.values())
+              .every(state => state.completed);
+            const hasAnyUrls = Array.from(partialRun.paginationStates.values())
+              .some(state => state.collectedUrls.length > 0);
+            
+            if (allStatesCompleted && hasAnyUrls) {
+              completedSites.push(site);
+            } else {
+              incompleteSites.push(site);
+              // Log details about incomplete runs
+              const incompleteStates = Array.from(partialRun.paginationStates.entries())
+                .filter(([_, state]) => !state.completed)
+                .map(([url, _]) => url);
+              log.normal(`⚠️  ${site}: ${incompleteStates.length} incomplete paginations - run will not be committed`);
+              if (incompleteStates.length > 0) {
+                log.normal(`   Incomplete URLs: ${incompleteStates.join(', ')}`);
+              }
+            }
           }
         }
         
-        if (uncommittedSites.length > 0) {
-          log.normal(`Committing ${uncommittedSites.length} remaining runs`);
-          await this.commitPartialRuns(new Set(uncommittedSites), errors);
+        if (completedSites.length > 0) {
+          log.normal(`Committing ${completedSites.length} completed runs`);
+          await this.commitPartialRuns(new Set(completedSites), errors);
+        }
+        
+        if (incompleteSites.length > 0) {
+          log.normal(`⚠️  ${incompleteSites.length} runs have incomplete paginations and were not committed`);
+          log.normal(`   Re-run pagination for these sites to complete: ${incompleteSites.join(', ')}`);
         }
       }
       
@@ -498,18 +529,34 @@ export class PaginateEngine {
     
     // Pass all requests as an array to avoid race condition in session limit check
     const newSessions = await this.sessionManager.createSession(newSessionRequests) as Session[];
-    log.normal(`Created ${newSessions.length} new sessions`);
+    
+    // Handle case where some sessions failed to create
+    if (newSessions.length === 0) {
+      log.error('Failed to create any new sessions');
+      return;
+    }
+    
+    if (newSessions.length < newSessionRequests.length) {
+      log.normal(`Created ${newSessions.length}/${newSessionRequests.length} sessions (some failed)`);
+    } else {
+      log.normal(`Created ${newSessions.length} new sessions`);
+    }
     
     // Add new sessions to our tracking
-    newSessions.forEach((session, i) => {
-      const originalRequest = newSessionRequests[i];
+    newSessions.forEach((session) => {
       // Use the actual session ID so it can be matched across batches
       const sessionId = this.getSessionId(session);
+      
+      // Get proxy info from the session itself
+      const proxyInfo = session.provider === 'browserbase' 
+        ? session.browserbase?.proxy 
+        : session.local?.proxy;
+      
       const sessionInfo: SessionInfo = {
         id: sessionId,
-        proxyType: originalRequest.proxy?.type as any || 'none',
-        proxyId: originalRequest.proxy?.id,
-        proxyGeo: originalRequest.proxy?.geo
+        proxyType: proxyInfo?.type as any || 'none',
+        proxyId: proxyInfo?.id,
+        proxyGeo: proxyInfo?.geo
       };
       const data = { session, sessionInfo };
       sessionDataMap.set(sessionInfo.id, data);
@@ -523,6 +570,7 @@ export class PaginateEngine {
     urlToSite: Map<string, string>,
     maxPages: number,
     maxRetries: number,
+    processedUrls: Set<string>,
     cacheOptions?: { cacheSizeMB: number; cacheTTLSeconds: number }
   ): Promise<CacheStats | undefined> {
     // Create browsers only for sessions that will be used
@@ -596,7 +644,8 @@ export class PaginateEngine {
         site,
         sessionData,
         maxPages,
-        maxRetries
+        maxRetries,
+        processedUrls
       );
     }));
     
@@ -635,24 +684,27 @@ export class PaginateEngine {
     site: string,
     sessionData: SessionWithBrowser,
     maxPages: number,
-    maxRetries: number
+    maxRetries: number,
+    processedUrls: Set<string>
   ): Promise<void> {
     let lastError: Error | undefined;
     
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         await this.processUrl(url, site, sessionData, maxPages);
+        // Mark as processed only on successful completion
+        processedUrls.add(url);
         return; // Success
       } catch (error) {
         lastError = error as Error;
         const isNetworkError = this.isNetworkError(error);
-        const isTargetClosedError = lastError.message.includes('Target page, context or browser has been closed');
+        const isBrowserClosedError = this.isBrowserClosedError(lastError);
         
-        if (isTargetClosedError) {
-          // For target closed errors, don't mark as failed - leave for next batch
-          log.error(`Target closed while processing ${url}: ${lastError.message}`);
+        if (isBrowserClosedError) {
+          // Browser disconnected - just skip this URL, it will be picked up in next batch
+          log.error(`Browser disconnected while processing ${url}: ${lastError.message}`);
           log.normal(`URL ${url} will be retried in the next batch`);
-          // Don't update pagination state - leave it incomplete for retry
+          // Don't update pagination state - leave it incomplete
           return;
         }
         
@@ -666,6 +718,8 @@ export class PaginateEngine {
             failureCount: 1,
             failureHistory: [`Missing scraper: ${lastError.message}`]
           });
+          // Mark as processed since we're done with it
+          processedUrls.add(url);
           return;
         }
         
@@ -690,6 +744,8 @@ export class PaginateEngine {
             failureCount: attempt + 1,
             failureHistory: [lastError.message]
           });
+          // Mark as processed since we're done with it (failed permanently)
+          processedUrls.add(url);
           return;
         }
         
@@ -791,6 +847,22 @@ export class PaginateEngine {
     return message.includes('Failed to load scraper') || 
            message.includes('Cannot find module') ||
            message.includes('ERR_MODULE_NOT_FOUND');
+  }
+  
+  private isBrowserClosedError(error: any): boolean {
+    const message = error?.message?.toLowerCase() || '';
+    return message.includes('target page, context or browser has been closed') ||
+           message.includes('browser has been closed') ||
+           message.includes('context has been closed') ||
+           message.includes('target closed') ||
+           message.includes('session not found') ||
+           message.includes('session expired') ||
+           message.includes('websocket') ||
+           message.includes('disconnected') ||
+           message.includes('connection closed') ||
+           message.includes('browser is closed') ||
+           message.includes('execution context was destroyed') ||
+           message.includes('page has been closed');
   }
   
   private async commitPartialRuns(

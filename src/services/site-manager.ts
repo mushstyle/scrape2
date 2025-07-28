@@ -988,11 +988,15 @@ export class SiteManager {
     }
     
     // Check if ANY pagination returned 0 URLs
-    const hasEmptyPagination = Array.from(partialRun.paginationStates.values())
-      .some(s => s.completed && s.collectedUrls.length === 0);
+    const emptyPaginations = Array.from(partialRun.paginationStates.entries())
+      .filter(([url, state]) => state.completed && state.collectedUrls.length === 0)
+      .map(([url, state]) => url);
     
-    if (hasEmptyPagination) {
-      throw new Error('Pagination returned 0 URLs - aborting entire run');
+    if (emptyPaginations.length > 0) {
+      const errorMsg = `Pagination returned 0 URLs - aborting entire run\n` +
+        `Problematic start page(s): ${emptyPaginations.join(', ')}\n` +
+        `Please check if these URLs are valid or if the scraper needs updating.`;
+      throw new Error(errorMsg);
     }
     
     // Check if all paginations completed successfully

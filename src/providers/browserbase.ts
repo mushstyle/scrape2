@@ -38,19 +38,49 @@ export async function createSession(options: SessionOptions = {}): Promise<Sessi
     }];
   }
 
-  // Create session via API
-  const response = await fetch('https://api.browserbase.com/v1/sessions', {
-    method: 'POST',
-    headers: {
-      'X-BB-API-Key': apiKey,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(sessionRequest)
-  });
+  // Create session via API with retry for 504 errors
+  let response: Response;
+  let lastError: Error | undefined;
+  
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      response = await fetch('https://api.browserbase.com/v1/sessions', {
+        method: 'POST',
+        headers: {
+          'X-BB-API-Key': apiKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(sessionRequest)
+      });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Failed to create Browserbase session: ${response.status} ${errorText}`);
+      if (response.ok) {
+        break; // Success
+      }
+      
+      const errorText = await response.text();
+      lastError = new Error(`Failed to create Browserbase session: ${response.status} ${errorText}`);
+      
+      // Only retry on 504 Gateway Timeout
+      if (response.status !== 504 || attempt === 2) {
+        throw lastError;
+      }
+      
+      log.debug(`Browserbase returned 504, retrying in ${2 ** attempt} seconds...`);
+      await new Promise(resolve => setTimeout(resolve, 1000 * (2 ** attempt))); // 1s, 2s
+      
+    } catch (error) {
+      // Network errors, also retry
+      lastError = error as Error;
+      if (attempt === 2) {
+        throw error;
+      }
+      log.debug(`Network error creating session, retrying: ${lastError.message}`);
+      await new Promise(resolve => setTimeout(resolve, 1000 * (2 ** attempt)));
+    }
+  }
+  
+  if (!response! || !response.ok) {
+    throw lastError || new Error('Failed to create Browserbase session');
   }
 
   const sessionData = await response.json();
@@ -89,6 +119,7 @@ export async function listSessions(): Promise<BrowserbaseSession[]> {
 
   const url = new URL('https://api.browserbase.com/v1/sessions');
   url.searchParams.set('projectId', projectId);
+  url.searchParams.set('status', 'RUNNING');  // Only fetch RUNNING sessions
 
   const response = await fetch(url.toString(), {
     method: 'GET',
@@ -104,18 +135,13 @@ export async function listSessions(): Promise<BrowserbaseSession[]> {
   }
 
   const data = await response.json();
-  const allSessions = Array.isArray(data) ? data : (data.sessions || []);
+  const runningSessions = Array.isArray(data) ? data : (data.sessions || []);
   
-  // Filter for only active sessions
-  const activeSessions = allSessions.filter((session: any) => {
-    const statusLower = session.status?.toLowerCase();
-    const isActiveStatus = !session.status || statusLower === 'active' || statusLower === 'running';
-    const notExpired = !session.expiresAt || new Date(session.expiresAt) > new Date();
-    return isActiveStatus && notExpired;
-  });
+  // No need to filter - API already returns only RUNNING sessions
+  log.debug(`Found ${runningSessions.length} running sessions`);
 
   // Map to our BrowserbaseSession type
-  return activeSessions.map((session: any) => ({
+  return runningSessions.map((session: any) => ({
     id: session.id,
     connectUrl: session.connectUrl || '',
     projectId: session.projectId

@@ -83,20 +83,48 @@ export async function paginate(page: Page): Promise<boolean> {
       log.debug(`   Pagination failed: Non-OK response for ${nextUrl} (status: ${response?.status()})`);
       return false;
     }
-    // Add a check to see if the product grid is still present after navigation
-    await page.waitForSelector(SELECTORS.productGrid, { timeout: 10000, state: 'visible' });
-    log.debug(`   Successfully navigated to next page: ${nextUrl}`);
-    return true; // Navigation succeeded, potentially more items
-  } catch (error) {
-    // Check if the error is a timeout waiting for the product grid, which indicates no more items
-    if (error instanceof Error && error.message.includes('Timeout') && error.message.includes(SELECTORS.productGrid)) {
-      log.debug(`   Pagination likely ended: Product grid selector (${SELECTORS.productGrid}) not found on ${nextUrl}`);
-    } else {
-      // Log other errors (e.g., navigation errors)
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      log.debug(`   Pagination failed for ${nextUrl}: ${errorMessage}`);
+
+    // Check for empty page indicators
+    try {
+      // Wait for either products or the "no products" message
+      await page.waitForSelector(
+        `${SELECTORS.productGrid}, .section__title.lb`, 
+        { timeout: 5000 }
+      );
+
+      // Check if the "no products" message is present
+      const hasNoProductsMessage = await page.evaluate(() => {
+        const messageEl = document.querySelector('.section__title.lb');
+        if (!messageEl) return false;
+        const text = messageEl.textContent?.trim() || '';
+        // Check for both Ukrainian and English messages
+        return text.includes('По даним параметрам фільтрації немає товарів') || 
+               text.includes('There are no products for these filter parameters');
+      });
+
+      if (hasNoProductsMessage) {
+        log.debug(`   No more products found on page ${nextPage}`);
+        return false;
+      }
+
+      // Check if products are actually present
+      const hasProducts = await page.$(SELECTORS.productLinks);
+      if (!hasProducts) {
+        log.debug(`   No product links found on page ${nextPage}`);
+        return false;
+      }
+
+      log.debug(`   Successfully navigated to next page: ${nextUrl}`);
+      return true; // Navigation succeeded, potentially more items
+    } catch (waitError) {
+      log.debug(`   Pagination ended: No products or content found on ${nextUrl}`);
+      return false;
     }
-    return false; // Navigation or content check failed
+  } catch (error) {
+    // Log navigation errors
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.debug(`   Pagination failed for ${nextUrl}: ${errorMessage}`);
+    return false; // Navigation failed
   }
 }
 
