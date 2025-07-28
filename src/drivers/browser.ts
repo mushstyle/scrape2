@@ -134,7 +134,7 @@ export async function createBrowserbaseSession(options: { proxy?: any } = {}): P
 /**
  * Create a local browser session (wrapper for provider)
  */
-export async function createLocalSession(options: { proxy?: any } = {}): Promise<Session> {
+export async function createLocalSession(options: { proxy?: any; headless?: boolean } = {}): Promise<Session> {
   return createLocalSessionProvider(options);
 }
 

@@ -33,6 +33,8 @@ export interface VerifyPaginateOptions {
   maxIterations?: number;
   maxPages?: number;
   useSingleSession?: boolean;
+  localHeadless?: boolean;  // Use local browser in headless mode
+  localHeaded?: boolean;    // Use local browser in headed mode
   sessionManager?: SessionManager;
   siteManager?: SiteManager;
 }
@@ -53,7 +55,13 @@ export class VerifyPaginateEngine {
   private siteManager: SiteManager;
   
   constructor(options: Partial<VerifyPaginateOptions> = {}) {
-    this.sessionManager = options.sessionManager || new SessionManager();
+    // Create SessionManager with appropriate provider based on options
+    if (!options.sessionManager) {
+      const provider = (options.localHeadless || options.localHeaded) ? 'local' : 'browserbase';
+      this.sessionManager = new SessionManager({ provider });
+    } else {
+      this.sessionManager = options.sessionManager;
+    }
     this.siteManager = options.siteManager || new SiteManager();
   }
   
@@ -106,10 +114,13 @@ export class VerifyPaginateEngine {
         }
         
         const proxy = await this.siteManager.getProxyForDomain(options.domain);
-        const session = await this.sessionManager.createSession({ 
+        const sessionRequest: any = { 
           domain: options.domain,
-          proxy 
-        });
+          proxy,
+          headless: options.localHeadless || !options.localHeaded // default to headless unless localHeaded
+        };
+        
+        const session = await this.sessionManager.createSession(sessionRequest);
         
         // Create SessionInfo for distributor
         const sessionInfo: SessionInfo = {

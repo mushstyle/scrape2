@@ -16,10 +16,12 @@ export const SELECTORS = {
   productGrid: '.collection-grid__item', // Updated to match new structure
   productLinks: 'product-card a[href*="/products/"]', // Updated to match new product card structure
   pagination: {
+    type: 'load-more' as const,
+    loadMoreSelector: 'button#load-more, button.load-more-button'
   },
   product: {
     title: 'h1.product-title',
-    price: '.price-list .money',
+    price: '.price-list .money, .price-list sale-price .money', // Updated to include sale-price element
     images: '.product-gallery__media img',
     description: '.prose',
     productId: 'input[name="product-id"]',
@@ -47,62 +49,59 @@ export async function getItemUrls(page: Page): Promise<Set<string>> {
 }
 
 /**
- * Paginates by incrementing the page number in the URL.
- * Checks for page validity and "no products" message after navigation.
+ * Paginates by clicking the "Load more" button until it's no longer visible.
  * @param page Playwright page object
- * @returns `true` if pagination likely succeeded, `false` otherwise.
+ * @returns `true` if more items were loaded, `false` if no more items to load.
  */
 export async function paginate(page: Page): Promise<boolean> {
-  const currentUrl = page.url();
-  const match = currentUrl.match(/page=(\d+)/);
-  const currentPage = match ? parseInt(match[1], 10) : 1;
-  const nextPage = currentPage + 1;
-
-  // Build next URL
-  let nextUrl: string;
-  if (match) {
-    nextUrl = currentUrl.replace(/page=\d+/, `page=${nextPage}`);
-  } else {
-    const separator = currentUrl.includes('?') ? '&' : '?';
-    nextUrl = `${currentUrl}${separator}page=${nextPage}`;
-  }
-
-  log.debug(`   Navigating to next page: ${nextUrl}`);
-
   try {
-    const response = await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
-
-    if (!response || !response.ok()) {
-      log.debug(`   Pagination failed: Bad response for ${nextUrl} (Status: ${response?.status()})`);
+    // Look for the load more button
+    const loadMoreButton = await page.$('button#load-more, button.load-more-button');
+    
+    if (!loadMoreButton) {
+      log.debug('   No load more button found - pagination ended');
       return false;
     }
-
-    // Check if we landed on a page explicitly stating no products
-    const noProductsMessage = await page.$('.grid__item p');
-    if (noProductsMessage) {
-      const text = await noProductsMessage.textContent();
-      if (text?.includes('Sorry, there are no products in this collection')) {
-        log.debug(`   Pagination ended: "No products" message found on ${nextUrl}`);
-        return false;
-      }
+    
+    // Check if the button is visible
+    const isVisible = await loadMoreButton.isVisible();
+    if (!isVisible) {
+      log.debug('   Load more button exists but is not visible - pagination ended');
+      return false;
     }
-
-    // Optional: Check if the product grid exists
-    await page.waitForSelector(SELECTORS.productGrid, { timeout: 5000 });
-    log.debug(`   Pagination successful to page ${nextPage}`);
-    return true;
-
+    
+    log.normal('   Clicking load more button...');
+    
+    // Click the button and wait for content to load
+    await loadMoreButton.click();
+    
+    // Wait for domcontentloaded to ensure new products are loaded
+    await page.waitForLoadState('domcontentloaded');
+    
+    // Wait longer for all dynamic content and the button to re-render
+    await page.waitForTimeout(4000);
+    
+    // Check if button is still there and visible for next iteration
+    const buttonStillExists = await page.$('button#load-more, button.load-more-button');
+    if (!buttonStillExists) {
+      return false;
+    }
+    
+    const buttonStillVisible = await buttonStillExists.isVisible();
+    return buttonStillVisible;
+    
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    log.debug(`   Pagination likely ended or failed: ${errorMessage}`);
+    log.debug(`   Pagination error: ${errorMessage}`);
     return false;
   }
 }
 
 function extractSizes(page: Page): Promise<Array<{ size: string; is_available: boolean }>> {
-  return page.$$eval('fieldset.variant-picker__option label.block-swatch', (labels) => {
+  return page.evaluate(() => {
+    const labels = document.querySelectorAll('fieldset.variant-picker__option label.block-swatch');
     // Find size labels specifically (not color swatches)
-    return labels
+    return Array.from(labels)
       .filter(label => {
         const input = label.previousElementSibling as HTMLInputElement;
         return input && input.name && input.name.includes('option1'); // Size is typically option1
@@ -122,18 +121,19 @@ function extractSizes(page: Page): Promise<Array<{ size: string; is_available: b
 }
 
 function extractColor(page: Page): Promise<string> {
-  return page.$eval('fieldset.variant-picker__option input[type="radio"][checked] + label.color-swatch',
-    label => {
-      // Get the color name from the span inside the label
-      const colorSpan = label.querySelector('.sr-only');
-      return colorSpan?.textContent?.trim() || '';
-    }
-  ).catch(() => ''); // Return empty string on error
+  return page.evaluate(() => {
+    const label = document.querySelector('fieldset.variant-picker__option input[type="radio"][checked] + label.color-swatch');
+    if (!label) return '';
+    // Get the color name from the span inside the label
+    const colorSpan = label.querySelector('.sr-only');
+    return colorSpan?.textContent?.trim() || '';
+  }).catch(() => ''); // Return empty string on error
 }
 
 function extractImages(page: Page): Promise<Array<{ sourceUrl: string; alt_text: string }>> {
-  return page.$$eval(SELECTORS.product.images, (imgs) => {
-    return imgs.map(img => {
+  return page.evaluate((selector) => {
+    const imgs = document.querySelectorAll(selector);
+    return Array.from(imgs).map(img => {
       // Get the highest quality src from srcset if available
       const srcset = img.getAttribute('srcset');
       let sourceUrl = img.getAttribute('src') || '';
@@ -163,7 +163,7 @@ function extractImages(page: Page): Promise<Array<{ sourceUrl: string; alt_text:
         const baseUrl = img.sourceUrl.split('?')[0];
         return index === self.findIndex(t => t.sourceUrl.split('?')[0] === baseUrl);
       });
-  }).catch(() => []); // Add catch for robustness
+  }, SELECTORS.product.images).catch(() => []); // Add catch for robustness
 }
 
 /**
@@ -181,8 +181,20 @@ export async function scrapeItem(page: Page, options?: {
     // Page is already at sourceUrl, ensure content is loaded.
     // Wait for the product info section which contains all the data we need
     await page.waitForSelector('.product-info', { timeout: 10000 });
+    
+    // Wait a bit for dynamic content to load
+    await page.waitForTimeout(2000);
+    
+    // Wait for price to be ready (has 'done' class)
+    await page.waitForSelector('.price-list .money.done', { timeout: 10000 }).catch(() => {
+      // If price doesn't have 'done' class, just continue
+      log.debug('Price may not be fully loaded (no .done class)');
+    });
 
-    const title = await page.$eval(SELECTORS.product.title, el => el.textContent?.trim() || '');
+    const title = await page.evaluate((selector) => {
+      const el = document.querySelector(selector);
+      return el?.textContent?.trim() || '';
+    }, SELECTORS.product.title);
 
     let product_id = 'unknown';
     try {
@@ -205,25 +217,50 @@ export async function scrapeItem(page: Page, options?: {
     let sale_price: number | undefined;
     let currency = 'EUR';
     try {
-      // Use $$eval to avoid context errors with Browserbase
-      const priceData = await page.$$eval(SELECTORS.product.price, (elements) => {
+      // Use evaluate to extract price data from all potential price elements
+      const priceData = await page.evaluate((selector) => {
+        // Find all money elements
+        const elements = document.querySelectorAll(selector);
         if (elements.length === 0) return null;
-        const el = elements[0];
+        
+        // Try different price containers
+        let priceEl = null;
+        
+        // First try sale-price element
+        priceEl = document.querySelector('sale-price .money');
+        if (!priceEl) {
+          // Fallback to regular price
+          priceEl = document.querySelector('.price-list .money');
+        }
+        
+        if (!priceEl) return null;
+        
         return {
-          text: el.textContent?.trim() || '0',
-          wsPrice: el.getAttribute('ws-price'),
-          wsCurrency: el.getAttribute('ws-currency')
+          text: priceEl.textContent?.trim() || '0',
+          wsPrice: priceEl.getAttribute('ws-price'),
+          wsCurrency: priceEl.getAttribute('ws-currency'),
+          isDone: priceEl.classList.contains('done')
         };
-      });
+      }, SELECTORS.product.price);
 
       if (priceData) {
+        log.debug(`Price data found - text: "${priceData.text}", ws-price: "${priceData.wsPrice}", ws-currency: "${priceData.wsCurrency}", isDone: ${priceData.isDone}`);
         const text = priceData.text;
         
         // Check for ws-price attribute first (if present)
-        if (priceData.wsPrice && priceData.wsCurrency === 'UAH') {
-          // ws-price in UAH - use it directly
+        if (priceData.wsPrice) {
+          // ws-price - use it directly
           price = parseInt(priceData.wsPrice, 10) || 0;
-          currency = 'UAH';
+          
+          // Determine currency from ws-currency or text
+          if (priceData.wsCurrency) {
+            currency = priceData.wsCurrency;
+          } else if (text.includes('$')) {
+            currency = 'USD';
+          } else if (text.includes('₴')) {
+            currency = 'UAH';
+          }
+          log.debug(`Using ws-price: ${price} ${currency}`);
         } else {
           // Parse displayed price text
           if (text.match(/[$€£₴][\d,]+\.?\d*/)) {
@@ -240,16 +277,23 @@ export async function scrapeItem(page: Page, options?: {
             // Remove currency symbol and parse number
             const numericText = text.replace(/[^\d.,]/g, '').replace(/,/g, '');
             price = parseFloat(numericText) || 0;
+            log.debug(`Parsed price from text: ${price} ${currency}`);
           } else {
             // Other format handling...
             const numericText = text.replace(/[^\d]/g, '');
             price = parseInt(numericText, 10) || 0;
+            log.debug(`Parsed price (fallback): ${price}`);
           }
         }
+      } else {
+        log.debug('No price data found from selectors');
       }
     } catch (e) { log.error(`Error parsing price: ${e}`); }
 
-    const description = await page.$eval(SELECTORS.product.description, el => el.textContent?.trim() || '').catch(() => '');
+    const description = await page.evaluate((selector) => {
+      const el = document.querySelector(selector);
+      return el?.textContent?.trim() || '';
+    }, SELECTORS.product.description).catch(() => '');
 
     // Get data concurrently
     const [sizes, color, imagesData] = await Promise.all([
