@@ -55,90 +55,40 @@ export async function getItemUrls(page: Page): Promise<Set<string>> {
  */
 export async function paginate(page: Page): Promise<boolean> {
   try {
-    // Scroll to bottom first to trigger lazy loading of the button
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    
-    // Wait a bit for any dynamic content to load
-    await page.waitForTimeout(2000);
-    
     // Look for the load more button
     const loadMoreButton = await page.$('button#load-more, button.load-more-button');
     
     if (!loadMoreButton) {
-      log.normal('   No load more button found - checking page structure...');
-      
-      // Check what's at the bottom of the page
-      const pageBottom = await page.evaluate(() => {
-        // Scroll to bottom
-        window.scrollTo(0, document.body.scrollHeight);
-        
-        // Look for any load more related elements
-        const loadMoreElements = {
-          buttons: Array.from(document.querySelectorAll('button')).map(b => ({
-            text: b.textContent?.trim(),
-            id: b.id,
-            className: b.className,
-            isVisible: b.offsetParent !== null
-          })),
-          hasMoreProducts: document.querySelector('.has-more-products'),
-          infiniteScroll: document.querySelector('[data-infinite-scroll]'),
-          pagination: document.querySelector('.pagination'),
-          pageBottom: document.body.scrollHeight
-        };
-        return loadMoreElements;
-      });
-      
-      log.normal('   Page analysis:', JSON.stringify(pageBottom, null, 2));
+      log.debug('   No load more button found - pagination ended');
       return false;
     }
     
     // Check if the button is visible
     const isVisible = await loadMoreButton.isVisible();
     if (!isVisible) {
-      log.normal('   Load more button exists but is not visible - pagination ended');
+      log.debug('   Load more button exists but is not visible - pagination ended');
       return false;
     }
     
-    log.normal('   Found visible load more button');
+    log.normal('   Clicking load more button...');
     
-    // Get the current product count before clicking
-    const productsBefore = await page.evaluate((selector) => {
-      return document.querySelectorAll(selector).length;
-    }, SELECTORS.productLinks);
-    
-    // Click the load more button
-    log.normal(`   Clicking load more button... (current products: ${productsBefore})`);
+    // Click the button and wait for content to load
     await loadMoreButton.click();
     
-    // Wait for new products to load (with timeout)
-    try {
-      await page.waitForFunction(
-        (selector, countBefore) => {
-          const currentProducts = document.querySelectorAll(selector);
-          return currentProducts.length > countBefore;
-        },
-        { timeout: 10000 },
-        SELECTORS.productLinks,
-        productsBefore
-      );
-      
-      const productsAfter = await page.evaluate((selector) => {
-        return document.querySelectorAll(selector).length;
-      }, SELECTORS.productLinks);
-      log.debug(`   Loaded more products: ${productsBefore} -> ${productsAfter}`);
-      
-      // Check if the button still exists and is visible for next iteration
-      const buttonStillVisible = await page.evaluate(() => {
-        const btn = document.querySelector('button#load-more, button.load-more-button');
-        return btn ? (btn as HTMLElement).offsetParent !== null : false;
-      }).catch(() => false);
-      
-      return buttonStillVisible; // Continue pagination if button is still visible
-      
-    } catch (waitError) {
-      log.debug('   No new products loaded after clicking - pagination ended');
+    // Wait for domcontentloaded to ensure new products are loaded
+    await page.waitForLoadState('domcontentloaded');
+    
+    // Wait longer for all dynamic content and the button to re-render
+    await page.waitForTimeout(4000);
+    
+    // Check if button is still there and visible for next iteration
+    const buttonStillExists = await page.$('button#load-more, button.load-more-button');
+    if (!buttonStillExists) {
       return false;
     }
+    
+    const buttonStillVisible = await buttonStillExists.isVisible();
+    return buttonStillVisible;
     
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
