@@ -458,8 +458,7 @@ export class ScrapeItemEngine {
     if (session.provider === 'browserbase') {
       return session.browserbase!.id;
     } else {
-      // For local sessions, generate a stable ID
-      return `local-${Date.now()}`;
+      return session.local!.id;
     }
   }
   

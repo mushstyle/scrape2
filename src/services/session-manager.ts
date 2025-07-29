@@ -172,9 +172,7 @@ export class SessionManager {
     if (session.provider === 'browserbase') {
       return session.browserbase!.id;
     } else {
-      // For local sessions, we need a stable ID
-      // This is a temporary solution - ideally local sessions should have IDs too
-      return `local-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      return session.local!.id;
     }
   }
   

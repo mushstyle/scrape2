@@ -16,6 +16,7 @@ export interface BrowserbaseSession {
 }
 
 export interface LocalSession {
+  id: string;
   browser: Browser;
   proxy?: Proxy;
 }
