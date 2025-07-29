@@ -35,6 +35,7 @@ export interface VerifyPaginateOptions {
   useSingleSession?: boolean;
   localHeadless?: boolean;  // Use local browser in headless mode
   localHeaded?: boolean;    // Use local browser in headed mode
+  sessionTimeout?: number;  // Session timeout in seconds
   sessionManager?: SessionManager;
   siteManager?: SiteManager;
 }
@@ -117,7 +118,8 @@ export class VerifyPaginateEngine {
         const sessionRequest: any = { 
           domain: options.domain,
           proxy,
-          headless: options.localHeadless || !options.localHeaded // default to headless unless localHeaded
+          headless: options.localHeadless ? true : (options.localHeaded ? false : true), // default to headless
+          timeout: options.sessionTimeout
         };
         
         const session = await this.sessionManager.createSession(sessionRequest);

@@ -15,17 +15,39 @@ installGlobalErrorHandlers();
 const log = logger.createContext('verify-item');
 
 async function main() {
-  const url = process.argv[2];
+  const args = process.argv.slice(2);
+  const url = args.find(arg => !arg.startsWith('--'));
+  
+  // Parse optional flags
+  const localHeadless = args.includes('--local-headless');
+  const localHeaded = args.includes('--local-headed');
+  
+  // Parse session timeout
+  let sessionTimeout: number | undefined;
+  const timeoutIndex = args.findIndex(arg => arg === '--session-timeout' || arg.startsWith('--session-timeout='));
+  if (timeoutIndex !== -1) {
+    const arg = args[timeoutIndex];
+    if (arg.startsWith('--session-timeout=')) {
+      sessionTimeout = parseInt(arg.replace('--session-timeout=', ''), 10);
+    } else if (args[timeoutIndex + 1]) {
+      sessionTimeout = parseInt(args[timeoutIndex + 1], 10);
+    }
+  }
   
   if (!url) {
-    console.log('Usage: npm run verify:item <URL>');
+    console.log('Usage: npm run verify:item <URL> [options]');
+    console.log('Options:');
+    console.log('  --local-headless   Use local browser in headless mode');
+    console.log('  --local-headed     Use local browser in headed mode');
+    console.log('  --session-timeout=N Session timeout in seconds (browserbase only)');
     console.log('Example: npm run verify:item https://amgbrand.com/products/some-product');
+    console.log('Example: npm run verify:item https://amgbrand.com/products/some-product --local-headed');
     process.exit(1);
   }
   
   try {
-    const engine = new VerifyItemEngine();
-    const result = await engine.verify({ url });
+    const engine = new VerifyItemEngine({ localHeadless, localHeaded });
+    const result = await engine.verify({ url, localHeadless, localHeaded, sessionTimeout });
     
     // Display results
     log.normal('\n=== Verification Results ===');

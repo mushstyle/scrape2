@@ -29,7 +29,7 @@ export interface ScrapeItemOptions {
   localHeadless?: boolean;  // Use local browser in headless mode
   localHeaded?: boolean;  // Use local browser in headed mode
   sessionTimeout?: number;  // Session timeout in seconds (browserbase only)
-  maxRetries?: number;  // Default: 1 (for network errors)
+  maxRetries?: number;  // Default: 2 (for network errors)
   retryFailedItems?: boolean;  // Include previously failed items
 }
 
@@ -89,7 +89,7 @@ export class ScrapeItemEngine {
     const itemLimit = options.itemLimit || Infinity;  // NO LIMIT by default!
     const cacheSizeMB = options.cacheSizeMB || 250;
     const cacheTTLSeconds = options.cacheTTLSeconds || 300;
-    const maxRetries = options.maxRetries || 1;
+    const maxRetries = options.maxRetries || 2;
     
     // Log configuration
     log.normal('Scrape items configuration:');
@@ -502,7 +502,7 @@ export class ScrapeItemEngine {
         // Add browser type if local browser requested
         if (options.localHeadless || options.localHeaded) {
           request.browserType = 'local';
-          request.headless = !options.localHeaded; // headed means headless=false
+          request.headless = options.localHeadless ? true : (options.localHeaded ? false : true); // default to headless
         }
         
         // Add timeout if specified
