@@ -20,6 +20,8 @@ export interface VerifyItemOptions {
   url: string;
   sessionManager?: SessionManager;
   siteManager?: SiteManager;
+  localHeadless?: boolean;
+  localHeaded?: boolean;
 }
 
 export interface VerifyItemResult {
@@ -37,7 +39,10 @@ export class VerifyItemEngine {
   private siteManager: SiteManager;
   
   constructor(options: Partial<VerifyItemOptions> = {}) {
-    this.sessionManager = options.sessionManager || new SessionManager();
+    // Determine provider based on browser flags
+    const provider = (options.localHeaded || options.localHeadless) ? 'local' : 'browserbase';
+    
+    this.sessionManager = options.sessionManager || new SessionManager({ provider });
     this.siteManager = options.siteManager || new SiteManager();
   }
   
@@ -70,10 +75,17 @@ export class VerifyItemEngine {
       const proxy = await this.siteManager.getProxyForDomain(domain);
       
       // Create session
-      session = await this.sessionManager.createSession({ 
+      const sessionOptions: any = { 
         domain,
         proxy 
-      });
+      };
+      
+      // Add headless option based on flags
+      if (options.localHeadless || options.localHeaded) {
+        sessionOptions.headless = options.localHeadless ? true : (options.localHeaded ? false : true);
+      }
+      
+      session = await this.sessionManager.createSession(sessionOptions);
       const { browser, createContext } = await createBrowserFromSession(session);
       const context = await createContext();
       const page = await context.newPage();

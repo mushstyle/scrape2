@@ -117,7 +117,7 @@ export class VerifyPaginateEngine {
         const sessionRequest: any = { 
           domain: options.domain,
           proxy,
-          headless: options.localHeadless || !options.localHeaded // default to headless unless localHeaded
+          headless: options.localHeadless ? true : (options.localHeaded ? false : true) // default to headless
         };
         
         const session = await this.sessionManager.createSession(sessionRequest);

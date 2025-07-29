@@ -15,17 +15,26 @@ installGlobalErrorHandlers();
 const log = logger.createContext('verify-item');
 
 async function main() {
-  const url = process.argv[2];
+  const args = process.argv.slice(2);
+  const url = args.find(arg => !arg.startsWith('--'));
+  
+  // Parse optional flags
+  const localHeadless = args.includes('--local-headless');
+  const localHeaded = args.includes('--local-headed');
   
   if (!url) {
-    console.log('Usage: npm run verify:item <URL>');
+    console.log('Usage: npm run verify:item <URL> [options]');
+    console.log('Options:');
+    console.log('  --local-headless   Use local browser in headless mode');
+    console.log('  --local-headed     Use local browser in headed mode');
     console.log('Example: npm run verify:item https://amgbrand.com/products/some-product');
+    console.log('Example: npm run verify:item https://amgbrand.com/products/some-product --local-headed');
     process.exit(1);
   }
   
   try {
-    const engine = new VerifyItemEngine();
-    const result = await engine.verify({ url });
+    const engine = new VerifyItemEngine({ localHeadless, localHeaded });
+    const result = await engine.verify({ url, localHeadless, localHeaded });
     
     // Display results
     log.normal('\n=== Verification Results ===');

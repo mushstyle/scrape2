@@ -502,7 +502,7 @@ export class ScrapeItemEngine {
         // Add browser type if local browser requested
         if (options.localHeadless || options.localHeaded) {
           request.browserType = 'local';
-          request.headless = !options.localHeaded; // headed means headless=false
+          request.headless = options.localHeadless ? true : (options.localHeaded ? false : true); // default to headless
         }
         
         // Add timeout if specified
