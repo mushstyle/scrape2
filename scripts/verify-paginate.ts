@@ -30,6 +30,18 @@ async function main() {
     maxPages = parseInt(maxPagesArg.replace('--max-pages=', ''), 10);
   }
   
+  // Parse session timeout
+  let sessionTimeout: number | undefined;
+  const timeoutIndex = args.findIndex(arg => arg === '--session-timeout' || arg.startsWith('--session-timeout='));
+  if (timeoutIndex !== -1) {
+    const arg = args[timeoutIndex];
+    if (arg.startsWith('--session-timeout=')) {
+      sessionTimeout = parseInt(arg.replace('--session-timeout=', ''), 10);
+    } else if (args[timeoutIndex + 1]) {
+      sessionTimeout = parseInt(args[timeoutIndex + 1], 10);
+    }
+  }
+  
   if (!input) {
     console.log('Usage: npm run verify:paginate <SITE|URL> [options]');
     console.log('Options:');
@@ -37,6 +49,7 @@ async function main() {
     console.log('  --max-pages=N      Limit to N pages');
     console.log('  --local-headless   Use local browser in headless mode');
     console.log('  --local-headed     Use local browser in headed mode');
+    console.log('  --session-timeout=N Session timeout in seconds (browserbase only)');
     console.log('Examples:');
     console.log('  npm run verify:paginate amgbrand.com');
     console.log('  npm run verify:paginate https://musthave.ua/en/catalog/obuv?page=1');
@@ -59,7 +72,8 @@ async function main() {
       maxPages,  // NO DEFAULT LIMIT!
       useSingleSession,
       localHeadless,
-      localHeaded
+      localHeaded,
+      sessionTimeout
     });
     
     // Display results

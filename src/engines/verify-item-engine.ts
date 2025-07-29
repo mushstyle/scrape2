@@ -22,6 +22,7 @@ export interface VerifyItemOptions {
   siteManager?: SiteManager;
   localHeadless?: boolean;
   localHeaded?: boolean;
+  sessionTimeout?: number;  // Session timeout in seconds
 }
 
 export interface VerifyItemResult {
@@ -83,6 +84,11 @@ export class VerifyItemEngine {
       // Add headless option based on flags
       if (options.localHeadless || options.localHeaded) {
         sessionOptions.headless = options.localHeadless ? true : (options.localHeaded ? false : true);
+      }
+      
+      // Add timeout if specified
+      if (options.sessionTimeout) {
+        sessionOptions.timeout = options.sessionTimeout;
       }
       
       session = await this.sessionManager.createSession(sessionOptions);

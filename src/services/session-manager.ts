@@ -70,7 +70,7 @@ export class SessionManager {
    * @param options - Single options object or array of options
    * @returns Single session or array of sessions
    */
-  async createSession(options: { domain?: string; proxy?: any; headless?: boolean } | Array<{ domain?: string; proxy?: any; headless?: boolean }> = {}): Promise<Session | Session[]> {
+  async createSession(options: { domain?: string; proxy?: any; headless?: boolean; timeout?: number } | Array<{ domain?: string; proxy?: any; headless?: boolean; timeout?: number }> = {}): Promise<Session | Session[]> {
     // If single options object, convert to array for unified processing
     const isArray = Array.isArray(options);
     const optionsArray = isArray ? options : [options];
@@ -99,7 +99,7 @@ export class SessionManager {
         let session: Session;
         
         if (this.provider === 'browserbase') {
-          session = await createBrowserbaseSession({ proxy: opt.proxy });
+          session = await createBrowserbaseSession({ proxy: opt.proxy, timeout: opt.timeout });
         } else {
           session = await createLocalSession({ proxy: opt.proxy, headless: opt.headless });
         }
