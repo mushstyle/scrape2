@@ -516,6 +516,12 @@ export class ScrapeItemEngine {
     
     // Pass all requests as an array to avoid race condition in session limit check
     const newSessions = await this.sessionManager.createSession(newSessionRequests) as Session[];
+    
+    if (newSessions.length === 0) {
+      log.normal(`No new sessions could be created (session limit reached)`);
+      return;
+    }
+    
     log.normal(`Created ${newSessions.length} new sessions`);
     
     // Add new sessions to our tracking
