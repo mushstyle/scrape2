@@ -61,6 +61,7 @@
 - NEVER commit without explicit permission
 - Create the PR yourself using current branch, if no PR exists for current branch
 - PR merge = `gh pr create` → `gh pr merge --squash` → `git pull`
+- DELETE the branch after merging, on local and remote
 
 ## Browser/Proxy
 - Default: Browserbase with datacenter proxy
