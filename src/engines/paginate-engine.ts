@@ -471,8 +471,7 @@ export class PaginateEngine {
     if (session.provider === 'browserbase') {
       return session.browserbase!.id;
     } else {
-      // For local sessions, generate a stable ID
-      return `local-${session.local?.id || 'unknown'}`;
+      return session.local!.id;
     }
   }
   

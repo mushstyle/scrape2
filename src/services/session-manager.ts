@@ -75,23 +75,28 @@ export class SessionManager {
     const isArray = Array.isArray(options);
     const optionsArray = isArray ? options : [options];
     
-    // Check if we have capacity for all requested sessions
-    const activeSessions = await this.getActiveSessions();
-    const availableSlots = this.sessionLimit - activeSessions.length;
+    // Skip session limit check for local browsers
+    let optionsToProcess = optionsArray;
     
-    // If requesting more than available, only create what we can
-    const sessionsToCreate = Math.min(optionsArray.length, availableSlots);
-    if (sessionsToCreate === 0) {
-      log.normal(`No available slots (${activeSessions.length}/${this.sessionLimit} in use)`);
-      return isArray ? [] : undefined as any;
+    if (this.provider === 'browserbase') {
+      // Check if we have capacity for all requested sessions
+      const activeSessions = await this.getActiveSessions();
+      const availableSlots = this.sessionLimit - activeSessions.length;
+      
+      // If requesting more than available, only create what we can
+      const sessionsToCreate = Math.min(optionsArray.length, availableSlots);
+      if (sessionsToCreate === 0) {
+        log.normal(`No available slots (${activeSessions.length}/${this.sessionLimit} in use)`);
+        return isArray ? [] : undefined as any;
+      }
+      
+      if (sessionsToCreate < optionsArray.length) {
+        log.normal(`Requested ${optionsArray.length} sessions but only ${availableSlots} slots available. Creating ${sessionsToCreate} sessions.`);
+      }
+      
+      // Only process the options we can actually create
+      optionsToProcess = optionsArray.slice(0, sessionsToCreate);
     }
-    
-    if (sessionsToCreate < optionsArray.length) {
-      log.normal(`Requested ${optionsArray.length} sessions but only ${availableSlots} slots available. Creating ${sessionsToCreate} sessions.`);
-    }
-    
-    // Only process the options we can actually create
-    const optionsToProcess = optionsArray.slice(0, sessionsToCreate);
     
     // Create all sessions in parallel
     const sessionPromises = optionsToProcess.map(async (opt) => {
@@ -167,9 +172,7 @@ export class SessionManager {
     if (session.provider === 'browserbase') {
       return session.browserbase!.id;
     } else {
-      // For local sessions, we need a stable ID
-      // This is a temporary solution - ideally local sessions should have IDs too
-      return `local-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      return session.local!.id;
     }
   }
   

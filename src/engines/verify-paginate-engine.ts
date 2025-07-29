@@ -108,23 +108,22 @@ export class VerifyPaginateEngine {
       log.normal(`Session limit: ${sessionLimit}`);
       log.normal(`Creating ${sessionsToCreate} sessions`);
       
-      // Create sessions
-      for (let i = 0; i < sessionsToCreate; i++) {
-        if (i > 0) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-        
-        const proxy = await this.siteManager.getProxyForDomain(options.domain);
-        const sessionRequest: any = { 
-          domain: options.domain,
-          proxy,
-          headless: options.localHeadless ? true : (options.localHeaded ? false : true), // default to headless
-          timeout: options.sessionTimeout
-        };
-        
-        const session = await this.sessionManager.createSession(sessionRequest);
-        
-        // Create SessionInfo for distributor
+      // Get proxy for domain once
+      const proxy = await this.siteManager.getProxyForDomain(options.domain);
+      
+      // Create all session requests
+      const sessionRequests = Array(sessionsToCreate).fill(null).map(() => ({
+        domain: options.domain,
+        proxy,
+        headless: options.localHeadless ? true : (options.localHeaded ? false : true), // default to headless
+        timeout: options.sessionTimeout
+      }));
+      
+      // Create all sessions in parallel (SessionManager handles this efficiently)
+      const createdSessions = await this.sessionManager.createSession(sessionRequests) as Session[];
+      
+      // Add successfully created sessions with their info
+      createdSessions.forEach((session, i) => {
         const sessionInfo: SessionInfo = {
           id: `session-${i}`,
           proxyType: proxy?.type as any || 'none',
@@ -133,6 +132,10 @@ export class VerifyPaginateEngine {
         };
         
         sessions.push({ session, sessionInfo });
+      });
+      
+      if (createdSessions.length < sessionsToCreate) {
+        log.normal(`Only created ${createdSessions.length}/${sessionsToCreate} sessions`);
       }
       
       // Start with initial URLs as ScrapeTargets

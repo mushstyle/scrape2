@@ -13,6 +13,7 @@ export async function createSession(options: SessionOptions = {}): Promise<Sessi
   });
 
   const localSession: LocalSession = {
+    id: crypto.randomUUID(),
     browser,
     proxy: options.proxy
   };

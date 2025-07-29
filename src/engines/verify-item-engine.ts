@@ -92,6 +92,9 @@ export class VerifyItemEngine {
       }
       
       session = await this.sessionManager.createSession(sessionOptions);
+      if (!session) {
+        throw new Error('Failed to create session - no available slots');
+      }
       const { browser, createContext } = await createBrowserFromSession(session);
       const context = await createContext();
       const page = await context.newPage();
