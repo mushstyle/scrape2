@@ -9,8 +9,22 @@ const log = logger.createContext('aninebing.com');
 
 export const scraper: Scraper = {
   getItemUrls: async (page: Page) => {
-    // Wait for product cards to load
-    await page.waitForSelector('.product-card', { timeout: 15000 });
+    // Wait for product cards to load - try multiple times if needed
+    let attempts = 0;
+    while (attempts < 3) {
+      try {
+        await page.waitForSelector('.product-card', { timeout: 10000 });
+        break;
+      } catch (e) {
+        attempts++;
+        if (attempts >= 3) {
+          log.error('Failed to find product cards after 3 attempts');
+          return new Set();
+        }
+        log.debug(`Attempt ${attempts} failed, retrying...`);
+        await page.waitForTimeout(2000);
+      }
+    }
     
     // Wait a bit for dynamic content to fully load
     await page.waitForTimeout(2000);
@@ -38,46 +52,8 @@ export const scraper: Scraper = {
   },
 
   paginate: async (page: Page) => {
-    // Check if load more button exists and is visible
-    const loadMoreButton = await page.$('.load-more-button-wrapper');
-    
-    if (!loadMoreButton) {
-      log.debug('No load more button found, pagination complete');
-      return false;
-    }
-    
-    // Check if the button is visible
-    const isVisible = await loadMoreButton.isVisible();
-    if (!isVisible) {
-      log.debug('Load more button not visible, pagination complete');
-      return false;
-    }
-    
-    // Get current product count before clicking
-    const countBefore = await page.$$eval('.product-card', cards => cards.length);
-    
-    // Click the load more button
-    await loadMoreButton.click();
-    log.debug('Clicked load more button');
-    
-    // Wait for new products to load
-    try {
-      // Wait for the product count to increase
-      await page.waitForFunction(
-        (prevCount) => document.querySelectorAll('.product-card').length > prevCount,
-        countBefore,
-        { timeout: 10000 }
-      );
-      
-      const countAfter = await page.$$eval('.product-card', cards => cards.length);
-      log.debug(`Products increased from ${countBefore} to ${countAfter}`);
-      
-      return true;
-    } catch (e) {
-      // No new products loaded, we're done
-      log.debug('No new products loaded after clicking load more');
-      return false;
-    }
+    // No pagination needed - startPages will have ?page=N parameters
+    return false;
   },
 
   scrapeItem: async (page: Page, options?: { uploadToS3?: boolean }): Promise<Item> => {
