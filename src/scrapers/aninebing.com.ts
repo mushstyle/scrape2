@@ -57,6 +57,46 @@ export const scraper: Scraper = {
   },
 
   scrapeItem: async (page: Page, options?: { uploadToS3?: boolean }): Promise<Item[]> => {
+    // Check for Cloudflare challenge
+    try {
+      // Look for Cloudflare checkbox iframe
+      const cfFrame = page.frames().find(frame => frame.url().includes('challenges.cloudflare.com'));
+      if (cfFrame) {
+        log.debug('Cloudflare challenge detected, attempting to solve...');
+        
+        try {
+          // Wait for the checkbox to be clickable
+          const checkbox = await cfFrame.waitForSelector('input[type="checkbox"]', { timeout: 5000 });
+          if (checkbox) {
+            await checkbox.click();
+            log.debug('Clicked Cloudflare checkbox');
+            
+            // Wait for challenge to complete and page to reload
+            await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {
+              // Sometimes navigation doesn't happen, just wait for content
+              log.debug('No navigation after checkbox click, waiting for content...');
+            });
+            
+            // Give it a moment to fully load
+            await page.waitForTimeout(2000);
+          }
+        } catch (e) {
+          log.debug('Could not click Cloudflare checkbox:', e);
+          // Continue anyway, maybe the challenge resolved itself
+        }
+      }
+      
+      // Also check for text-based indicators
+      const pageContent = await page.content();
+      if (pageContent.includes('Your connection needs to be verified') || 
+          pageContent.includes('Checking your browser')) {
+        log.debug('Cloudflare text detected, waiting for auto-resolution...');
+        await page.waitForTimeout(5000);
+      }
+    } catch (e) {
+      log.debug('Error checking for Cloudflare challenge:', e);
+    }
+    
     // Wait for product content to load
     await page.waitForSelector('[data-product-json], .product-meta, .product__title', { timeout: 7000 });
     
