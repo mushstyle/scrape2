@@ -32,11 +32,11 @@ export interface Scraper {
    * The page is expected to be already navigated to the product's URL by the caller.
    * @param page Playwright page object, already navigated to the product page.
    * @param options Optional configuration for scraping behavior.
-   * @returns A promise that resolves to the scraped Item data.
+   * @returns A promise that resolves to an array of scraped Item data. Most scrapers will return a single item in the array.
    */
   scrapeItem: (page: Page, options?: { 
     scrapeImages?: boolean;
     existingImages?: Array<{ sourceUrl: string; mushUrl: string }>;
     uploadToS3?: boolean;
-  }) => Promise<Item>;
+  }) => Promise<Item[]>;
 }

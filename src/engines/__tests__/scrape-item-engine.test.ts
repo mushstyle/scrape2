@@ -48,7 +48,8 @@ describe('ScrapeItemEngine', () => {
     
     mockSessionManager = {
       getActiveSessions: vi.fn(),
-      createSession: vi.fn()
+      createSession: vi.fn(),
+      destroyAllSessions: vi.fn()
     };
     
     engine = new ScrapeItemEngine(mockSiteManager as any, mockSessionManager as any);
@@ -132,7 +133,7 @@ describe('ScrapeItemEngine', () => {
       vi.mocked(loadScraper).mockResolvedValue({
         getItemUrls: vi.fn(),
         paginate: vi.fn(),
-        scrapeItem: vi.fn().mockResolvedValue(mockItem)
+        scrapeItem: vi.fn().mockResolvedValue([mockItem])
       });
       
       // ETL driver is already mocked in module mock above

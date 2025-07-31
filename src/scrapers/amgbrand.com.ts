@@ -197,12 +197,12 @@ export const scrapeItem = async (page: Page, options?: {
       vendor: 'amgbrand'
     };
 
-    return Utils.formatItem(item);
+    return [Utils.formatItem(item)];
 
   } catch (e) {
     log.error(`Error scraping ${sourceUrl}:`, e);
     const fallbackItem: Item = { sourceUrl, product_id: sourceUrl, title: 'Scraping Failed', images: [], price: 0 };
-    return Utils.formatItem(fallbackItem);
+    return [Utils.formatItem(fallbackItem)];
   }
 };
 

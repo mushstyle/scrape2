@@ -123,7 +123,7 @@ export async function scrapeItem(page: Page, options?: {
   scrapeImages?: boolean;
   existingImages?: Array<{ sourceUrl: string; mushUrl: string }>;
   uploadToS3?: boolean;
-}): Promise<Item> {
+}): Promise<Item[]> {
   try {
     // The page is already navigated to the item URL by the caller.
     // log.debug(`Scraping data from already navigated page: ${page.url()}`); // Optional: confirm URL
@@ -292,7 +292,7 @@ export async function scrapeItem(page: Page, options?: {
       status: 'ACTIVE',
     };
 
-    return Utils.formatItem(item);
+    return [Utils.formatItem(item)];
 
   } catch (error) {
     log.error(`Error scraping ${page.url()}:`, error); // Use page.url()

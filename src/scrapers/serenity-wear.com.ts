@@ -154,7 +154,7 @@ export async function scrapeItem(page: Page, options?: {
   scrapeImages?: boolean;
   existingImages?: Array<{ sourceUrl: string; mushUrl: string }>;
   uploadToS3?: boolean;
-}): Promise<Item> {
+}): Promise<Item[]> {
   const sourceUrl = page.url();
   try {
     // First check if this is a 404/not found page
@@ -363,7 +363,7 @@ export async function scrapeItem(page: Page, options?: {
       currency,
     };
 
-    return Utils.formatItem(item);
+    return [Utils.formatItem(item)];
 
   } finally {
     // await browser.close(); // Browser lifecycle managed by the caller

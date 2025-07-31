@@ -53,7 +53,7 @@ export async function scrapeItem(page: Page, options?: {
   scrapeImages?: boolean;
   existingImages?: Array<{ sourceUrl: string; mushUrl: string }>;
   uploadToS3?: boolean;
-}): Promise<Item> {
+}): Promise<Item[]> {
   const sourceUrl = page.url();
   try {
     // Page is already at sourceUrl. Ensure content is loaded by caller if necessary.
@@ -154,7 +154,7 @@ export async function scrapeItem(page: Page, options?: {
       images: uploadedImages,
     };
 
-    return Utils.formatItem(item);
+    return [Utils.formatItem(item)];
   } catch (error) {
     log.error(`Error scraping item ${sourceUrl}:`, error);
     throw new Error(`Error scraping item ${sourceUrl}: ${error}`);

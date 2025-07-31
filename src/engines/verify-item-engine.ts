@@ -112,11 +112,19 @@ export class VerifyItemEngine {
       
       // Scrape item
       log.normal('Scraping item...');
-      const item = await scraper.scrapeItem(page);
+      const items = await scraper.scrapeItem(page);
       
       // Validate result
-      if (!item) {
-        throw new Error('Scraper returned null/undefined');
+      if (items.length === 0) {
+        throw new Error('Scraper returned empty array');
+      }
+      
+      // For verify, use first item
+      const item = items[0];
+      
+      // Log if multiple items returned (for debugging)
+      if (items.length > 1) {
+        log.normal(`Note: Scraper returned ${items.length} items, showing first item only`);
       }
       
       // Extract field names for debugging

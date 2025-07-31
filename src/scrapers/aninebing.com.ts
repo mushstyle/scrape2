@@ -56,7 +56,7 @@ export const scraper: Scraper = {
     return false;
   },
 
-  scrapeItem: async (page: Page, options?: { uploadToS3?: boolean }): Promise<Item> => {
+  scrapeItem: async (page: Page, options?: { uploadToS3?: boolean }): Promise<Item[]> => {
     // Wait for product content to load
     await page.waitForSelector('[data-product-json], .product-meta, .product__title', { timeout: 15000 });
     
@@ -298,7 +298,7 @@ export const scraper: Scraper = {
     };
     
     log.debug(`Scraped item: ${item.title} - $${item.price} (${sizes.length} sizes)`);
-    return formatItem(item);
+    return [formatItem(item)];
   }
 };
 

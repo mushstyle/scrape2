@@ -110,7 +110,7 @@ export async function scrapeItem(page: Page, options?: {
   scrapeImages?: boolean;
   existingImages?: Array<{ sourceUrl: string; mushUrl: string }>;
   uploadToS3?: boolean;
-}): Promise<Item> {
+}): Promise<Item[]> {
   const sourceUrl = page.url();
   try {
     // Page is already at sourceUrl, ensure content is loaded.
@@ -280,7 +280,7 @@ export async function scrapeItem(page: Page, options?: {
     };
 
     // Format and return
-    return Utils.formatItem(finalItem);
+    return [Utils.formatItem(finalItem)];
 
   } finally {
     // await browser.close(); // Browser lifecycle managed by the caller

@@ -186,7 +186,7 @@ export const scrapeItem = async (page: Page, options?: {
       // sale_price, vendor, type, rating, num_ratings, color, sizes, variants, similar_item_urls, status
     };
 
-    // return Utils.formatItem(item); // Uncomment when Utils is confirmed and imported
+    // return [Utils.formatItem(item)]; // Uncomment when Utils is confirmed and imported
     return item; // Returning raw item for now
 
   } catch (error) {

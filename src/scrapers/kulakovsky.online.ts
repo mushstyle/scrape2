@@ -175,7 +175,7 @@ export async function scrapeItem(page: Page, options?: {
   scrapeImages?: boolean;
   existingImages?: Array<{ sourceUrl: string; mushUrl: string }>;
   uploadToS3?: boolean;
-}): Promise<Item> {
+}): Promise<Item[]> {
   const sourceUrl = page.url();
   try {
     // Page is already at sourceUrl, ensure content is loaded.
@@ -348,12 +348,12 @@ export async function scrapeItem(page: Page, options?: {
       // type: undefined,
     };
 
-    return Utils.formatItem(finalItem);
+    return [Utils.formatItem(finalItem)];
 
   } catch (error) {
     log.error(`Error scraping item at ${sourceUrl}: ${error}`); // Use sourceUrl
     // Return minimal error item matching Item type
-    return Utils.formatItem({
+    return [Utils.formatItem({
       sourceUrl: sourceUrl, // Use sourceUrl
       product_id: 'unknown',
       title: `Error scraping item`,
@@ -367,7 +367,7 @@ export async function scrapeItem(page: Page, options?: {
       color: undefined,
       tags: [],
       type: undefined,
-    });
+    })];
   }
 }
 

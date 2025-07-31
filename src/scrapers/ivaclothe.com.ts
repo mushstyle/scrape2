@@ -164,7 +164,7 @@ export async function scrapeItem(page: Page, options?: {
   scrapeImages?: boolean;
   existingImages?: Array<{ sourceUrl: string; mushUrl: string }>;
   uploadToS3?: boolean;
-}): Promise<Item> {
+}): Promise<Item[]> {
   const sourceUrl = page.url();
   try {
     // Wait for product info to load
@@ -383,7 +383,7 @@ export async function scrapeItem(page: Page, options?: {
       status: 'ACTIVE' // Set status here or based on logic if needed
     };
 
-    return Utils.formatItem(finalItem);
+    return [Utils.formatItem(finalItem)];
 
   } catch (error) {
     log.error(`Error scraping ${sourceUrl}:`, error);

@@ -119,7 +119,7 @@ export async function scrapeItem(page: Page, options?: {
   scrapeImages?: boolean;
   existingImages?: Array<{ sourceUrl: string; mushUrl: string }>;
   uploadToS3?: boolean;
-}): Promise<Item> {
+}): Promise<Item[]> {
   const sourceUrl = page.url();
   // Removed verbose navigation log
 
@@ -218,7 +218,7 @@ export async function scrapeItem(page: Page, options?: {
       status: 'ACTIVE'
     };
 
-    return Utils.formatItem(finalItem);
+    return [Utils.formatItem(finalItem)];
 
   } catch (error) {
     log.error(`Error scraping item ${sourceUrl}:`, error);

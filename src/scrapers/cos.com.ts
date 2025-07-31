@@ -582,7 +582,7 @@ export async function scrapeItem(page: Page, options?: {
   scrapeImages?: boolean;
   existingImages?: Array<{ sourceUrl: string; mushUrl: string }>;
   uploadToS3?: boolean;
-}): Promise<Item> {
+}): Promise<Item[]> {
   try {
     // log.debug('scrapeItem - Received page object for:', page.url());
 
@@ -784,7 +784,7 @@ export async function scrapeItem(page: Page, options?: {
       color: color || undefined,
     };
 
-    return formatItem(item as Item);
+    return [formatItem(item as Item)];
 
   } catch (error) {
     log.error(`Error in scrapeItem for ${page.url()}:`, error);

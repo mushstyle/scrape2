@@ -666,11 +666,11 @@ export class ScrapeItemEngine {
     
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const item = await this.processItem(url, runInfo.domain, sessionData);
+        const items = await this.processItem(url, runInfo.domain, sessionData);
         
         // Add to results - will mark as done after batch upload
         const siteItems = itemsBySite.get(runInfo.domain) || [];
-        siteItems.push(item);
+        siteItems.push(...items);
         itemsBySite.set(runInfo.domain, siteItems);
         
         // Track successful URL for batch update
@@ -743,7 +743,7 @@ export class ScrapeItemEngine {
     url: string,
     site: string,
     sessionData: SessionWithBrowser
-  ): Promise<Item> {
+  ): Promise<Item[]> {
     const scraper = await loadScraper(site);
     const page: Page = await sessionData.context.newPage();
     
@@ -770,15 +770,17 @@ export class ScrapeItemEngine {
       
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
       
-      // Scrape the item
-      const item = await scraper.scrapeItem(page);
+      // Scrape the items
+      const items = await scraper.scrapeItem(page);
       
-      // Ensure sourceUrl is set
-      if (!item.sourceUrl) {
-        item.sourceUrl = url;
-      }
+      // Ensure sourceUrl is set on each item
+      items.forEach(item => {
+        if (!item.sourceUrl) {
+          item.sourceUrl = url;
+        }
+      });
       
-      return item;
+      return items;
       
     } finally {
       // Unroute all handlers to avoid errors when closing

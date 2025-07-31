@@ -187,7 +187,7 @@ export const scrapeItem = async (page: Page, options?: {
       vendor: 'iam-store',
     };
 
-    return Utils.formatItem(item);
+    return [Utils.formatItem(item)];
   } finally {
     // await browser.close(); // Browser lifecycle is managed by the caller
   }

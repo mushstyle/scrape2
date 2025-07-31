@@ -67,7 +67,7 @@ export async function scrapeItem(page: Page, options?: {
   scrapeImages?: boolean;
   existingImages?: Array<{ sourceUrl: string; mushUrl: string }>;
   uploadToS3?: boolean;
-}): Promise<Item> {
+}): Promise<Item[]> {
   const sourceUrl = page.url();
   const parsePrice = (priceText: string | null | undefined): number | undefined => {
     if (!priceText) return undefined;
@@ -231,7 +231,7 @@ export async function scrapeItem(page: Page, options?: {
       sizes: sizes.length > 0 ? sizes : undefined, // Set to undefined if no sizes found
     };
 
-    return formatItem(item);
+    return [formatItem(item)];
 
   } finally {
     // await browser.close(); // Browser lifecycle managed by the caller

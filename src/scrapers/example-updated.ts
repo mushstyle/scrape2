@@ -51,7 +51,7 @@ export async function scrapeItem(page: Page, options?: {
   scrapeImages?: boolean;
   existingImages?: Array<{ sourceUrl: string; mushUrl: string }>;
   uploadToS3?: boolean;
-}): Promise<Item> {
+}): Promise<Item[]> {
   // Default to scraping images if not specified
   const scrapeImages = options?.scrapeImages !== false;
   

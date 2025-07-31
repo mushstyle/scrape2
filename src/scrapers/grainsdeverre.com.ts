@@ -261,7 +261,7 @@ export const scrapeItem = async (page: Page, options?: {
       vendor: 'grainsdeverre', // Use domain name as vendor
     };
 
-    return Utils.formatItem(item);
+    return [Utils.formatItem(item)];
 
   } finally {
     // await browser.close(); // Browser lifecycle managed by the caller

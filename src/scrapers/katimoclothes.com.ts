@@ -133,7 +133,7 @@ export async function scrapeItem(page: Page, options?: {
   scrapeImages?: boolean;
   existingImages?: Array<{ sourceUrl: string; mushUrl: string }>;
   uploadToS3?: boolean;
-}): Promise<Item> {
+}): Promise<Item[]> {
   const sourceUrl = page.url();
   try {
     // Page is already at sourceUrl. Caller should ensure DOM is loaded.
@@ -294,7 +294,7 @@ export async function scrapeItem(page: Page, options?: {
       status: 'ACTIVE' // Set status
     };
 
-    return Utils.formatItem(finalItem);
+    return [Utils.formatItem(finalItem)];
 
   } catch (error) {
     const log = logger.createContext('katimoclothes.com');

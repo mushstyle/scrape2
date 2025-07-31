@@ -96,7 +96,7 @@ export async function scrapeItem(page: Page, options?: {
   scrapeImages?: boolean;
   existingImages?: Array<{ sourceUrl: string; mushUrl: string }>;
   uploadToS3?: boolean;
-}): Promise<Item> {
+}): Promise<Item[]> {
   const sourceUrl = page.url();
 
   await page.waitForSelector(SELECTORS.title, { timeout: 10000 });
@@ -220,7 +220,7 @@ export async function scrapeItem(page: Page, options?: {
     sizes: sizes,
   };
 
-  return Utils.formatItem(item);
+  return [Utils.formatItem(item)];
 }
 
 const scraper: Scraper = {

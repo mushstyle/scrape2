@@ -80,7 +80,7 @@ export async function scrapeItem(page: Page, options?: {
   scrapeImages?: boolean;
   existingImages?: Array<{ sourceUrl: string; mushUrl: string }>;
   uploadToS3?: boolean;
-}): Promise<Item> {
+}): Promise<Item[]> {
   const sourceUrl = page.url();
   try {
     await page.waitForSelector(SELECTORS.product.title, { timeout: 10000 });
@@ -230,7 +230,7 @@ export async function scrapeItem(page: Page, options?: {
       tags: []
     };
 
-    return Utils.formatItem(finalItem);
+    return [Utils.formatItem(finalItem)];
 
   } catch (error) {
     const log = logger.createContext('freo.com.ua');

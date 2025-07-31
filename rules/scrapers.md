@@ -157,15 +157,16 @@ Scrapers **MUST** adhere to the functional pattern seen in `iam-store.com.ts`, e
     *   **The Page object persists:** The same Page instance is reused across multiple calls. After `paginate()` returns `true`, the page will be in the new state (either navigated to a new URL or with more items loaded).
     *   Return `true` if more items are available (either by navigating to a new page or loading more items), `false` when no more items can be loaded.
     *   **IMPORTANT:** For sites with no pagination (all items on one page), this function **MUST** still be exported and should simply `return false;`.
-*   **`export async function scrapeItem(page: Page): Promise<Item>`** (REQUIRED):
-    *   **Responsibility:** Scrape all details for a *single* product from its dedicated page. The `page` object is already navigated to the correct product URL.
+*   **`export async function scrapeItem(page: Page): Promise<Item[]>`** (REQUIRED):
+    *   **Responsibility:** Scrape all details for product(s) from its dedicated page. The `page` object is already navigated to the correct product URL. Most scrapers will return a single item wrapped in an array `[item]`, but this format enables returning multiple items for variants or bundles.
     *   Use `page.url()` to get the `sourceUrl` for the item.
     *   Do **NOT** launch a browser (`playwright.chromium.launch()`), create a context (`browser.newContext()`), create a page (`browser.newPage()`), or navigate (`page.goto(url)`) within this function. These are handled by the caller.
     *   **IMPORTANT:** Use `page.evaluate` primarily to extract *raw text and attributes* from the DOM. Perform data parsing, cleaning, and transformation (e.g., using a local `parsePrice` function) *outside* of `page.evaluate`, back in the Node.js context.
     *   Extract title, price (and sale price), description, images, sizes (if available), currency, and product ID (or SKU).
     *   Handle price extraction carefully (see "Price Handling" section below).
     *   Extract image URLs and alt text. Use the `uploadImagesToS3AndAddUrls` helper from [`src/utils/image-utils.ts`](mdc:src/utils/image-utils.ts) to upload images and get `mushUrl`.
-    *   Construct and return an `Item` object (defined in [`src/types/item.ts`](mdc:src/types/item.ts)). Use `formatItem` from [`src/db/db-utils.ts`](mdc:src/db/db-utils.ts) before returning.
+    *   Construct and return an array of `Item` objects (defined in [`src/types/item.ts`](mdc:src/types/item.ts)). Use `formatItem` from [`src/db/db-utils.ts`](mdc:src/db/db-utils.ts) on each item before returning.
+    *   **Error handling:** Return an empty array `[]` on errors instead of throwing or returning a fallback item with status: 'error'.
     *   **VERY IMPORTANT:** Do NOT add new fields to the `Item` type (defined in `src/types/item.ts`) or attempt to scrape data for fields not already present in the `Item` type without explicit confirmation from the user. If you believe a new field is necessary, discuss it first.
     *   The browser lifecycle (closing browser/context/page) is managed by the caller.
 
@@ -276,7 +277,7 @@ const item: Item = {
   // ...
 };
 
-return formatItem(item);
+return [formatItem(item)];
 
 ```
 
