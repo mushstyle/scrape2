@@ -262,7 +262,7 @@ export const scraper: Scraper = {
           if (url && 
               !url.includes('data:image') && 
               !url.includes('placeholder') &&
-              (url.includes('/files/') || url.includes('cdn.shop'))) {
+              (url.includes('/files/') || url.includes('cdn/shop'))) {
             // Clean up the URL - remove size parameters
             let cleanUrl = url;
             // Remove size suffix like _700x.jpg to get larger image
