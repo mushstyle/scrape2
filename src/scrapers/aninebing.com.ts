@@ -58,7 +58,7 @@ export const scraper: Scraper = {
 
   scrapeItem: async (page: Page, options?: { uploadToS3?: boolean }): Promise<Item[]> => {
     // Wait for product content to load
-    await page.waitForSelector('[data-product-json], .product-meta, .product__title', { timeout: 15000 });
+    await page.waitForSelector('[data-product-json], .product-meta, .product__title', { timeout: 7000 });
     
     const sourceUrl = page.url();
     
