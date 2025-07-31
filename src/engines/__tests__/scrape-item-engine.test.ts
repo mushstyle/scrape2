@@ -43,13 +43,17 @@ describe('ScrapeItemEngine', () => {
       getPendingItems: vi.fn(),
       getSiteConfigsWithBlockedProxies: vi.fn(),
       getProxyForDomain: vi.fn(),
-      updateItemStatus: vi.fn()
+      updateItemStatus: vi.fn(),
+      getSitesWithActiveRuns: vi.fn(),
+      getPendingItemsWithLimits: vi.fn(),
+      addBlockedProxy: vi.fn()
     };
     
     mockSessionManager = {
       getActiveSessions: vi.fn(),
       createSession: vi.fn(),
-      destroyAllSessions: vi.fn()
+      destroyAllSessions: vi.fn(),
+      destroySessionByObject: vi.fn()
     };
     
     engine = new ScrapeItemEngine(mockSiteManager as any, mockSessionManager as any);
@@ -59,6 +63,8 @@ describe('ScrapeItemEngine', () => {
     it('should return empty result when no pending items', async () => {
       // Mock no active runs
       mockSiteManager.listRuns.mockResolvedValue({ runs: [] });
+      mockSiteManager.getSitesWithActiveRuns.mockResolvedValue([]);
+      mockSiteManager.getPendingItemsWithLimits.mockResolvedValue([]);
       
       const result = await engine.scrapeItems({});
       
@@ -99,6 +105,9 @@ describe('ScrapeItemEngine', () => {
         domain: 'site1.com',
         itemUrlPattern: /\/product\//
       }]);
+      mockSiteManager.getPendingItemsWithLimits.mockResolvedValue([
+        { url: 'https://site1.com/product/1', runId: 'run-1', domain: 'site1.com' }
+      ]);
       
       // Mock session manager with an existing session
       mockSessionManager.getActiveSessions.mockResolvedValue([{
@@ -175,6 +184,9 @@ describe('ScrapeItemEngine', () => {
         domain: 'site1.com',
         itemUrlPattern: /\/product\//
       }]);
+      mockSiteManager.getPendingItemsWithLimits.mockResolvedValue([
+        { url: 'https://site1.com/product/1', runId: 'run-1', domain: 'site1.com' }
+      ]);
       
       mockSessionManager.getActiveSessions.mockResolvedValue([{
         id: 'existing-session-1',
@@ -249,6 +261,9 @@ describe('ScrapeItemEngine', () => {
         domain: 'site1.com',
         itemUrlPattern: /\/product\//
       }]);
+      mockSiteManager.getPendingItemsWithLimits.mockResolvedValue([
+        { url: 'https://site1.com/product/1', runId: 'run-1', domain: 'site1.com' }
+      ]);
       
       mockSessionManager.getActiveSessions.mockResolvedValue([{
         id: 'existing-session-1',
@@ -319,8 +334,23 @@ describe('ScrapeItemEngine', () => {
         domain: 'site1.com',
         itemUrlPattern: /\/product\//
       }]);
+      mockSiteManager.getPendingItemsWithLimits.mockResolvedValue(
+        mockItems.slice(0, 5).map((item, i) => ({
+          url: item.url,
+          runId: 'run-1',
+          domain: 'site1.com'
+        }))
+      );
+      mockSiteManager.getProxyForDomain.mockReturnValue(null);
       
       mockSessionManager.getActiveSessions.mockResolvedValue([]);
+      mockSessionManager.createSession.mockResolvedValue([
+        { id: 'session-1', local: {} },
+        { id: 'session-2', local: {} },
+        { id: 'session-3', local: {} },
+        { id: 'session-4', local: {} },
+        { id: 'session-5', local: {} }
+      ]);
       
       const { targetsToSessions } = await import('../../core/distributor.js');
       const mockedTargetsToSessions = vi.mocked(targetsToSessions);
@@ -343,6 +373,8 @@ describe('ScrapeItemEngine', () => {
     it('should collect cache statistics when caching enabled', async () => {
       // Mock empty runs to get empty result
       mockSiteManager.listRuns.mockResolvedValue({ runs: [] });
+      mockSiteManager.getSitesWithActiveRuns.mockResolvedValue([]);
+      mockSiteManager.getPendingItemsWithLimits.mockResolvedValue([]);
       
       const result = await engine.scrapeItems({
         disableCache: false,

@@ -95,31 +95,49 @@ export const scraper: Scraper = {
     
     // Get price - check for sale price first, then regular price
     try {
-      // Check if there's a sale price
-      const salePriceText = await page.$eval('.price--final .price__value', el => {
-        const text = el.textContent?.trim() || '';
-        const match = text.match(/\$?(\d+(?:\.\d{2})?)/);
-        return match ? match[1] : null;
-      });
-      if (salePriceText) {
-        sale_price = salePriceText;
+      // First try to get both prices to determine if it's actually a sale
+      let finalPriceText = null;
+      let compareAtPriceText = null;
+      
+      try {
+        finalPriceText = await page.$eval('.price--final .price__value', el => {
+          const text = el.textContent?.trim() || '';
+          const match = text.match(/\$?(\d+(?:\.\d{2})?)/);
+          return match ? match[1] : null;
+        });
+      } catch (e) {
+        // No final price
+      }
+      
+      try {
+        compareAtPriceText = await page.$eval('.price--compare-at .price__value', el => {
+          const text = el.textContent?.trim() || '';
+          const match = text.match(/\$?(\d+(?:\.\d{2})?)/);
+          return match ? match[1] : null;
+        });
+      } catch (e) {
+        // No compare-at price
+      }
+      
+      // Determine if this is a sale or regular price
+      if (finalPriceText && compareAtPriceText) {
+        const finalPrice = parseFloat(finalPriceText);
+        const comparePrice = parseFloat(compareAtPriceText);
         
-        // Try to get original price from compare-at price
-        try {
-          const originalPrice = await page.$eval('.price--compare-at .price__value', el => {
-            const text = el.textContent?.trim() || '';
-            const match = text.match(/\$?(\d+(?:\.\d{2})?)/);
-            return match ? match[1] : null;
-          });
-          if (originalPrice) {
-            price = originalPrice;
-          }
-        } catch (e) {
-          // No compare price
+        // Only treat as sale if compare price is greater than 0 and greater than final price
+        if (comparePrice > 0 && comparePrice > finalPrice) {
+          price = compareAtPriceText;
+          sale_price = finalPriceText;
+        } else {
+          // Not a real sale - just use final price as regular price
+          price = finalPriceText;
         }
+      } else if (finalPriceText) {
+        // Only final price exists - use as regular price
+        price = finalPriceText;
       }
     } catch (e) {
-      // No sale price, try regular price
+      // Error getting prices
     }
     
     // If no prices found yet, try other selectors
