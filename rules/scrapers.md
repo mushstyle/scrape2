@@ -189,6 +189,7 @@ export default scraper;
 
 *   **Core Library:** Use `playwright` for browser automation, not `puppeteer`.
 *   **Utility Functions:**
+    *   **CRITICAL:** Always use `extractDomain` from [`src/utils/url-utils.ts`](mdc:src/utils/url-utils.ts) when extracting domains from URLs. This function properly removes `www.` prefixes and normalizes domains. NEVER manually parse domains with `new URL().hostname` as it preserves the `www.` prefix.
     *   Avoid importing general utility functions like `ensureValidUrl` from `src/utils/`. Instead, handle tasks like URL resolution directly within the relevant function (e.g., `getItemUrls`).
     *   For price parsing (`parsePrice`), if complex logic is needed, define a local helper function *within* the scraper file (e.g., `src/scrapers/leskizzo.com.ts` has an example). Do not import shared price parsing utilities unless strictly necessary and confirmed to be standard practice.
     *   Use `uploadImagesToS3AndAddUrls` from [`src/utils/image-utils.ts`](mdc:src/utils/image-utils.ts) for handling image uploads.

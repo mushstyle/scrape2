@@ -8,6 +8,7 @@
 import { VerifyPaginateEngine } from '../src/engines/verify-paginate-engine.js';
 import { logger } from '../src/utils/logger.js';
 import { installGlobalErrorHandlers } from '../src/utils/error-handlers.js';
+import { extractDomain } from '../src/utils/url-utils.js';
 
 // Install global error handlers to prevent crashes from browser disconnections
 installGlobalErrorHandlers();
@@ -61,7 +62,7 @@ async function main() {
   
   // Determine if input is a URL or domain
   const isUrl = input.startsWith('http://') || input.startsWith('https://');
-  const domain = isUrl ? new URL(input).hostname : input;
+  const domain = extractDomain(input);
   const specificUrl = isUrl ? input : undefined;
   
   try {
