@@ -104,41 +104,45 @@ export const scraper: Scraper = {
     
     // Get price - handle both regular and sale prices
     try {
-      // Check if there's a price reduction
-      const priceText = await page.$eval('.price', el => el.textContent || '');
+      // Based on the HTML structure, find prices within the main product container only
+      // Use a more specific selector path to avoid getting prices from recommendations
+      const priceInfo = await page.evaluate(() => {
+        // Find the main product detail section
+        const productDetails = document.querySelector('.product-details-contianer, .product-details-container');
+        if (!productDetails) return null;
+        
+        // Within the product details, find the prices section
+        const pricesSection = productDetails.querySelector('.prices-add-to-cart-actions .prices');
+        if (!pricesSection) return null;
+        
+        // Look for strike-through price (original price if on sale)
+        const strikeEl = pricesSection.querySelector('.strike-through .value');
+        const strikePrice = strikeEl ? strikeEl.getAttribute('content') : null;
+        
+        // Look for current/sale price
+        const salesEl = pricesSection.querySelector('.sales .value');
+        const salesPrice = salesEl ? salesEl.getAttribute('content') : null;
+        
+        return { strikePrice, salesPrice };
+      });
       
-      // Look for patterns like "Price reduced from $X to $Y"
-      const priceMatch = priceText.match(/\$(\d+(?:\.\d{2})?)/g);
-      
-      if (priceMatch && priceMatch.length >= 2) {
-        // Sale scenario: first price is original, last is sale
-        price = priceMatch[0].replace('$', '');
-        sale_price = priceMatch[priceMatch.length - 1].replace('$', '');
-      } else if (priceMatch && priceMatch.length === 1) {
-        // Regular price only
-        price = priceMatch[0].replace('$', '');
+      if (priceInfo) {
+        const { strikePrice, salesPrice } = priceInfo;
+        log.debug('Found prices:', { strikePrice, salesPrice });
+        
+        if (strikePrice && salesPrice) {
+          // Item is on sale
+          price = strikePrice;
+          sale_price = salesPrice;
+        } else if (salesPrice) {
+          // Regular price only
+          price = salesPrice;
+        }
+      } else {
+        log.debug('Could not find price info in product details container');
       }
     } catch (e) {
-      log.debug('Failed to get price using primary method');
-      
-      // Fallback: try other price selectors
-      try {
-        const regularPrice = await page.$eval('.regular-price, .price-regular', el => {
-          const text = el.textContent || '';
-          const match = text.match(/\$(\d+(?:\.\d{2})?)/);
-          return match ? match[1] : '';
-        });
-        if (regularPrice) price = regularPrice;
-        
-        const salePrice = await page.$eval('.sale-price, .price-sale', el => {
-          const text = el.textContent || '';
-          const match = text.match(/\$(\d+(?:\.\d{2})?)/);
-          return match ? match[1] : '';
-        });
-        if (salePrice) sale_price = salePrice;
-      } catch (e2) {
-        log.debug('Fallback price extraction also failed');
-      }
+      log.error('Failed to get price:', e);
     }
     
     // Get description
@@ -150,8 +154,8 @@ export const scraper: Scraper = {
       log.debug('No description found');
     }
     
-    // Get sizes
-    const sizes = await page.$$eval('select[name*="size"] option, .size-selector button, .size-option, input[type="radio"][name*="size"]', elements => {
+    // Get sizes - look for dropdown menu items
+    const sizes = await page.$$eval('.size-list-container .option-item, .dropdown-menu .option-item, select[name*="size"] option', elements => {
       return elements.map(el => {
         let sizeText = '';
         let isAvailable = true;
@@ -161,23 +165,26 @@ export const scraper: Scraper = {
           const option = el as HTMLOptionElement;
           sizeText = option.textContent?.trim() || option.value;
           isAvailable = !option.disabled;
-        } else if (el.tagName === 'INPUT') {
-          // Radio button
-          const input = el as HTMLInputElement;
-          const label = document.querySelector(`label[for="${input.id}"]`) || el.nextElementSibling;
-          sizeText = label?.textContent?.trim() || input.value;
-          isAvailable = !input.disabled;
         } else {
-          // Button or div
-          sizeText = el.textContent?.trim() || '';
-          isAvailable = !el.classList.contains('disabled') && !el.hasAttribute('disabled');
+          // Dropdown menu item
+          const optionValue = el.querySelector('.option-value');
+          if (optionValue) {
+            sizeText = optionValue.textContent?.trim() || '';
+            // Check if the option has disabled class or is marked as unavailable
+            isAvailable = !el.classList.contains('disabled') && 
+                         !el.classList.contains('unavailable') &&
+                         !el.querySelector('.unavailable');
+          }
         }
         
         return {
           size: sizeText,
           is_available: isAvailable
         };
-      }).filter(s => s.size && s.size !== 'Select a Size' && s.size.toLowerCase() !== 'size');
+      }).filter(s => s.size && 
+                    s.size !== 'Select a Size' && 
+                    s.size.toLowerCase() !== 'size' &&
+                    !s.size.includes('What is my size'));
     }).catch(() => []);
     
     // Get images
@@ -185,51 +192,42 @@ export const scraper: Scraper = {
       // Wait for images to load
       await page.waitForTimeout(1000);
       
-      // Extract images - Maje typically uses a carousel or gallery
+      // Extract images - Maje uses a specific structure with typo in class name
       const imageUrls = await page.evaluate(() => {
-        // First try to find the main product image container
-        const productContainer = document.querySelector('.product-detail, .pdp-main, .product-main, .product-container') || document.body;
-        
-        const imgSelectors = [
-          '.product-images img',
-          '.product-gallery img',
-          '.carousel-inner img',
-          '.swiper-slide img',
-          '[data-gallery] img',
-          '.product-photo img',
-          '.product-image-main img'
-        ];
+        // Find the main product image container (note the typo in 'contianer')
+        const imageContainer = document.querySelector('.product-image-contianer, .product-image-container');
+        if (!imageContainer) {
+          console.log('No image container found');
+          return [];
+        }
         
         const urls: string[] = [];
         
-        for (const selector of imgSelectors) {
-          const imgs = productContainer.querySelectorAll(selector);
-          if (imgs.length > 0) {
-            imgs.forEach(img => {
-              const element = img as HTMLImageElement;
-              // Try data-src first (for lazy loaded images), then src
-              const url = element.getAttribute('data-src') || 
-                         element.getAttribute('data-zoom') || 
-                         element.src;
-              
-              if (url && 
-                  !url.includes('data:image') && 
-                  !url.includes('placeholder') &&
-                  (url.includes('.jpg') || url.includes('.jpeg') || url.includes('.png') || url.includes('.webp'))) {
-                // Ensure absolute URL
-                const absoluteUrl = url.startsWith('http') ? url : new URL(url, window.location.origin).href;
-                // Only include images that seem to be for this product (exclude recommendation carousels)
-                if (!absoluteUrl.includes('/recommendations/') && !urls.includes(absoluteUrl)) {
-                  urls.push(absoluteUrl);
-                }
-              }
-            });
-            if (urls.length > 0) break; // Use first selector that finds images
-          }
-        }
+        // Get all images from the pdpCarousel-container or pdp-images
+        const images = imageContainer.querySelectorAll('.pdpCarousel-container img, .pdp-images img, .big-images img');
         
-        // If we found too many images (likely picked up other products), limit to first 10
-        return urls.slice(0, 10);
+        images.forEach(img => {
+          const element = img as HTMLImageElement;
+          // Try data-hires first (high res), then src
+          const url = element.getAttribute('data-hires') || 
+                     element.getAttribute('src') || 
+                     element.src;
+          
+          if (url && 
+              !url.includes('data:image') && 
+              !url.includes('placeholder') &&
+              url.includes('maje.com') &&
+              (url.includes('.jpg') || url.includes('.jpeg') || url.includes('.png') || url.includes('.webp'))) {
+            // Ensure absolute URL
+            const absoluteUrl = url.startsWith('http') ? url : new URL(url, window.location.origin).href;
+            // Only add if not already in list
+            if (!urls.includes(absoluteUrl)) {
+              urls.push(absoluteUrl);
+            }
+          }
+        });
+        
+        return urls;
       });
       
       if (imageUrls.length > 0) {
