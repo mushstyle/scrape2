@@ -85,6 +85,8 @@ export function parseArgs(args: string[]): ParsedArgs {
       options.retryInvalidItems = true;
     } else if (arg === '--retry-all') {
       options.retryAllItems = true;
+    } else if (arg === '--no-proxy') {
+      options.noProxy = true;
     } else if (arg === '--no-block-images') {
       options.blockImages = false;
     } else if (arg === '--block-images') {

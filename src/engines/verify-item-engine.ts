@@ -23,6 +23,7 @@ export interface VerifyItemOptions {
   localHeadless?: boolean;
   localHeaded?: boolean;
   sessionTimeout?: number;  // Session timeout in seconds
+  noProxy?: boolean;  // Disable proxy usage regardless of site configuration
 }
 
 export interface VerifyItemResult {
@@ -73,7 +74,7 @@ export class VerifyItemEngine {
       log.normal(`Loaded scraper for ${domain}`);
       
       // Get proxy for domain from SiteManager
-      const proxy = await this.siteManager.getProxyForDomain(domain);
+      const proxy = options.noProxy ? null : await this.siteManager.getProxyForDomain(domain);
       
       // Create session
       const sessionOptions: any = { 

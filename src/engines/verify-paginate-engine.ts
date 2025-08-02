@@ -38,6 +38,7 @@ export interface VerifyPaginateOptions {
   sessionTimeout?: number;  // Session timeout in seconds
   sessionManager?: SessionManager;
   siteManager?: SiteManager;
+  noProxy?: boolean;  // Disable proxy usage regardless of site configuration
 }
 
 export interface VerifyPaginateResult {
@@ -109,7 +110,7 @@ export class VerifyPaginateEngine {
       log.normal(`Creating ${sessionsToCreate} sessions`);
       
       // Get proxy for domain once
-      const proxy = await this.siteManager.getProxyForDomain(options.domain);
+      const proxy = options.noProxy ? null : await this.siteManager.getProxyForDomain(options.domain);
       
       // Create all session requests
       const sessionRequests = Array(sessionsToCreate).fill(null).map(() => ({

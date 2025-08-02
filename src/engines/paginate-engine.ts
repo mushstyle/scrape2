@@ -29,6 +29,7 @@ export interface PaginateOptions {
   localHeaded?: boolean;  // Use local browser in headed mode
   sessionTimeout?: number;  // Session timeout in seconds (browserbase only)
   maxRetries?: number;  // Default: 2 (for network errors)
+  noProxy?: boolean;  // Disable proxy usage regardless of site configuration
   // Note: retryFailedItems not applicable to pagination (deals with start pages, not items)
 }
 
@@ -99,6 +100,9 @@ export class PaginateEngine {
     }
     if (options.noSave) {
       log.normal(`  Save to DB: disabled`);
+    }
+    if (options.noProxy) {
+      log.normal(`  Proxy: disabled`);
     }
     if (options.force) {
       log.normal(`  Force: enabled (ignore recent runs)`);
@@ -511,7 +515,7 @@ export class PaginateEngine {
     
     log.normal('Proxy requirements for new sessions:');
     for (const [domain, count] of domainCounts) {
-      const proxy = await this.siteManager.getProxyForDomain(domain);
+      const proxy = options.noProxy ? null : await this.siteManager.getProxyForDomain(domain);
       log.normal(`  ${domain}: ${count} sessions (${proxy?.type || 'no proxy'})`);
     }
     
@@ -519,7 +523,7 @@ export class PaginateEngine {
     const newSessionRequests: Array<{domain: string, proxy: any, browserType?: string, headless?: boolean, timeout?: number}> = [];
     for (const [domain, count] of domainCounts) {
       for (let i = 0; i < count; i++) {
-        const proxy = await this.siteManager.getProxyForDomain(domain);
+        const proxy = options.noProxy ? null : await this.siteManager.getProxyForDomain(domain);
         const request: any = { domain, proxy };
         
         // Add browser type if local browser requested

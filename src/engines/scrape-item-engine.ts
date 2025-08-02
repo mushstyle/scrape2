@@ -33,6 +33,7 @@ export interface ScrapeItemOptions {
   retryFailedItems?: boolean;  // Include previously failed items
   retryInvalidItems?: boolean;  // Include previously invalid items
   retryAllItems?: boolean;  // Include both failed and invalid items (overrides individual flags)
+  noProxy?: boolean;  // Disable proxy usage regardless of site configuration
 }
 
 export interface ScrapeItemResult {
@@ -111,6 +112,9 @@ export class ScrapeItemEngine {
     }
     if (options.noSave) {
       log.normal(`  Save to ETL: disabled`);
+    }
+    if (options.noProxy) {
+      log.normal(`  Proxy: disabled`);
     }
     if (options.retryAllItems) {
       log.normal(`  Retry all items: enabled (failed + invalid)`);
@@ -499,7 +503,7 @@ export class ScrapeItemEngine {
     
     log.normal('Proxy requirements for new sessions:');
     for (const [domain, count] of Array.from(domainCounts.entries())) {
-      const proxy = await this.siteManager.getProxyForDomain(domain);
+      const proxy = options.noProxy ? null : await this.siteManager.getProxyForDomain(domain);
       log.normal(`  ${domain}: ${count} sessions (${proxy?.type || 'no proxy'})`);
     }
     
@@ -507,7 +511,7 @@ export class ScrapeItemEngine {
     const newSessionRequests: Array<{domain: string, proxy: any, browserType?: string, headless?: boolean, timeout?: number}> = [];
     for (const [domain, count] of Array.from(domainCounts.entries())) {
       for (let i = 0; i < count; i++) {
-        const proxy = await this.siteManager.getProxyForDomain(domain);
+        const proxy = options.noProxy ? null : await this.siteManager.getProxyForDomain(domain);
         const request: any = { domain, proxy };
         
         // Add browser type if local browser requested

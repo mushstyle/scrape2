@@ -21,6 +21,7 @@ async function main() {
   // Parse optional flags
   const localHeadless = args.includes('--local-headless');
   const localHeaded = args.includes('--local-headed');
+  const noProxy = args.includes('--no-proxy');
   
   // Parse session timeout
   let sessionTimeout: number | undefined;
@@ -40,6 +41,7 @@ async function main() {
     console.log('  --local-headless   Use local browser in headless mode');
     console.log('  --local-headed     Use local browser in headed mode');
     console.log('  --session-timeout=N Session timeout in seconds (browserbase only)');
+    console.log('  --no-proxy         Disable proxy usage (direct connection)');
     console.log('Example: npm run verify:item https://amgbrand.com/products/some-product');
     console.log('Example: npm run verify:item https://amgbrand.com/products/some-product --local-headed');
     process.exit(1);
@@ -47,7 +49,7 @@ async function main() {
   
   try {
     const engine = new VerifyItemEngine({ localHeadless, localHeaded });
-    const result = await engine.verify({ url, localHeadless, localHeaded, sessionTimeout });
+    const result = await engine.verify({ url, localHeadless, localHeaded, sessionTimeout, noProxy });
     
     // Display results
     log.normal('\n=== Verification Results ===');
