@@ -547,16 +547,19 @@ export class SiteManager {
    * @param runId - The run ID
    * @param limit - Optional limit on number of items to return
    */
-  async getPendingItems(runId: string, limit?: number, includeFailedItems = false): Promise<ScrapeRunItem[]> {
+  async getPendingItems(runId: string, limit?: number, includeFailedItems = false, includeInvalidItems = false): Promise<ScrapeRunItem[]> {
     // Check if it's an uncommitted run
     const pendingRun = this.uncommittedRuns.get(runId);
     if (pendingRun) {
       const pending = pendingRun.items.filter(item => 
         !item.done && 
-        !item.invalid && 
+        (includeInvalidItems || !item.invalid) && 
         (includeFailedItems || !item.failed)
       );
-      log.debug(`Found ${pending.length} pending items in uncommitted run ${runId}${includeFailedItems ? ' (including failed)' : ''}`);
+      const includeStr = includeFailedItems && includeInvalidItems ? ' (including failed + invalid)' :
+                         includeFailedItems ? ' (including failed)' :
+                         includeInvalidItems ? ' (including invalid)' : '';
+      log.debug(`Found ${pending.length} pending items in uncommitted run ${runId}${includeStr}`);
       return limit ? pending.slice(0, limit) : pending;
     }
     
@@ -572,10 +575,13 @@ export class SiteManager {
       
       const pendingItems = run.items.filter((item: ScrapeRunItem) => 
         !item.done && 
-        !item.invalid && 
+        (includeInvalidItems || !item.invalid) && 
         (includeFailedItems || !item.failed)
       );
-      log.debug(`Found ${pendingItems.length} pending items in run ${runId}${includeFailedItems ? ' (including failed)' : ''}, returning ${limit ? Math.min(limit, pendingItems.length) : pendingItems.length}`);
+      const includeStr = includeFailedItems && includeInvalidItems ? ' (including failed + invalid)' :
+                         includeFailedItems ? ' (including failed)' :
+                         includeInvalidItems ? ' (including invalid)' : '';
+      log.debug(`Found ${pendingItems.length} pending items in run ${runId}${includeStr}, returning ${limit ? Math.min(limit, pendingItems.length) : pendingItems.length}`);
       return limit ? pendingItems.slice(0, limit) : pendingItems;
     } catch (error) {
       log.error(`Failed to get pending items for run ${runId}`, { error });
@@ -593,12 +599,13 @@ export class SiteManager {
   async getPendingItemsWithLimits(
     sites: string[], 
     totalLimit: number = Infinity,
-    includeFailedItems = false
+    includeFailedItems = false,
+    includeInvalidItems = false
   ): Promise<Array<{ url: string; runId: string; domain: string }>> {
     const results: Array<{ url: string; runId: string; domain: string }> = [];
     let totalCollected = 0;
     
-    log.debug(`getPendingItemsWithLimits called for ${sites.length} sites, totalLimit: ${totalLimit}, includeFailedItems: ${includeFailedItems}`);
+    log.debug(`getPendingItemsWithLimits called for ${sites.length} sites, totalLimit: ${totalLimit}, includeFailedItems: ${includeFailedItems}, includeInvalidItems: ${includeInvalidItems}`);
     
     for (const domain of sites) {
       // Stop if we've reached the total limit
@@ -625,7 +632,7 @@ export class SiteManager {
       log.debug(`Domain ${domain}: sessionLimit=${sessionLimit}, remainingCapacity=${remainingCapacity}, domainLimit=${domainLimit}`);
       
       // Get pending items up to the domain limit
-      const pendingItems = await this.getPendingItems(activeRun.id, domainLimit, includeFailedItems);
+      const pendingItems = await this.getPendingItems(activeRun.id, domainLimit, includeFailedItems, includeInvalidItems);
       
       log.debug(`Got ${pendingItems.length} pending items for ${domain}`);
       

@@ -31,6 +31,8 @@ export interface ScrapeItemOptions {
   sessionTimeout?: number;  // Session timeout in seconds (browserbase only)
   maxRetries?: number;  // Default: 2 (for network errors)
   retryFailedItems?: boolean;  // Include previously failed items
+  retryInvalidItems?: boolean;  // Include previously invalid items
+  retryAllItems?: boolean;  // Include both failed and invalid items (overrides individual flags)
 }
 
 export interface ScrapeItemResult {
@@ -110,8 +112,15 @@ export class ScrapeItemEngine {
     if (options.noSave) {
       log.normal(`  Save to ETL: disabled`);
     }
-    if (options.retryFailedItems) {
-      log.normal(`  Retry failed items: enabled`);
+    if (options.retryAllItems) {
+      log.normal(`  Retry all items: enabled (failed + invalid)`);
+    } else {
+      if (options.retryFailedItems) {
+        log.normal(`  Retry failed items: enabled`);
+      }
+      if (options.retryInvalidItems) {
+        log.normal(`  Retry invalid items: enabled`);
+      }
     }
     
     try {
@@ -136,7 +145,8 @@ export class ScrapeItemEngine {
           instanceLimit,  // Only collect up to instanceLimit items per batch
           options.since,
           options.exclude,
-          options.retryFailedItems
+          options.retryFailedItems || options.retryAllItems,
+          options.retryInvalidItems || options.retryAllItems
         );
         
         if (batchUrlsWithRunInfo.length === 0) {
@@ -378,7 +388,8 @@ export class ScrapeItemEngine {
     itemLimit: number,
     since?: Date,
     exclude?: string[],
-    retryFailedItems?: boolean
+    retryFailedItems?: boolean,
+    retryInvalidItems?: boolean
   ): Promise<{
     urlsWithRunInfo: UrlWithRunInfo[];
     urlToSite: Map<string, string>;
@@ -414,7 +425,8 @@ export class ScrapeItemEngine {
     const urlsWithRunInfo = await this.siteManager.getPendingItemsWithLimits(
       sitesToProcess,
       itemLimit,
-      retryFailedItems
+      retryFailedItems,
+      retryInvalidItems
     );
     
     // Build urlToSite map
@@ -698,6 +710,11 @@ export class ScrapeItemEngine {
         lastError = error as Error;
         const isNetworkError = this.isNetworkError(error);
         const isBrowserClosed = this.isBrowserClosedError(error);
+        
+        // Debug logging for cos.com network errors
+        if (url.includes('cos.com') && lastError.message.includes('redirected improperly')) {
+          log.error(`COS redirect error detected: "${lastError.message}", isNetworkError=${isNetworkError}, attempt ${attempt}/${maxRetries}`);
+        }
         
         if (isBrowserClosed) {
           // Browser/page was closed - this is a special case
