@@ -206,9 +206,17 @@ export class ScrapeItemEngine {
         // Get site configs with blocked proxies
         const sitesToProcess = Array.from(new Set(batchUrlsWithRunInfo.map(u => u.domain)));
         const siteConfigs = await this.siteManager.getSiteConfigsWithBlockedProxies();
-        const relevantSiteConfigs = siteConfigs.filter(config => 
+        let relevantSiteConfigs = siteConfigs.filter(config => 
           sitesToProcess.includes(config.domain)
         );
+        
+        // If no-proxy is enabled, override proxy settings to none
+        if (options.noProxy) {
+          relevantSiteConfigs = relevantSiteConfigs.map(config => ({
+            ...config,
+            proxy: { strategy: 'none' as const }
+          }));
+        }
         
         // First pass - match with existing sessions
         const firstPassPairs = targetsToSessions(
@@ -264,7 +272,7 @@ export class ScrapeItemEngine {
           finalPairs = targetsToSessions(
             targetsToProcess,
             allCurrentSessions.map(s => s.sessionInfo),
-            relevantSiteConfigs
+            relevantSiteConfigs  // Already modified if noProxy is true
           );
           
           log.normal(`Second pass: Matched ${finalPairs.length} items total (limit: ${instanceLimit})`);

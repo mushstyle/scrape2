@@ -186,9 +186,17 @@ export class PaginateEngine {
         
         // Get site configs with blocked proxies
         const siteConfigs = await this.siteManager.getSiteConfigsWithBlockedProxies();
-        const relevantSiteConfigs = siteConfigs.filter(config => 
+        let relevantSiteConfigs = siteConfigs.filter(config => 
           sitesToProcess.includes(config.domain)
         );
+        
+        // If no-proxy is enabled, override proxy settings to none
+        if (options.noProxy) {
+          relevantSiteConfigs = relevantSiteConfigs.map(config => ({
+            ...config,
+            proxy: { strategy: 'none' as const }
+          }));
+        }
         
         // First pass - match with existing sessions
         const firstPassPairs = targetsToSessions(
@@ -238,7 +246,7 @@ export class PaginateEngine {
           finalPairs = targetsToSessions(
             targetsToProcess,
             existingSessionData.map(s => s.sessionInfo),
-            relevantSiteConfigs
+            relevantSiteConfigs  // Already modified if noProxy is true
           );
           
           log.normal(`Second pass: Matched ${finalPairs.length} URLs total (limit: ${instanceLimit})`);
