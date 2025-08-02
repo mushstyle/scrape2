@@ -71,6 +71,8 @@ export class PaginateEngine {
     const startTime = Date.now();
     const errors = new Map<string, string>();
     const urlsBySite = new Map<string, string[]>();
+    let totalUrlsCollected = 0;
+    let sitesProcessedCount = 0;
     
     // Set defaults
     const instanceLimit = options.instanceLimit || 10;
@@ -296,7 +298,11 @@ export class PaginateEngine {
           
           if (completedSites.size > 0) {
             log.normal(`Committing ${completedSites.size} completed runs after batch ${batchNumber}`);
-            await this.commitPartialRuns(completedSites, errors);
+            const counters = { value: totalUrlsCollected };
+            const siteCounters = { value: sitesProcessedCount };
+            await this.commitPartialRuns(completedSites, errors, counters, siteCounters);
+            totalUrlsCollected = counters.value;
+            sitesProcessedCount = siteCounters.value;
           }
         }
         
@@ -356,7 +362,11 @@ export class PaginateEngine {
         
         if (completedSites.length > 0) {
           log.normal(`Committing ${completedSites.length} completed runs`);
-          await this.commitPartialRuns(new Set(completedSites), errors);
+          const counters = { value: totalUrlsCollected };
+          const siteCounters = { value: sitesProcessedCount };
+          await this.commitPartialRuns(new Set(completedSites), errors, counters, siteCounters);
+          totalUrlsCollected = counters.value;
+          sitesProcessedCount = siteCounters.value;
         }
         
         if (incompleteSites.length > 0) {
@@ -365,12 +375,13 @@ export class PaginateEngine {
         }
       }
       
-      const totalUrls = Array.from(urlsBySite.values()).reduce((sum, urls) => sum + urls.length, 0);
+      // For backward compatibility, still populate urlsBySite from any remaining partial runs
+      const totalUrlsFromRemaining = Array.from(urlsBySite.values()).reduce((sum, urls) => sum + urls.length, 0);
       
       return {
         success: errors.size === 0,
-        sitesProcessed: urlsBySite.size,
-        totalUrls,
+        sitesProcessed: sitesProcessedCount,
+        totalUrls: totalUrlsCollected,
         urlsBySite,
         errors,
         duration: Date.now() - startTime,
@@ -866,12 +877,22 @@ export class PaginateEngine {
   
   private async commitPartialRuns(
     sitesToCommit: Set<string>,
-    errors: Map<string, string>
+    errors: Map<string, string>,
+    totalUrlsCollected?: { value: number },
+    sitesProcessedCount?: { value: number }
   ): Promise<void> {
     for (const site of sitesToCommit) {
       try {
         const run = await this.siteManager.commitPartialRun(site);
         log.normal(`✓ Committed run ${run.id} for ${site}`);
+        
+        // Track counts if references are provided
+        if (totalUrlsCollected) {
+          totalUrlsCollected.value += run.items.length;
+        }
+        if (sitesProcessedCount) {
+          sitesProcessedCount.value += 1;
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         log.error(`Failed to commit run for ${site}: ${message}`);
