@@ -81,6 +81,12 @@ export function parseArgs(args: string[]): ParsedArgs {
       options.exclude = args[++i].split(',').map(s => s.trim());
     } else if (arg === '--retry-failed') {
       options.retryFailedItems = true;
+    } else if (arg === '--retry-invalid') {
+      options.retryInvalidItems = true;
+    } else if (arg === '--retry-all') {
+      options.retryAllItems = true;
+    } else if (arg === '--no-proxy') {
+      options.noProxy = true;
     } else if (arg === '--no-block-images') {
       options.blockImages = false;
     } else if (arg === '--block-images') {

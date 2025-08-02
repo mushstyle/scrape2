@@ -29,6 +29,7 @@ export interface PaginateOptions {
   localHeaded?: boolean;  // Use local browser in headed mode
   sessionTimeout?: number;  // Session timeout in seconds (browserbase only)
   maxRetries?: number;  // Default: 2 (for network errors)
+  noProxy?: boolean;  // Disable proxy usage regardless of site configuration
   // Note: retryFailedItems not applicable to pagination (deals with start pages, not items)
 }
 
@@ -71,6 +72,8 @@ export class PaginateEngine {
     const startTime = Date.now();
     const errors = new Map<string, string>();
     const urlsBySite = new Map<string, string[]>();
+    let totalUrlsCollected = 0;
+    let sitesProcessedCount = 0;
     
     // Set defaults
     const instanceLimit = options.instanceLimit || 10;
@@ -97,6 +100,9 @@ export class PaginateEngine {
     }
     if (options.noSave) {
       log.normal(`  Save to DB: disabled`);
+    }
+    if (options.noProxy) {
+      log.normal(`  Proxy: disabled`);
     }
     if (options.force) {
       log.normal(`  Force: enabled (ignore recent runs)`);
@@ -180,9 +186,17 @@ export class PaginateEngine {
         
         // Get site configs with blocked proxies
         const siteConfigs = await this.siteManager.getSiteConfigsWithBlockedProxies();
-        const relevantSiteConfigs = siteConfigs.filter(config => 
+        let relevantSiteConfigs = siteConfigs.filter(config => 
           sitesToProcess.includes(config.domain)
         );
+        
+        // If no-proxy is enabled, override proxy settings to none
+        if (options.noProxy) {
+          relevantSiteConfigs = relevantSiteConfigs.map(config => ({
+            ...config,
+            proxy: { strategy: 'none' as const }
+          }));
+        }
         
         // First pass - match with existing sessions
         const firstPassPairs = targetsToSessions(
@@ -232,7 +246,7 @@ export class PaginateEngine {
           finalPairs = targetsToSessions(
             targetsToProcess,
             existingSessionData.map(s => s.sessionInfo),
-            relevantSiteConfigs
+            relevantSiteConfigs  // Already modified if noProxy is true
           );
           
           log.normal(`Second pass: Matched ${finalPairs.length} URLs total (limit: ${instanceLimit})`);
@@ -296,7 +310,11 @@ export class PaginateEngine {
           
           if (completedSites.size > 0) {
             log.normal(`Committing ${completedSites.size} completed runs after batch ${batchNumber}`);
-            await this.commitPartialRuns(completedSites, errors);
+            const counters = { value: totalUrlsCollected };
+            const siteCounters = { value: sitesProcessedCount };
+            await this.commitPartialRuns(completedSites, errors, counters, siteCounters);
+            totalUrlsCollected = counters.value;
+            sitesProcessedCount = siteCounters.value;
           }
         }
         
@@ -356,7 +374,11 @@ export class PaginateEngine {
         
         if (completedSites.length > 0) {
           log.normal(`Committing ${completedSites.length} completed runs`);
-          await this.commitPartialRuns(new Set(completedSites), errors);
+          const counters = { value: totalUrlsCollected };
+          const siteCounters = { value: sitesProcessedCount };
+          await this.commitPartialRuns(new Set(completedSites), errors, counters, siteCounters);
+          totalUrlsCollected = counters.value;
+          sitesProcessedCount = siteCounters.value;
         }
         
         if (incompleteSites.length > 0) {
@@ -365,12 +387,13 @@ export class PaginateEngine {
         }
       }
       
-      const totalUrls = Array.from(urlsBySite.values()).reduce((sum, urls) => sum + urls.length, 0);
+      // For backward compatibility, still populate urlsBySite from any remaining partial runs
+      const totalUrlsFromRemaining = Array.from(urlsBySite.values()).reduce((sum, urls) => sum + urls.length, 0);
       
       return {
         success: errors.size === 0,
-        sitesProcessed: urlsBySite.size,
-        totalUrls,
+        sitesProcessed: sitesProcessedCount,
+        totalUrls: totalUrlsCollected,
         urlsBySite,
         errors,
         duration: Date.now() - startTime,
@@ -500,7 +523,7 @@ export class PaginateEngine {
     
     log.normal('Proxy requirements for new sessions:');
     for (const [domain, count] of domainCounts) {
-      const proxy = await this.siteManager.getProxyForDomain(domain);
+      const proxy = options.noProxy ? null : await this.siteManager.getProxyForDomain(domain);
       log.normal(`  ${domain}: ${count} sessions (${proxy?.type || 'no proxy'})`);
     }
     
@@ -508,7 +531,7 @@ export class PaginateEngine {
     const newSessionRequests: Array<{domain: string, proxy: any, browserType?: string, headless?: boolean, timeout?: number}> = [];
     for (const [domain, count] of domainCounts) {
       for (let i = 0; i < count; i++) {
-        const proxy = await this.siteManager.getProxyForDomain(domain);
+        const proxy = options.noProxy ? null : await this.siteManager.getProxyForDomain(domain);
         const request: any = { domain, proxy };
         
         // Add browser type if local browser requested
@@ -866,12 +889,22 @@ export class PaginateEngine {
   
   private async commitPartialRuns(
     sitesToCommit: Set<string>,
-    errors: Map<string, string>
+    errors: Map<string, string>,
+    totalUrlsCollected?: { value: number },
+    sitesProcessedCount?: { value: number }
   ): Promise<void> {
     for (const site of sitesToCommit) {
       try {
         const run = await this.siteManager.commitPartialRun(site);
         log.normal(`✓ Committed run ${run.id} for ${site}`);
+        
+        // Track counts if references are provided
+        if (totalUrlsCollected) {
+          totalUrlsCollected.value += run.items.length;
+        }
+        if (sitesProcessedCount) {
+          sitesProcessedCount.value += 1;
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         log.error(`Failed to commit run for ${site}: ${message}`);

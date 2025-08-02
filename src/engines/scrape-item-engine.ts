@@ -31,6 +31,9 @@ export interface ScrapeItemOptions {
   sessionTimeout?: number;  // Session timeout in seconds (browserbase only)
   maxRetries?: number;  // Default: 2 (for network errors)
   retryFailedItems?: boolean;  // Include previously failed items
+  retryInvalidItems?: boolean;  // Include previously invalid items
+  retryAllItems?: boolean;  // Include both failed and invalid items (overrides individual flags)
+  noProxy?: boolean;  // Disable proxy usage regardless of site configuration
 }
 
 export interface ScrapeItemResult {
@@ -110,8 +113,18 @@ export class ScrapeItemEngine {
     if (options.noSave) {
       log.normal(`  Save to ETL: disabled`);
     }
-    if (options.retryFailedItems) {
-      log.normal(`  Retry failed items: enabled`);
+    if (options.noProxy) {
+      log.normal(`  Proxy: disabled`);
+    }
+    if (options.retryAllItems) {
+      log.normal(`  Retry all items: enabled (failed + invalid)`);
+    } else {
+      if (options.retryFailedItems) {
+        log.normal(`  Retry failed items: enabled`);
+      }
+      if (options.retryInvalidItems) {
+        log.normal(`  Retry invalid items: enabled`);
+      }
     }
     
     try {
@@ -136,7 +149,8 @@ export class ScrapeItemEngine {
           instanceLimit,  // Only collect up to instanceLimit items per batch
           options.since,
           options.exclude,
-          options.retryFailedItems
+          options.retryFailedItems || options.retryAllItems,
+          options.retryInvalidItems || options.retryAllItems
         );
         
         if (batchUrlsWithRunInfo.length === 0) {
@@ -192,9 +206,17 @@ export class ScrapeItemEngine {
         // Get site configs with blocked proxies
         const sitesToProcess = Array.from(new Set(batchUrlsWithRunInfo.map(u => u.domain)));
         const siteConfigs = await this.siteManager.getSiteConfigsWithBlockedProxies();
-        const relevantSiteConfigs = siteConfigs.filter(config => 
+        let relevantSiteConfigs = siteConfigs.filter(config => 
           sitesToProcess.includes(config.domain)
         );
+        
+        // If no-proxy is enabled, override proxy settings to none
+        if (options.noProxy) {
+          relevantSiteConfigs = relevantSiteConfigs.map(config => ({
+            ...config,
+            proxy: { strategy: 'none' as const }
+          }));
+        }
         
         // First pass - match with existing sessions
         const firstPassPairs = targetsToSessions(
@@ -250,7 +272,7 @@ export class ScrapeItemEngine {
           finalPairs = targetsToSessions(
             targetsToProcess,
             allCurrentSessions.map(s => s.sessionInfo),
-            relevantSiteConfigs
+            relevantSiteConfigs  // Already modified if noProxy is true
           );
           
           log.normal(`Second pass: Matched ${finalPairs.length} items total (limit: ${instanceLimit})`);
@@ -378,7 +400,8 @@ export class ScrapeItemEngine {
     itemLimit: number,
     since?: Date,
     exclude?: string[],
-    retryFailedItems?: boolean
+    retryFailedItems?: boolean,
+    retryInvalidItems?: boolean
   ): Promise<{
     urlsWithRunInfo: UrlWithRunInfo[];
     urlToSite: Map<string, string>;
@@ -414,7 +437,8 @@ export class ScrapeItemEngine {
     const urlsWithRunInfo = await this.siteManager.getPendingItemsWithLimits(
       sitesToProcess,
       itemLimit,
-      retryFailedItems
+      retryFailedItems,
+      retryInvalidItems
     );
     
     // Build urlToSite map
@@ -487,7 +511,7 @@ export class ScrapeItemEngine {
     
     log.normal('Proxy requirements for new sessions:');
     for (const [domain, count] of Array.from(domainCounts.entries())) {
-      const proxy = await this.siteManager.getProxyForDomain(domain);
+      const proxy = options.noProxy ? null : await this.siteManager.getProxyForDomain(domain);
       log.normal(`  ${domain}: ${count} sessions (${proxy?.type || 'no proxy'})`);
     }
     
@@ -495,7 +519,7 @@ export class ScrapeItemEngine {
     const newSessionRequests: Array<{domain: string, proxy: any, browserType?: string, headless?: boolean, timeout?: number}> = [];
     for (const [domain, count] of Array.from(domainCounts.entries())) {
       for (let i = 0; i < count; i++) {
-        const proxy = await this.siteManager.getProxyForDomain(domain);
+        const proxy = options.noProxy ? null : await this.siteManager.getProxyForDomain(domain);
         const request: any = { domain, proxy };
         
         // Add browser type if local browser requested
@@ -698,6 +722,11 @@ export class ScrapeItemEngine {
         lastError = error as Error;
         const isNetworkError = this.isNetworkError(error);
         const isBrowserClosed = this.isBrowserClosedError(error);
+        
+        // Debug logging for cos.com network errors
+        if (url.includes('cos.com') && lastError.message.includes('redirected improperly')) {
+          log.error(`COS redirect error detected: "${lastError.message}", isNetworkError=${isNetworkError}, attempt ${attempt}/${maxRetries}`);
+        }
         
         if (isBrowserClosed) {
           // Browser/page was closed - this is a special case

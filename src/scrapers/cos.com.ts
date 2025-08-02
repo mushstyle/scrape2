@@ -620,7 +620,11 @@ export async function scrapeItem(page: Page, options?: {
     }
 
     if (!isProductPage) {
-      throw new Error(`Invalid product page: ${sourceUrl} - This appears to be a promotional or landing page, not a product page`);
+      // Throw a network error to trigger retry, as COS might be redirecting to stop scrapers
+      log.error(`COS: Not a valid product page (redirected/blocked): ${sourceUrl}`);
+      const error = new Error(`Network error: redirected improperly from ${sourceUrl}`);
+      (error as any).code = 'ENETWORK';
+      throw error;
     }
 
     const title = await page.$eval('h1[data-testid="product-name"]', el => el.textContent?.trim() || '').catch(() => '');
@@ -768,7 +772,11 @@ export async function scrapeItem(page: Page, options?: {
 
     // Additional validation: if we don't have a title or product ID, this might not be a valid product
     if (!title && !productId) {
-      throw new Error(`Invalid product page: ${sourceUrl} - Missing essential product data (title and product ID)`);
+      // Throw a network error to trigger retry, as COS might be redirecting to stop scrapers
+      log.error(`COS: Missing essential product data (no title/ID): ${sourceUrl}`);
+      const error = new Error(`Network error: redirected improperly from ${sourceUrl} - Missing essential product data`);
+      (error as any).code = 'ENETWORK';
+      throw error;
     }
 
     const item: Partial<Item> = {

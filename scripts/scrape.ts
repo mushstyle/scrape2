@@ -185,6 +185,9 @@ async function main() {
       console.log('  --session-timeout N       Session timeout in seconds');
       console.log('  --max-retries N           Max retries for network errors (default: 2)');
       console.log('  --retry-failed            Include previously failed items in scraping');
+      console.log('  --retry-invalid           Include previously invalid items in scraping');
+      console.log('  --retry-all               Include both failed and invalid items');
+      console.log('  --no-proxy                Disable proxy usage (direct connection)');
       process.exit(1);
     }
     

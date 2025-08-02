@@ -23,6 +23,7 @@ async function main() {
   const useSingleSession = args.includes('--single');
   const localHeadless = args.includes('--local-headless');
   const localHeaded = args.includes('--local-headed');
+  const noProxy = args.includes('--no-proxy');
   
   // Parse maxPages if provided
   let maxPages: number | undefined;
@@ -51,6 +52,7 @@ async function main() {
     console.log('  --local-headless   Use local browser in headless mode');
     console.log('  --local-headed     Use local browser in headed mode');
     console.log('  --session-timeout=N Session timeout in seconds (browserbase only)');
+    console.log('  --no-proxy         Disable proxy usage (direct connection)');
     console.log('Examples:');
     console.log('  npm run verify:paginate amgbrand.com');
     console.log('  npm run verify:paginate https://musthave.ua/en/catalog/obuv?page=1');
@@ -74,7 +76,8 @@ async function main() {
       useSingleSession,
       localHeadless,
       localHeaded,
-      sessionTimeout
+      sessionTimeout,
+      noProxy
     });
     
     // Display results
