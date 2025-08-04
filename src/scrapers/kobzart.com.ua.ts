@@ -25,14 +25,27 @@ export const SELECTORS = {
  */
 export async function getItemUrls(page: Page): Promise<Set<string>> {
   try {
-    await page.waitForSelector(SELECTORS.productLinks, { timeout: 10000 });
+    await page.waitForSelector(SELECTORS.productLinks, { timeout: 5000 });
     const links = await page.$$eval(SELECTORS.productLinks, els =>
       els.map(e => (e as HTMLAnchorElement).href)
     );
+    
+    if (links.length === 0) {
+      log.debug(`No product links found on ${page.url()}`);
+    } else {
+      log.debug(`Found ${links.length} product URLs on ${page.url()}`);
+    }
+    
     return new Set(links);
   } catch (error) {
-    // If product links aren't found, it might be an empty page or end of results.
-    log.error(`Could not find product links (${SELECTORS.productLinks}) on ${page.url()}, returning empty set.`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    // If it's a timeout waiting for product links, this is likely an empty page or end of results
+    if (errorMessage.includes('Timeout')) {
+      log.debug(`No products found on ${page.url()} (timeout waiting for selector)`);
+    } else {
+      log.error(`Error getting product links on ${page.url()}: ${errorMessage}`);
+    }
     return new Set<string>(); // Return empty set instead of throwing
   }
 }
@@ -60,7 +73,7 @@ export async function paginate(page: Page): Promise<boolean> {
     nextUrl = `${currentUrl}?page=${nextPage}`;
   }
 
-  log.normal(`   Navigating to next page: ${nextUrl}`);
+  log.debug(`   Attempting to navigate to page ${nextPage}: ${nextUrl}`);
 
   try {
     // Navigate to the next page
@@ -68,19 +81,30 @@ export async function paginate(page: Page): Promise<boolean> {
 
     // Check if navigation was successful and the page seems valid
     if (!response || !response.ok()) {
-      log.normal(`   Pagination failed: Bad response for ${nextUrl} (Status: ${response?.status()})`);
+      log.debug(`   End of pages: Non-OK response for page ${nextPage} (status: ${response?.status()})`);
       return false;
     }
 
-    // Optional: Check if the main product grid exists as a sign of a valid page
-    await page.waitForSelector(SELECTORS.productGrid, { timeout: 5000 });
-    log.normal(`   Pagination successful to page ${nextPage}`);
-    return true; // Likely more pages or this is the last valid page
+    // Check if products exist on this page (with shorter timeout)
+    try {
+      await page.waitForSelector(SELECTORS.productGrid, { timeout: 3000 });
+      log.debug(`   Successfully navigated to page ${nextPage}`);
+      return true;
+    } catch (selectorError) {
+      // No products found on this page - likely end of pagination
+      log.debug(`   End of pages: No products found on page ${nextPage}`);
+      return false;
+    }
 
   } catch (error) {
-    // Errors likely mean end of pagination (e.g., 404, timeout waiting for selector)
+    // Navigation error - likely end of pagination
     const errorMessage = error instanceof Error ? error.message : String(error);
-    log.normal(`   Pagination likely ended or failed: ${errorMessage}`);
+    
+    if (errorMessage.includes('Timeout')) {
+      log.debug(`   End of pages: Navigation timeout for page ${nextPage}`);
+    } else {
+      log.error(`   Pagination error for page ${nextPage}: ${errorMessage}`);
+    }
     return false;
   }
 }
