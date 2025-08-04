@@ -86,6 +86,8 @@ export class ScrapeItemEngine {
     const errors = new Map<string, string>();
     const itemsBySite = new Map<string, Item[]>();
     const urlToSite = new Map<string, string>();
+    let consecutiveApiFailures = 0;
+    const maxConsecutiveApiFailures = 5;
     
     // Set defaults
     const instanceLimit = options.instanceLimit || 10;
@@ -143,15 +145,51 @@ export class ScrapeItemEngine {
       let cacheStats: CacheStats | undefined;
       
       while (true) {
-        // Get pending items for this batch
-        const { urlsWithRunInfo: batchUrlsWithRunInfo, urlToSite: batchUrlToSite } = await this.collectPendingItems(
-          options.sites,
-          instanceLimit,  // Only collect up to instanceLimit items per batch
-          options.since,
-          options.exclude,
-          options.retryFailedItems || options.retryAllItems,
-          options.retryInvalidItems || options.retryAllItems
-        );
+        // Get pending items for this batch with retry logic
+        let batchUrlsWithRunInfo: UrlWithRunInfo[] = [];
+        let batchUrlToSite: Map<string, string> = new Map();
+        
+        try {
+          const result = await this.collectPendingItems(
+            options.sites,
+            instanceLimit,  // Only collect up to instanceLimit items per batch
+            options.since,
+            options.exclude,
+            options.retryFailedItems || options.retryAllItems,
+            options.retryInvalidItems || options.retryAllItems
+          );
+          batchUrlsWithRunInfo = result.urlsWithRunInfo;
+          batchUrlToSite = result.urlToSite;
+          
+          // Reset failure counter on success
+          consecutiveApiFailures = 0;
+        } catch (error) {
+          consecutiveApiFailures++;
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          
+          // Check if it's a network/API error
+          const isApiError = errorMessage.includes('fetch failed') || 
+                            errorMessage.includes('ECONNRESET') || 
+                            errorMessage.includes('ETIMEDOUT') ||
+                            errorMessage.includes('ECONNREFUSED') ||
+                            errorMessage.includes('Failed to list scrape runs');
+          
+          if (isApiError && consecutiveApiFailures < maxConsecutiveApiFailures) {
+            log.error(`API error while collecting pending items (failure ${consecutiveApiFailures}/${maxConsecutiveApiFailures}): ${errorMessage}`);
+            log.normal(`Will retry after a delay...`);
+            
+            // Wait with exponential backoff before retrying
+            const delay = Math.min(Math.pow(2, consecutiveApiFailures) * 1000, 30000); // Max 30s
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue; // Retry the while loop
+          } else if (consecutiveApiFailures >= maxConsecutiveApiFailures) {
+            log.error(`Max consecutive API failures reached (${maxConsecutiveApiFailures}), stopping`);
+            throw new Error(`API unavailable after ${maxConsecutiveApiFailures} consecutive failures: ${errorMessage}`);
+          } else {
+            // Non-API error, throw immediately
+            throw error;
+          }
+        }
         
         if (batchUrlsWithRunInfo.length === 0) {
           log.normal('No more pending items to process');
@@ -312,14 +350,47 @@ export class ScrapeItemEngine {
           });
           if (batchItemsArray.length > 0) {
             log.debug(`Uploading ${batchItemsArray.length} items to ETL API`);
-            const batchResult = await this.etlDriver.addItemsBatch(batchItemsArray);
-            if (batchResult.failed.length > 0) {
+            
+            // Retry logic for ETL upload
+            let uploadAttempts = 0;
+            const maxUploadAttempts = 3;
+            let batchResult: any = null;
+            
+            while (uploadAttempts < maxUploadAttempts) {
+              try {
+                batchResult = await this.etlDriver.addItemsBatch(batchItemsArray);
+                // Reset consecutive failures on successful upload
+                consecutiveApiFailures = 0;
+                break;
+              } catch (error) {
+                uploadAttempts++;
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                const isApiError = errorMessage.includes('fetch failed') || 
+                                  errorMessage.includes('ECONNRESET') || 
+                                  errorMessage.includes('ETIMEDOUT') ||
+                                  errorMessage.includes('ECONNREFUSED');
+                
+                if (isApiError && uploadAttempts < maxUploadAttempts) {
+                  const delay = Math.pow(2, uploadAttempts) * 1000; // 2s, 4s, 8s
+                  log.error(`ETL upload failed (attempt ${uploadAttempts}/${maxUploadAttempts}): ${errorMessage}`);
+                  log.normal(`Retrying upload in ${delay}ms...`);
+                  await new Promise(resolve => setTimeout(resolve, delay));
+                } else {
+                  // Final attempt failed or non-network error
+                  log.error(`Failed to upload batch ${batchNumber} to ETL: ${errorMessage}`);
+                  // Don't throw - continue with next batch
+                  break;
+                }
+              }
+            }
+            
+            if (batchResult && batchResult.failed.length > 0) {
               log.error(`Failed to upload ${batchResult.failed.length} items in batch ${batchNumber}`);
             }
             
             // Mark successfully uploaded items as done in the database
             // We trust that if ETL batch was successful, all items can be marked done
-            if (successfulUrls.length > 0 && batchResult.successful.length > 0) {
+            if (successfulUrls.length > 0 && batchResult && batchResult.successful.length > 0) {
               log.normal(`Batch ${batchNumber} complete: ${successfulUrls.length} items scraped and saved`);
               const updates = successfulUrls.map(({ url, runId }) => ({
                 url,
