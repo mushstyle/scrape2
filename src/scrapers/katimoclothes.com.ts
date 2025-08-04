@@ -59,7 +59,10 @@ export async function paginate(page: Page): Promise<boolean> {
   try {
     await page.waitForSelector(SELECTORS.pagination.countIndicator, { timeout: 5000 });
     const countText = await page.$eval(SELECTORS.pagination.countIndicator, el => el.textContent?.trim() || '');
-    const match = countText.match(/(\d+)\s+of\s+(\d+)/);
+    
+    // Try both English and Ukrainian patterns
+    // English: "20 of 268" or Ukrainian: "20 із 268"
+    const match = countText.match(/(\d+)\s+(?:of|із)\s+(\d+)/i);
 
     if (match) {
       const currentCount = parseInt(match[1], 10);
@@ -72,7 +75,20 @@ export async function paginate(page: Page): Promise<boolean> {
         return false;
       }
     } else {
-      log.normal(`Could not parse count text: "${countText}". Proceeding with click.`);
+      // Also try to extract numbers from elements with specific classes
+      try {
+        const currentCount = await page.$eval('.cur-c', el => parseInt(el.textContent?.trim() || '0', 10));
+        const totalCount = await page.$eval('.all_c', el => parseInt(el.textContent?.trim() || '0', 10));
+        
+        log.debug(`Pagination status (from classes): ${currentCount} of ${totalCount}`);
+        
+        if (currentCount >= totalCount && totalCount > 0) {
+          log.debug('All items loaded.');
+          return false;
+        }
+      } catch {
+        log.debug(`Could not parse count text: "${countText}". Proceeding with click.`);
+      }
     }
   } catch (err) {
     log.normal(`Could not find or evaluate count indicator (${SELECTORS.pagination.countIndicator}). Proceeding with click attempt: ${err instanceof Error ? err.message : String(err)}`);
@@ -85,8 +101,35 @@ export async function paginate(page: Page): Promise<boolean> {
   }
 
   try {
+    // Check if button is visible and clickable
+    const isVisible = await loadMoreButton.isVisible();
+    if (!isVisible) {
+      log.debug('Load more button is not visible. Assuming end of pagination.');
+      return false;
+    }
+
+    // Get the current number of products before clicking
+    const productCountBefore = await page.$$eval(SELECTORS.productLinks, els => els.length);
+    
     await loadMoreButton.click({ timeout: 5000 });
-    await page.waitForTimeout(3000);
+    
+    // Wait for new products to load (with timeout)
+    try {
+      await page.waitForFunction(
+        (selector, countBefore) => {
+          const products = document.querySelectorAll(selector);
+          return products.length > countBefore;
+        },
+        { timeout: 10000 },
+        SELECTORS.productLinks,
+        productCountBefore
+      );
+      log.debug(`New products loaded. Count increased from ${productCountBefore}`);
+    } catch {
+      // If no new products loaded, still wait a bit in case of slow loading
+      await page.waitForTimeout(3000);
+    }
+    
     return true;
   } catch (err) {
     log.error(`Error clicking load more button: ${err instanceof Error ? err.message : String(err)}`);
