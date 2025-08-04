@@ -34,16 +34,53 @@ export async function getItemUrls(page: Page): Promise<Set<string>> {
     timeout: 10000,
     state: 'visible'
   });
-
-  // Get all product URLs
-  const links = await page.$$eval(SELECTORS.productLinks, products => {
-    return [...new Set(
-      products.map(product => {
-        const link = product.querySelector('a[href*="/product/"]');
-        return link ? (link as HTMLAnchorElement).href : '';
-      }).filter(url => url !== '') // Filter out empty strings
-    )] as string[];
+  
+  // Scroll to load any lazy-loaded products
+  await page.evaluate(() => {
+    window.scrollTo(0, document.body.scrollHeight);
   });
+  
+  // Wait a bit for any lazy-loaded content
+  await page.waitForTimeout(2000);
+  
+  // Try to find and click any "Load More" button if it exists
+  try {
+    const loadMoreButton = await page.$('button:has-text("Load more"), button:has-text("Показати більше"), .load-more-button');
+    if (loadMoreButton) {
+      log.debug('Found load more button, clicking it');
+      await loadMoreButton.click();
+      await page.waitForTimeout(3000); // Wait for products to load
+    }
+  } catch (e) {
+    // No load more button found, continue
+  }
+
+  // Get all product URLs - look for multiple possible selectors
+  const links = await page.$$eval(SELECTORS.productLinks, products => {
+    const urls = new Set<string>();
+    
+    products.forEach(product => {
+      // Try multiple selectors for product links
+      const linkSelectors = [
+        'a[href*="/product/"]',
+        'a[href*="/en/product/"]', 
+        'a.product__link',
+        'a.product-link'
+      ];
+      
+      for (const selector of linkSelectors) {
+        const link = product.querySelector(selector);
+        if (link && (link as HTMLAnchorElement).href) {
+          urls.add((link as HTMLAnchorElement).href);
+          break; // Found a link, no need to check other selectors
+        }
+      }
+    });
+    
+    return Array.from(urls);
+  });
+  
+  log.debug(`Found ${links.length} product URLs on ${page.url()}`);
 
   return new Set(links);
 }
@@ -78,7 +115,7 @@ export async function paginate(page: Page): Promise<boolean> {
   }
 
   try {
-    const response = await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+    const response = await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
     if (!response || !response.ok()) {
       log.debug(`   Pagination failed: Non-OK response for ${nextUrl} (status: ${response?.status()})`);
       return false;

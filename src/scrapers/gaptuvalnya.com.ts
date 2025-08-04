@@ -49,7 +49,8 @@ const parsePrice = (priceText: string | null | undefined): number | undefined =>
 export async function getItemUrls(page: Page): Promise<Set<string>> {
   const itemUrls = new Set<string>();
   try {
-    await page.waitForSelector(SELECTORS.productListItem, { timeout: 10000 });
+    // Try to wait for products with a shorter timeout
+    await page.waitForSelector(SELECTORS.productListItem, { timeout: 5000 });
     const productElements = await page.$$(SELECTORS.productListItem);
 
     for (const elHandle of productElements) {
@@ -65,26 +66,74 @@ export async function getItemUrls(page: Page): Promise<Set<string>> {
         }
       }
     }
+    
+    if (productElements.length === 0) {
+      log.debug(`No products found on ${page.url()}`);
+    }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    log.error(`Error in getItemUrls for ${page.url()}: ${errorMessage}`);
+    
+    // Check if it's a timeout waiting for products - this could be normal for empty pages
+    if (errorMessage.includes('Timeout') && errorMessage.includes(SELECTORS.productListItem)) {
+      log.debug(`No products found on ${page.url()} (timeout waiting for selector)`);
+    } else {
+      log.error(`Error in getItemUrls for ${page.url()}: ${errorMessage}`);
+    }
   }
   return itemUrls;
 }
 
 export async function paginate(page: Page): Promise<boolean> {
   try {
+    // First check if there's a next page link
     const nextButton = await page.$(SELECTORS.nextPageLink);
-    if (nextButton) {
-      const hrefAttr = await nextButton.getAttribute('href');
-      if (hrefAttr) {
-        const nextPageUrl = new URL(hrefAttr, page.url()).href;
-        await page.goto(nextPageUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
-        await page.waitForTimeout(1000);
-        return true;
-      }
+    if (!nextButton) {
+      log.debug('No next page link found');
+      return false;
     }
-    return false;
+    
+    const hrefAttr = await nextButton.getAttribute('href');
+    if (!hrefAttr) {
+      log.debug('Next page link has no href attribute');
+      return false;
+    }
+    
+    const nextPageUrl = new URL(hrefAttr, page.url()).href;
+    
+    // Try to navigate to the next page with a shorter timeout
+    try {
+      const response = await page.goto(nextPageUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+      
+      // Check if response is valid
+      if (!response || !response.ok()) {
+        log.debug(`Non-OK response for next page (status: ${response?.status()})`);
+        return false;
+      }
+      
+      // Wait a bit for content to load
+      await page.waitForTimeout(1000);
+      
+      // Check if there are products on this page
+      try {
+        await page.waitForSelector(SELECTORS.productListItem, { timeout: 3000 });
+        return true; // Products found, pagination successful
+      } catch {
+        // No products found within timeout
+        log.debug('No products found on next page');
+        return false;
+      }
+    } catch (navError) {
+      // Navigation failed - could be end of pages or network issue
+      const errorMessage = navError instanceof Error ? navError.message : String(navError);
+      
+      // Check if it's a timeout - might indicate end of pages
+      if (errorMessage.includes('Timeout')) {
+        log.debug(`Pagination timeout - likely end of pages: ${nextPageUrl}`);
+      } else {
+        log.error(`Pagination navigation error: ${errorMessage}`);
+      }
+      return false;
+    }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     log.error(`Pagination error on ${page.url()}: ${errorMessage}`);
