@@ -271,32 +271,53 @@ export async function listScrapeRuns(query?: ListScrapeRunsProviderQuery): Promi
   
   log.debug(`Fetching scrape runs from: ${url}`);
   
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`
+  // Retry logic with exponential backoff
+  const maxRetries = 3;
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to list scrape runs: ${response.statusText}`);
       }
-    });
 
-    if (!response.ok) {
-      throw new Error(`Failed to list scrape runs: ${response.statusText}`);
+      const data = await response.json();
+      log.debug('API response:', { data });
+      
+      // The API returns { data: [...] } format
+      const runs = data.data || data.runs || (Array.isArray(data) ? data : []);
+      return {
+        runs: runs.map(normalizeRunResponse),
+        total: data.total || runs.length,
+        pagination: data.pagination
+      };
+    } catch (error) {
+      lastError = error as Error;
+      const isNetworkError = lastError.message.includes('fetch failed') || 
+                            lastError.message.includes('ECONNRESET') || 
+                            lastError.message.includes('ETIMEDOUT') ||
+                            lastError.message.includes('ECONNREFUSED');
+      
+      if (isNetworkError && attempt < maxRetries - 1) {
+        const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+        log.normal(`Network error fetching scrape runs, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      log.error('Error listing scrape runs', { error });
+      throw error;
     }
-
-    const data = await response.json();
-    log.debug('API response:', { data });
-    
-    // The API returns { data: [...] } format
-    const runs = data.data || data.runs || (Array.isArray(data) ? data : []);
-    return {
-      runs: runs.map(normalizeRunResponse),
-      total: data.total || runs.length,
-      pagination: data.pagination
-    };
-  } catch (error) {
-    log.error('Error listing scrape runs', { error });
-    throw error;
   }
+  
+  throw lastError || new Error('Failed to list scrape runs after retries');
 }
 
 /**
