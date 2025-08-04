@@ -96,7 +96,7 @@ export const getSites = async (): Promise<ApiSitesResponse> => {
   const token = getApiBearerToken();
   const url = buildApiUrl(API_ENDPOINTS.sites);
 
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -109,7 +109,7 @@ export const getSiteById = async (siteId: string): Promise<ApiSiteMetadata> => {
   const token = getApiBearerToken();
   const url = buildApiUrl(API_ENDPOINTS.site(siteId));
 
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -121,6 +121,37 @@ export const getSiteById = async (siteId: string): Promise<ApiSiteMetadata> => {
 };
 
 const log = logger.createContext('etl-api');
+
+/**
+ * Helper function to fetch with retry logic for network errors
+ */
+async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fetch(url, options);
+    } catch (error) {
+      lastError = error as Error;
+      const isNetworkError = lastError.message.includes('fetch failed') || 
+                            lastError.message.includes('ECONNRESET') || 
+                            lastError.message.includes('ETIMEDOUT') ||
+                            lastError.message.includes('ECONNREFUSED') ||
+                            lastError.message.includes('terminated');
+      
+      if (isNetworkError && attempt < maxRetries - 1) {
+        const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+        log.debug(`Network error, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries}): ${lastError.message}`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      throw error;
+    }
+  }
+  
+  throw lastError || new Error('Failed after retries');
+}
 
 /**
  * Helper to build API URLs consistently
@@ -187,7 +218,7 @@ export async function createScrapeRun(request: CreateScrapeRunRequest): Promise<
   log.debug(`Creating scrape run with request: ${body}`);
   
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -219,7 +250,7 @@ export async function fetchScrapeRun(runId: string): Promise<ScrapeRun> {
   const token = getApiBearerToken();
   
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`
@@ -328,7 +359,7 @@ export async function updateScrapeRunItem(runId: string, request: UpdateScrapeRu
   const token = getApiBearerToken();
   
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -357,7 +388,7 @@ export async function finalizeScrapeRun(runId: string): Promise<void> {
   const request: FinalizeRunRequest = { finalize: true };
   
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -437,21 +468,14 @@ export async function addPendingItem(itemData: Item, itemId: string): Promise<vo
   };
   
   try {
-    // Add timeout using AbortController
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-    
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify(payload),
-      signal: controller.signal
+      body: JSON.stringify(payload)
     });
-    
-    clearTimeout(timeoutId);
     
     if (!response.ok) {
       let errorBody = '';
@@ -483,7 +507,7 @@ export async function getPendingItem(itemId: string): Promise<Item | null> {
   const token = getApiBearerToken();
   
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`
