@@ -10,49 +10,69 @@ export async function getItemUrls(page: Page): Promise<Set<string>> {
   const itemUrls = new Set<string>();
   
   // Wait for product links
-  await page.waitForSelector('a.woocommerce-LoopProduct-link', { timeout: 10000 });
+  await page.waitForSelector('a.woocommerce-LoopProduct-link', { timeout: 10000 }).catch(() => {
+    log.debug('No product links found on page');
+  });
   
-  // Since the page uses infinite scroll, we need to scroll and collect links
-  let previousCount = 0;
-  let currentCount = 0;
-  let scrollAttempts = 0;
-  const maxScrollAttempts = 20; // Increased to ensure we get all products
-
-  do {
-    previousCount = itemUrls.size;
-
-    // Get all product links currently on the page
-    const links = await page.locator('a.woocommerce-LoopProduct-link').evaluateAll(elements =>
-      elements.map(el => (el as HTMLAnchorElement).href)
-    );
-    
-    for (const link of links) {
-      if (link) {
-        itemUrls.add(new URL(link, page.url()).href);
-      }
+  // Get all product links currently on the page
+  const links = await page.locator('a.woocommerce-LoopProduct-link').evaluateAll(elements =>
+    elements.map(el => (el as HTMLAnchorElement).href)
+  );
+  
+  for (const link of links) {
+    if (link) {
+      itemUrls.add(new URL(link, page.url()).href);
     }
+  }
 
-    currentCount = itemUrls.size;
-
-    // If we got new items, scroll to load more
-    if (currentCount > previousCount) {
-      scrollAttempts = 0; // Reset attempts if we're getting new items
-      log.normal(`Scrolling... (${currentCount} items found)`);
-      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await page.waitForTimeout(3000); // Wait longer for new items to load
-    } else {
-      scrollAttempts++;
-    }
-
-  } while (scrollAttempts < maxScrollAttempts && currentCount > previousCount);
-
+  log.debug(`Found ${itemUrls.size} product URLs on current page`);
   return itemUrls;
 }
 
 export async function paginate(page: Page): Promise<boolean> {
-  // This site uses infinite scroll, not traditional pagination
-  // Return false as we handle all items in getItemUrls
-  return false;
+  try {
+    // Get current product count before scrolling
+    const currentProductCount = await page.locator('a.woocommerce-LoopProduct-link').count();
+    log.debug(`Current product count before scroll: ${currentProductCount}`);
+    
+    // Check if we've reached the end by looking for "No more products" or similar indicators
+    const noMoreProducts = await page.locator('.no-more-products, .end-of-products').count();
+    if (noMoreProducts > 0) {
+      log.debug('Found end of products indicator');
+      return false;
+    }
+    
+    // Scroll to bottom to trigger infinite scroll
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    log.debug('Scrolled to bottom of page');
+    
+    // Wait for DOM content to be loaded/updated
+    await page.waitForLoadState('domcontentloaded');
+    
+    // Also wait for network idle to ensure AJAX requests complete
+    await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {
+      log.debug('Network idle timeout - continuing anyway');
+    });
+    
+    // Additional wait to ensure DOM updates
+    await page.waitForTimeout(2000);
+    
+    // Check if new products were loaded
+    const newProductCount = await page.locator('a.woocommerce-LoopProduct-link').count();
+    log.debug(`Product count after scroll: ${newProductCount}`);
+    
+    if (newProductCount > currentProductCount) {
+      log.debug(`Loaded ${newProductCount - currentProductCount} new products via infinite scroll`);
+      return true;
+    } else {
+      log.debug('No new products loaded, reached end of catalog');
+      return false;
+    }
+    
+  } catch (error) {
+    log.debug(`Pagination error: ${error}`);
+    return false;
+  }
 }
 
 /**
@@ -203,7 +223,7 @@ export async function scrapeItem(page: Page, options?: {
     status: 'ACTIVE'
   };
   
-  return item;
+  return [item];
 }
 
 // For backward compatibility, export default object with all functions

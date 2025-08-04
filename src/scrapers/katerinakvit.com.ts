@@ -38,61 +38,114 @@ export const SELECTORS = {
 };
 
 export async function getItemUrls(page: Page): Promise<Set<string>> {
-  // No waiting for selectors - use direct DOM approach
+  // Wait for page to be ready
   await page.waitForLoadState('domcontentloaded');
+  
+  // Additional wait for dynamic content
+  await page.waitForTimeout(1000);
 
-  // Use a potentially more robust selector
+  // Use multiple selectors to find product links
   const urls = await page.evaluate(() => {
-    // Try specific product link selector first
-    let links = Array.from(document.querySelectorAll('li.product .woocommerce-LoopProduct-link'));
-    // Fallback if the primary selector doesn't find anything
-    if (links.length === 0) {
-      links = Array.from(document.querySelectorAll('.product-div .woocommerce-LoopProduct-link'));
+    // Try multiple selectors based on the HTML structure
+    const selectors = [
+      '.product-div .woocommerce-LoopProduct-link',
+      '.product-div a.woocommerce-loop-product__link',
+      'li.product .woocommerce-LoopProduct-link',
+      'li.product a.woocommerce-loop-product__link',
+      '.products .product a[href*="/product/"]',
+      'a.woocommerce-LoopProduct-link'
+    ];
+    
+    let links: Element[] = [];
+    for (const selector of selectors) {
+      links = Array.from(document.querySelectorAll(selector));
+      if (links.length > 0) {
+        console.log(`Found ${links.length} products using selector: ${selector}`);
+        break;
+      }
     }
-    return links.map(link => (link as HTMLAnchorElement).href);
+    
+    // Filter to ensure we only get product URLs
+    return links
+      .map(link => (link as HTMLAnchorElement).href)
+      .filter(href => href && href.includes('/product/'));
   });
-
+  
+  log.debug(`Found ${urls.length} product URLs on ${page.url()}`);
   return new Set(urls);
 }
 
 export async function paginate(page: Page): Promise<boolean> {
   try {
-    // Wait specifically for the pagination container to be ready
-    await page.waitForSelector(SELECTORS.pagination.container, { timeout: 5000 });
-
-    // Determine if there is a "next" link
-    const nextLinkHandle = await page.$(SELECTORS.pagination.nextButton);
-    if (!nextLinkHandle) {
-      return false; // no next link => last page
+    const currentUrl = page.url();
+    
+    // First try to find a next button if pagination container exists
+    try {
+      await page.waitForSelector(SELECTORS.pagination.container, { timeout: 2000 });
+      const nextLinkHandle = await page.$(SELECTORS.pagination.nextButton);
+      
+      if (nextLinkHandle) {
+        const href = await nextLinkHandle.getAttribute('href');
+        if (href) {
+          const absoluteUrl = new URL(href, page.url()).href;
+          const response = await page.goto(absoluteUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+          
+          if (response && response.ok()) {
+            await page.waitForTimeout(500);
+            const urls = await getItemUrls(page);
+            return urls.size > 0;
+          }
+        }
+      }
+    } catch (e) {
+      // No pagination container found, try URL-based pagination
     }
-
-    const href = await nextLinkHandle.getAttribute('href');
-    if (!href) {
-      return false;
-    }
-
-    // Construct absolute URL
-    const absoluteUrl = new URL(href, page.url()).href;
-
-    const response = await page.goto(absoluteUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
-    if (!response || !response.ok()) {
-      return false;
-    }
-
-    // Add a small delay to ensure content is fully rendered after navigation
-    await page.waitForTimeout(500);
-
-    // Basic validation: ensure we still have products on new page
-    const urls = await getItemUrls(page);
-    const hasItems = urls.size > 0;
-    return hasItems;
-  } catch (error) {
-    // If waitForSelector times out or any other error occurs
-    if (error instanceof Error && error.name === 'TimeoutError') {
+    
+    // Fallback to URL-based pagination pattern
+    // Check if we're on a paginated URL like /page/2/
+    const pageMatch = currentUrl.match(/\/page\/(\d+)\/?/);
+    const currentPageNum = pageMatch ? parseInt(pageMatch[1], 10) : 1;
+    const nextPageNum = currentPageNum + 1;
+    
+    let nextUrl: string;
+    if (pageMatch) {
+      // Replace existing page number
+      nextUrl = currentUrl.replace(/\/page\/\d+\/?/, `/page/${nextPageNum}/`);
     } else {
-      log.error('paginate: Error during pagination:', error);
+      // Add page number to URL
+      // Handle URLs with or without trailing slash
+      if (currentUrl.endsWith('/')) {
+        nextUrl = `${currentUrl}page/${nextPageNum}/`;
+      } else {
+        nextUrl = `${currentUrl}/page/${nextPageNum}/`;
+      }
     }
-    return false; // Treat timeout or any error as the end of pagination
+    
+    log.debug(`Attempting to navigate to page ${nextPageNum}: ${nextUrl}`);
+    
+    const response = await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+    if (!response || !response.ok()) {
+      log.debug(`No more pages - got ${response?.status()} for ${nextUrl}`);
+      return false;
+    }
+    
+    // Wait for content to load
+    await page.waitForTimeout(1000);
+    
+    // Check if we have products on this page
+    const urls = await getItemUrls(page);
+    if (urls.size === 0) {
+      log.debug(`No products found on page ${nextPageNum}`);
+      return false;
+    }
+    
+    log.debug(`Successfully navigated to page ${nextPageNum}, found ${urls.size} products`);
+    return true;
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.debug(`Pagination ended: ${errorMessage}`);
+    return false;
   }
 }
 

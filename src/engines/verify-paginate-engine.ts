@@ -33,8 +33,8 @@ export interface VerifyPaginateOptions {
   maxIterations?: number;
   maxPages?: number;
   useSingleSession?: boolean;
-  localHeadless?: boolean;  // Use local browser in headless mode
-  localHeaded?: boolean;    // Use local browser in headed mode
+  browserbase?: boolean;    // Use browserbase cloud browser
+  localHeaded?: boolean;    // Use local browser in headed mode (visible)
   sessionTimeout?: number;  // Session timeout in seconds
   sessionManager?: SessionManager;
   siteManager?: SiteManager;
@@ -57,9 +57,9 @@ export class VerifyPaginateEngine {
   private siteManager: SiteManager;
   
   constructor(options: Partial<VerifyPaginateOptions> = {}) {
-    // Create SessionManager with appropriate provider based on options
+    // Default to local provider unless sessionManager is provided
     if (!options.sessionManager) {
-      const provider = (options.localHeadless || options.localHeaded) ? 'local' : 'browserbase';
+      const provider = options.browserbase ? 'browserbase' : 'local';
       this.sessionManager = new SessionManager({ provider });
     } else {
       this.sessionManager = options.sessionManager;
@@ -113,12 +113,23 @@ export class VerifyPaginateEngine {
       const proxy = options.noProxy ? null : await this.siteManager.getProxyForDomain(options.domain);
       
       // Create all session requests
-      const sessionRequests = Array(sessionsToCreate).fill(null).map(() => ({
-        domain: options.domain,
-        proxy,
-        headless: options.localHeadless ? true : (options.localHeaded ? false : true), // default to headless
-        timeout: options.sessionTimeout
-      }));
+      const sessionRequests = Array(sessionsToCreate).fill(null).map(() => {
+        const request: any = {
+          domain: options.domain,
+          proxy,
+          timeout: options.sessionTimeout
+        };
+        
+        // Determine browser type based on options
+        if (options.browserbase) {
+          request.browserType = 'browserbase';
+        } else {
+          request.browserType = 'local';
+          request.headless = !options.localHeaded; // default to headless unless localHeaded is specified
+        }
+        
+        return request;
+      });
       
       // Create all sessions in parallel (SessionManager handles this efficiently)
       const createdSessions = await this.sessionManager.createSession(sessionRequests) as Session[];

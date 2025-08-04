@@ -9,8 +9,9 @@ const log = logger.createContext('gaptuvalnya.com');
 
 const SELECTORS = {
   productListItem: 'div.col-md-4.catalog',
-  productLink: 'a', // Relative to productListItem
-  nextPageLink: 'ul.pagination a.next',
+  productLink: 'a', // Relative to productListItem  
+  nextPageLink: 'a.next', // Updated to match the HTML structure
+  pagination: 'ul.pagination', // To check if pagination exists
   // Item Page Selectors (using common WooCommerce patterns for elements not in provided snippets)
   title: 'div.summary.entry-summary h1',
   priceContainer: 'div.summary p.price', // The text content of this element will be parsed
@@ -49,7 +50,11 @@ const parsePrice = (priceText: string | null | undefined): number | undefined =>
 export async function getItemUrls(page: Page): Promise<Set<string>> {
   const itemUrls = new Set<string>();
   try {
-    await page.waitForSelector(SELECTORS.productListItem, { timeout: 10000 });
+    // Wait for the page to load properly
+    await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+    
+    // Try to wait for products with a reasonable timeout
+    await page.waitForSelector(SELECTORS.productListItem, { timeout: 8000 });
     const productElements = await page.$$(SELECTORS.productListItem);
 
     for (const elHandle of productElements) {
@@ -58,33 +63,110 @@ export async function getItemUrls(page: Page): Promise<Set<string>> {
         const hrefAttr = await linkElement.getAttribute('href');
         if (hrefAttr) {
           try {
-            itemUrls.add(new URL(hrefAttr, page.url()).href);
+            // Ensure we're getting catalog/product URLs, not category URLs
+            const fullUrl = new URL(hrefAttr, page.url()).href;
+            if (fullUrl.includes('/catalog/') || fullUrl.includes('/product/')) {
+              itemUrls.add(fullUrl);
+            }
           } catch (e) {
             log.error(`Invalid URL found: ${hrefAttr} on page ${page.url()}`);
           }
         }
       }
     }
+    
+    if (productElements.length === 0) {
+      log.debug(`No products found on ${page.url()}`);
+    } else {
+      log.debug(`Found ${itemUrls.size} product URLs from ${productElements.length} product elements on ${page.url()}`);
+    }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    log.error(`Error in getItemUrls for ${page.url()}: ${errorMessage}`);
+    
+    // Check if it's a timeout waiting for products - this could be normal for empty pages
+    if (errorMessage.includes('Timeout') && errorMessage.includes(SELECTORS.productListItem)) {
+      log.debug(`No products found on ${page.url()} (timeout waiting for selector)`);
+    } else {
+      log.error(`Error in getItemUrls for ${page.url()}: ${errorMessage}`);
+    }
   }
   return itemUrls;
 }
 
 export async function paginate(page: Page): Promise<boolean> {
   try {
-    const nextButton = await page.$(SELECTORS.nextPageLink);
-    if (nextButton) {
-      const hrefAttr = await nextButton.getAttribute('href');
-      if (hrefAttr) {
-        const nextPageUrl = new URL(hrefAttr, page.url()).href;
-        await page.goto(nextPageUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
-        await page.waitForTimeout(1000);
-        return true;
-      }
+    // Wait for the page to stabilize first
+    await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+    
+    // Check if pagination exists at all
+    const hasPagination = await page.$(SELECTORS.pagination);
+    if (!hasPagination) {
+      log.debug('No pagination found on page');
+      return false;
     }
-    return false;
+    
+    // Check if there's a next page link
+    const nextButton = await page.$(SELECTORS.nextPageLink);
+    if (!nextButton) {
+      // Try to debug what's on the page
+      const paginationHTML = await page.$eval(SELECTORS.pagination, el => el.outerHTML).catch(() => 'No pagination found');
+      log.debug(`No next page link found (selector: ${SELECTORS.nextPageLink})`);
+      log.debug(`Pagination HTML snippet: ${paginationHTML.substring(0, 200)}...`);
+      return false;
+    }
+    
+    const hrefAttr = await nextButton.getAttribute('href');
+    if (!hrefAttr) {
+      log.debug('Next page link has no href attribute');
+      return false;
+    }
+    
+    const nextPageUrl = new URL(hrefAttr, page.url()).href;
+    log.debug(`Navigating to next page: ${nextPageUrl}`);
+    
+    // Try to navigate to the next page
+    try {
+      const response = await page.goto(nextPageUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      
+      // Check if response is valid
+      if (!response || !response.ok()) {
+        log.debug(`Non-OK response for next page (status: ${response?.status()})`);
+        return false;
+      }
+      
+      // Wait for the page to stabilize
+      await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+      
+      // Check if there are products on this page
+      try {
+        await page.waitForSelector(SELECTORS.productListItem, { timeout: 5000 });
+        
+        // Double-check we actually have products
+        const productCount = await page.$$eval(SELECTORS.productListItem, els => els.length);
+        if (productCount > 0) {
+          log.debug(`Pagination successful - found ${productCount} products on next page`);
+          return true;
+        } else {
+          log.debug('No products found on next page despite selector match');
+          return false;
+        }
+      } catch {
+        // No products found within timeout
+        log.debug('No products found on next page (timeout)');
+        return false;
+      }
+    } catch (navError) {
+      // Navigation failed - could be end of pages or network issue
+      const errorMessage = navError instanceof Error ? navError.message : String(navError);
+      
+      // Check if it's a timeout - might indicate end of pages or network issues
+      if (errorMessage.includes('Timeout')) {
+        log.debug(`Pagination timeout: ${nextPageUrl}`);
+      } else {
+        log.error(`Pagination navigation error: ${errorMessage}`);
+      }
+      return false;
+    }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     log.error(`Pagination error on ${page.url()}: ${errorMessage}`);

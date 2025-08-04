@@ -21,7 +21,7 @@ async function main() {
   
   // Parse optional flags
   const useSingleSession = args.includes('--single');
-  const localHeadless = args.includes('--local-headless');
+  const browserbase = args.includes('--browserbase');
   const localHeaded = args.includes('--local-headed');
   const noProxy = args.includes('--no-proxy');
   
@@ -49,8 +49,9 @@ async function main() {
     console.log('Options:');
     console.log('  --single           Only scrapes one start page');
     console.log('  --max-pages=N      Limit to N pages');
-    console.log('  --local-headless   Use local browser in headless mode');
-    console.log('  --local-headed     Use local browser in headed mode');
+    console.log('  --browserbase      Use browserbase cloud browser');
+    console.log('  --local-headed     Use local browser in headed mode (visible)');
+    console.log('  (default)          Use local browser in headless mode');
     console.log('  --session-timeout=N Session timeout in seconds (browserbase only)');
     console.log('  --no-proxy         Disable proxy usage (direct connection)');
     console.log('Examples:');
@@ -68,13 +69,13 @@ async function main() {
   const specificUrl = isUrl ? input : undefined;
   
   try {
-    const engine = new VerifyPaginateEngine({ localHeadless, localHeaded });
+    const engine = new VerifyPaginateEngine({ browserbase, localHeaded });
     const result = await engine.verify({ 
       domain,
       specificUrl,
       maxPages,  // NO DEFAULT LIMIT!
       useSingleSession,
-      localHeadless,
+      browserbase,
       localHeaded,
       sessionTimeout,
       noProxy

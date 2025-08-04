@@ -35,7 +35,7 @@ interface PaginateOptions {
   cacheTTLSeconds?: number;
   blockImages?: boolean;
   noSave?: boolean;
-  localHeadless?: boolean;
+  browserbase?: boolean;
   localHeaded?: boolean;
   sessionTimeout?: number;
   maxRetries?: number;
@@ -52,7 +52,7 @@ interface ItemsOptions {
   cacheTTLSeconds?: number;
   blockImages?: boolean;
   noSave?: boolean;
-  localHeadless?: boolean;
+  browserbase?: boolean;
   localHeaded?: boolean;
   sessionTimeout?: number;
   maxRetries?: number;
@@ -63,7 +63,7 @@ async function runPaginate(options: PaginateOptions) {
   const siteManager = new SiteManager();
   
   // Determine provider based on browser flags
-  const provider = (options.localHeaded || options.localHeadless) ? 'local' : 'browserbase';
+  const provider = options.browserbase ? 'browserbase' : 'local';
   
   const sessionManager = new SessionManager({
     sessionLimit: options.instanceLimit || 10,
@@ -112,7 +112,7 @@ async function runItems(options: ItemsOptions) {
   const siteManager = new SiteManager();
   
   // Determine provider based on browser flags
-  const provider = (options.localHeaded || options.localHeadless) ? 'local' : 'browserbase';
+  const provider = options.browserbase ? 'browserbase' : 'local';
   
   const sessionManager = new SessionManager({
     sessionLimit: options.instanceLimit || 10,
@@ -180,8 +180,9 @@ async function main() {
       console.log('  --cache-ttl-seconds N     Cache TTL in seconds (default: 300)');
       console.log('  --no-block-images         Disable image blocking (images blocked by default)');
       console.log('  --no-save                 Skip saving to database');
-      console.log('  --local-headless          Use local browser in headless mode');
-      console.log('  --local-headed            Use local browser in headed mode');
+      console.log('  --browserbase             Use browserbase cloud browser');
+      console.log('  --local-headed            Use local browser in headed mode (visible)');
+      console.log('  (default)                 Use local browser in headless mode');
       console.log('  --session-timeout N       Session timeout in seconds');
       console.log('  --max-retries N           Max retries for network errors (default: 2)');
       console.log('  --retry-failed            Include previously failed items in scraping');
