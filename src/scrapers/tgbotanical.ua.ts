@@ -108,15 +108,29 @@ export async function scrapeItem(page: Page, options?: {
       const descriptionElement = document.querySelector('.product-description'); // Updated description selector
       const description = descriptionElement?.innerHTML.trim() || descriptionElement?.textContent?.trim() || ''; // Prefer innerHTML for descriptions
 
-      // Image selectors for product page gallery
-      const imageAnchorElements = Array.from(document.querySelectorAll('#product-images .owl-item:not(.cloned) figure.easyzoom a'));
-      let preliminaryImagesData = imageAnchorElements.map(anchor => {
-        const imgElement = anchor.querySelector('img');
+      // Image selectors for product page gallery - handle both anchor and direct img elements
+      const imageElements = Array.from(document.querySelectorAll('#product-images .owl-item:not(.cloned) figure img'));
+      let preliminaryImagesData = imageElements.map(img => {
+        const imgElement = img as HTMLImageElement;
         return {
-          src: (anchor as HTMLAnchorElement).href,
-          alt: imgElement ? imgElement.alt : title, // Use title as fallback alt text
+          src: imgElement.src,
+          alt: imgElement.alt || title, // Use title as fallback alt text
         };
       }).filter(img => img.src); // Filter out any images without a src
+      
+      // If no images found in main gallery, try thumbnail images as fallback
+      if (preliminaryImagesData.length === 0) {
+        const thumbnailElements = Array.from(document.querySelectorAll('#product-thumbnails .item img'));
+        preliminaryImagesData = thumbnailElements.map(img => {
+          const imgElement = img as HTMLImageElement;
+          // Convert thumbnail URLs to full-size image URLs
+          const src = imgElement.src.replace('/product_thumb_', '/product_main_');
+          return {
+            src: src,
+            alt: title, // Use title as alt text for thumbnails
+          };
+        }).filter(img => img.src);
+      }
 
       // Deduplicate images based on src URL
       const uniqueImagesData = preliminaryImagesData.reduce((acc, current) => {
@@ -141,16 +155,28 @@ export async function scrapeItem(page: Page, options?: {
       const category = categories.length > 1 ? categories[categories.length - 2] : (categories.length > 0 ? categories[0] : undefined); // Second to last, or first if only one ancsestor
 
       let color: string | undefined = undefined;
-      if (uniqueImagesData.length > 0 && uniqueImagesData[0].alt) {
-        // Try to extract color from alt text like "Top Melissa 6667026-735-299 Beige - TGBotanical"
-        const altParts = uniqueImagesData[0].alt.split(' - ')[0].split(' ');
-        if (altParts.length > 1) {
-          // Potentially the color is the word before the SKU-like part or the last word if no SKU is obvious in the name part.
-          // This is heuristic and might need adjustment based on more examples.
-          const potentialColor = altParts[altParts.length - 1];
-          // Avoid picking up numbers or very short strings as color
-          if (potentialColor && potentialColor.length > 2 && !/^\d+$/.test(potentialColor)) {
-            color = potentialColor;
+      // First try to get color from active color link title attribute
+      const activeColorLink = document.querySelector('.product-form__color-link--active img');
+      if (activeColorLink) {
+        color = (activeColorLink as HTMLImageElement).title || (activeColorLink as HTMLImageElement).alt;
+      }
+      
+      // Fallback: extract from image alt text like "Dress Ravena 5848655-529-299 Orange - TGBotanical"
+      if (!color && uniqueImagesData.length > 0 && uniqueImagesData[0].alt) {
+        const altText = uniqueImagesData[0].alt;
+        // Look for pattern: "Product Name SKU Color - Brand"
+        const match = altText.match(/\d{7}-\d{3}-\d{3}\s+(\w+)\s+-/);
+        if (match && match[1]) {
+          color = match[1];
+        } else {
+          // Fallback: try to find color after SKU pattern
+          const altParts = altText.split(' - ')[0].split(' ');
+          const skuIndex = altParts.findIndex(part => /\d{7}-\d{3}-\d{3}/.test(part));
+          if (skuIndex !== -1 && skuIndex < altParts.length - 1) {
+            const potentialColor = altParts[skuIndex + 1];
+            if (potentialColor && potentialColor.length > 2 && !/^\d+$/.test(potentialColor)) {
+              color = potentialColor;
+            }
           }
         }
       }
@@ -213,7 +239,7 @@ export async function scrapeItem(page: Page, options?: {
         mushUrl: p.mushUrl,
         alt_text: p.altText,
       })),
-      sizes: rawDetails.sizes.map((s: string) => ({ size: s, is_available: true })), // Assume all scraped sizes are available
+      sizes: rawDetails.sizes?.length > 0 ? rawDetails.sizes.map((s: string) => ({ size: s, is_available: true })) : undefined, // Make sizes optional if empty
       product_id: 'temp-id', // Placeholder, will be replaced by mkItemId later or derived
       sourceUrl: rawDetails.sourceUrl,
       vendor: rawDetails.brand, // Map brand to vendor
@@ -229,7 +255,7 @@ export async function scrapeItem(page: Page, options?: {
   if (!item) {
     throw new Error(`Item could not be scraped from ${sourceUrl}`);
   }
-  return item;
+  return [item];
 }
 
 const scraper = {
