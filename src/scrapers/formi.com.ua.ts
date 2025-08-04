@@ -81,7 +81,7 @@ export const scrapeItem = async (page: Page, options?: {
   scrapeImages?: boolean;
   existingImages?: Array<{ sourceUrl: string; mushUrl: string }>;
   uploadToS3?: boolean;
-}): Promise<Item> => {
+}): Promise<Item[]> => {
   const sourceUrl = page.url();
   try {
     // Page is already at sourceUrl, ensure content is loaded.
@@ -90,29 +90,35 @@ export const scrapeItem = async (page: Page, options?: {
     const rawDetails = await page.evaluate(() => {
       const title = document.querySelector('h1.woocommerce-products-header__title')?.textContent?.trim() || '';
 
-      const priceElement = document.querySelector('div.price span.woocommerce-Price-amount.amount bdi');
-      let priceText = priceElement?.textContent?.trim() || null;
-      let currencySymbol = document.querySelector('div.price span.woocommerce-Price-amount.amount span.woocommerce-Price-currencySymbol')?.textContent?.trim() || null;
-
-      // If bdi is not found or doesn't contain the full price, try to get it from the parent and extract symbol manually
-      if (priceElement && (!priceText || !currencySymbol)) {
-        const fullPriceText = priceElement.textContent?.trim();
-        if (fullPriceText) {
-          const match = fullPriceText.match(/([\d,.]+)([^\d,.]*)$/);
-          if (match) {
-            priceText = match[1];
-            currencySymbol = match[2].trim();
-          }
-        }
-      } else if (!priceElement) { // Fallback if bdi is not present at all
-        const generalPriceElement = document.querySelector('div.price span.woocommerce-Price-amount.amount');
-        const fullPriceText = generalPriceElement?.textContent?.trim();
-        if (fullPriceText) {
-          const match = fullPriceText.match(/([\d,.]+)([^\d,.]*)$/);
-          if (match) {
-            priceText = match[1];
-            currencySymbol = match[2].trim();
-          }
+      // Handle sale price structure
+      let priceText = null;
+      let salePriceText = null;
+      let currencySymbol = null;
+      
+      // Check for sale price structure first
+      const delPriceElement = document.querySelector('div.price del span.woocommerce-Price-amount.amount bdi');
+      const insPriceElement = document.querySelector('div.price ins span.woocommerce-Price-amount.amount bdi');
+      
+      if (delPriceElement && insPriceElement) {
+        // Item is on sale
+        const originalFullText = delPriceElement.textContent?.trim() || '';
+        const saleFullText = insPriceElement.textContent?.trim() || '';
+        
+        // Extract currency from either price
+        const currencyElement = document.querySelector('div.price span.woocommerce-Price-currencySymbol');
+        currencySymbol = currencyElement?.textContent?.trim() || '';
+        
+        // Extract numeric values (keep comma as thousands separator)
+        priceText = originalFullText.replace(/[^\d,]/g, '');
+        salePriceText = saleFullText.replace(/[^\d,]/g, '');
+      } else {
+        // Regular price (not on sale)
+        const priceElement = document.querySelector('div.price span.woocommerce-Price-amount.amount bdi');
+        if (priceElement) {
+          const fullText = priceElement.textContent?.trim() || '';
+          priceText = fullText.replace(/[^\d,]/g, '');
+          const currencyElement = document.querySelector('div.price span.woocommerce-Price-currencySymbol');
+          currencySymbol = currencyElement?.textContent?.trim() || '';
         }
       }
 
@@ -121,11 +127,19 @@ export const scrapeItem = async (page: Page, options?: {
 
       const productIdAttribute = document.querySelector('button.single_add_to_cart_button[name="add-to-cart"]')?.getAttribute('value') || '';
 
-      const imageElements = Array.from(document.querySelectorAll('figure.woocommerce-product-gallery__wrapper div.woocommerce-product-gallery__image a'));
-      const imagesData = imageElements.map(a => ({
-        sourceUrl: (a as HTMLAnchorElement).href,
-        alt_text: (a.querySelector('img') as HTMLImageElement)?.alt || title || 'product image'
-      }));
+      // Extract images from the gallery
+      const imageElements = Array.from(document.querySelectorAll('figure.woocommerce-product-gallery__wrapper div.woocommerce-product-gallery__image'));
+      const imagesData = imageElements.map(div => {
+        // Try to get the high-res image from data attributes
+        const imgElement = div.querySelector('img') as HTMLImageElement;
+        const largeImage = imgElement?.getAttribute('data-large_image') || '';
+        const linkElement = div.querySelector('a') as HTMLAnchorElement;
+        
+        return {
+          sourceUrl: largeImage || linkElement?.href || imgElement?.src || '',
+          alt_text: imgElement?.alt || title || 'product image'
+        };
+      }).filter(img => img.sourceUrl); // Filter out empty URLs
 
       // Extract additional attributes
       const attributes: { name: string; value: string }[] = [];
@@ -140,6 +154,7 @@ export const scrapeItem = async (page: Page, options?: {
       return {
         title,
         priceText,
+        salePriceText,
         currencySymbol,
         descriptionHTML,
         productIdAttribute,
@@ -149,9 +164,12 @@ export const scrapeItem = async (page: Page, options?: {
     });
 
     const price = parsePrice(rawDetails.priceText);
+    const salePrice = rawDetails.salePriceText ? parsePrice(rawDetails.salePriceText) : undefined;
+    
     let currency = 'EUR'; // Default
     if (rawDetails.currencySymbol === '€') currency = 'EUR';
-    else if (rawDetails.currencySymbol === '₴') currency = 'UAH';
+    else if (rawDetails.currencySymbol === '₴' || rawDetails.currencySymbol === 'грн') currency = 'UAH';
+    else if (rawDetails.currencySymbol === '$') currency = 'USD';
     // Add other currency mappings if needed
 
     // Image handling with existing images support
@@ -181,19 +199,20 @@ export const scrapeItem = async (page: Page, options?: {
       description: rawDetails.descriptionHTML, // Storing HTML description for now
       images,
       price: price !== undefined ? price : 0,
+      sale_price: salePrice,
       currency,
       tags, // Added tags from additional information
-      // sale_price, vendor, type, rating, num_ratings, color, sizes, variants, similar_item_urls, status
+      // vendor, type, rating, num_ratings, color, sizes, variants, similar_item_urls, status
     };
 
     // return [Utils.formatItem(item)]; // Uncomment when Utils is confirmed and imported
-    return item; // Returning raw item for now
+    return [item]; // Return as array as expected
 
   } catch (error) {
     log.error(`Error scraping item from ${sourceUrl}:`, error);
     const parts = sourceUrl.split('/').filter(Boolean);
     const productId = parts.pop() || 'unknown-product-id';
-    return { // Return a default/error item structure
+    return [{ // Return a default/error item structure as array
       sourceUrl,
       product_id: productId,
       title: 'Error Scraping Item',
@@ -201,7 +220,7 @@ export const scrapeItem = async (page: Page, options?: {
       price: 0,
       currency: 'EUR',
       description: `Failed to scrape: ${(error as Error).message}`
-    };
+    }];
   } finally {
     // if (browser) { // Browser lifecycle managed by the caller
     //   await browser.close();
