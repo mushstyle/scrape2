@@ -19,7 +19,7 @@ async function main() {
   const url = args.find(arg => !arg.startsWith('--'));
   
   // Parse optional flags
-  const localHeadless = args.includes('--local-headless');
+  const browserbase = args.includes('--browserbase');
   const localHeaded = args.includes('--local-headed');
   const noProxy = args.includes('--no-proxy');
   
@@ -38,8 +38,9 @@ async function main() {
   if (!url) {
     console.log('Usage: npm run verify:item <URL> [options]');
     console.log('Options:');
-    console.log('  --local-headless   Use local browser in headless mode');
-    console.log('  --local-headed     Use local browser in headed mode');
+    console.log('  --browserbase      Use browserbase cloud browser');
+    console.log('  --local-headed     Use local browser in headed mode (visible)');
+    console.log('  (default)          Use local browser in headless mode');
     console.log('  --session-timeout=N Session timeout in seconds (browserbase only)');
     console.log('  --no-proxy         Disable proxy usage (direct connection)');
     console.log('Example: npm run verify:item https://amgbrand.com/products/some-product');
@@ -48,8 +49,8 @@ async function main() {
   }
   
   try {
-    const engine = new VerifyItemEngine({ localHeadless, localHeaded });
-    const result = await engine.verify({ url, localHeadless, localHeaded, sessionTimeout, noProxy });
+    const engine = new VerifyItemEngine({ browserbase, localHeaded });
+    const result = await engine.verify({ url, browserbase, localHeaded, sessionTimeout, noProxy });
     
     // Display results
     log.normal('\n=== Verification Results ===');

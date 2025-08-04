@@ -20,8 +20,8 @@ export interface VerifyItemOptions {
   url: string;
   sessionManager?: SessionManager;
   siteManager?: SiteManager;
-  localHeadless?: boolean;
-  localHeaded?: boolean;
+  browserbase?: boolean;    // Use browserbase cloud browser
+  localHeaded?: boolean;    // Use local browser in headed mode (visible)
   sessionTimeout?: number;  // Session timeout in seconds
   noProxy?: boolean;  // Disable proxy usage regardless of site configuration
 }
@@ -41,8 +41,8 @@ export class VerifyItemEngine {
   private siteManager: SiteManager;
   
   constructor(options: Partial<VerifyItemOptions> = {}) {
-    // Default to local headless unless explicitly set otherwise
-    const provider = options.localHeaded ? 'local' : 'local';  // Always use local now
+    // Determine provider based on options - default to local
+    const provider = options.browserbase ? 'browserbase' : 'local';
     
     this.sessionManager = options.sessionManager || new SessionManager({ provider });
     this.siteManager = options.siteManager || new SiteManager();
@@ -82,8 +82,13 @@ export class VerifyItemEngine {
         proxy 
       };
       
-      // Default to headless unless localHeaded is explicitly set
-      sessionOptions.headless = options.localHeaded ? false : true;
+      // Determine browser type based on options
+      if (options.browserbase) {
+        sessionOptions.browserType = 'browserbase';
+      } else {
+        sessionOptions.browserType = 'local';
+        sessionOptions.headless = !options.localHeaded; // default to headless unless localHeaded is specified
+      }
       
       // Add timeout if specified
       if (options.sessionTimeout) {

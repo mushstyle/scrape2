@@ -26,8 +26,8 @@ export interface ScrapeItemOptions {
   cacheTTLSeconds?: number;  // Default: 300 (5 minutes)
   blockImages?: boolean;  // Block images in cache (default: true)
   noSave?: boolean;  // Save to ETL by default
-  localHeadless?: boolean;  // Use local browser in headless mode
-  localHeaded?: boolean;  // Use local browser in headed mode
+  browserbase?: boolean;    // Use browserbase cloud browser
+  localHeaded?: boolean;    // Use local browser in headed mode (visible)
   sessionTimeout?: number;  // Session timeout in seconds (browserbase only)
   maxRetries?: number;  // Default: 2 (for network errors)
   retryFailedItems?: boolean;  // Include previously failed items
@@ -103,12 +103,12 @@ export class ScrapeItemEngine {
     if (options.sessionTimeout) {
       log.normal(`  Session timeout: ${options.sessionTimeout}s`);
     }
-    if (options.localHeaded) {
-      log.normal(`  Browser: local (headed)`);
-    } else if (options.localHeadless) {
-      log.normal(`  Browser: local (headless)`);
-    } else {
+    if (options.browserbase) {
       log.normal(`  Browser: browserbase`);
+    } else if (options.localHeaded) {
+      log.normal(`  Browser: local (headed)`);
+    } else {
+      log.normal(`  Browser: local (headless)`);
     }
     if (options.noSave) {
       log.normal(`  Save to ETL: disabled`);
@@ -522,9 +522,13 @@ export class ScrapeItemEngine {
         const proxy = options.noProxy ? null : await this.siteManager.getProxyForDomain(domain);
         const request: any = { domain, proxy };
         
-        // Default to local browser, headless unless localHeaded is specified
-        request.browserType = 'local';
-        request.headless = options.localHeaded ? false : true; // default to headless
+        // Determine browser type based on options
+        if (options.browserbase) {
+          request.browserType = 'browserbase';
+        } else {
+          request.browserType = 'local';
+          request.headless = !options.localHeaded; // default to headless unless localHeaded is specified
+        }
         
         // Add timeout if specified
         if (options.sessionTimeout) {

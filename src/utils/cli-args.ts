@@ -61,8 +61,8 @@ export function parseArgs(args: string[]): ParsedArgs {
       options.cacheTTLSeconds = parseInt(args[++i], 10);
     } else if (arg === '--no-save') {
       options.noSave = true;
-    } else if (arg === '--local-headless') {
-      options.localHeadless = true;
+    } else if (arg === '--browserbase') {
+      options.browserbase = true;
     } else if (arg === '--local-headed') {
       options.localHeaded = true;
     } else if (arg === '--force') {
