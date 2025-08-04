@@ -41,8 +41,8 @@ export class VerifyItemEngine {
   private siteManager: SiteManager;
   
   constructor(options: Partial<VerifyItemOptions> = {}) {
-    // Determine provider based on browser flags
-    const provider = (options.localHeaded || options.localHeadless) ? 'local' : 'browserbase';
+    // Default to local headless unless explicitly set otherwise
+    const provider = options.localHeaded ? 'local' : 'local';  // Always use local now
     
     this.sessionManager = options.sessionManager || new SessionManager({ provider });
     this.siteManager = options.siteManager || new SiteManager();
@@ -82,10 +82,8 @@ export class VerifyItemEngine {
         proxy 
       };
       
-      // Add headless option based on flags
-      if (options.localHeadless || options.localHeaded) {
-        sessionOptions.headless = options.localHeadless ? true : (options.localHeaded ? false : true);
-      }
+      // Default to headless unless localHeaded is explicitly set
+      sessionOptions.headless = options.localHeaded ? false : true;
       
       // Add timeout if specified
       if (options.sessionTimeout) {

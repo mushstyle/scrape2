@@ -57,9 +57,9 @@ export class VerifyPaginateEngine {
   private siteManager: SiteManager;
   
   constructor(options: Partial<VerifyPaginateOptions> = {}) {
-    // Create SessionManager with appropriate provider based on options
+    // Default to local provider unless sessionManager is provided
     if (!options.sessionManager) {
-      const provider = (options.localHeadless || options.localHeaded) ? 'local' : 'browserbase';
+      const provider = 'local';  // Always use local now
       this.sessionManager = new SessionManager({ provider });
     } else {
       this.sessionManager = options.sessionManager;
@@ -116,7 +116,7 @@ export class VerifyPaginateEngine {
       const sessionRequests = Array(sessionsToCreate).fill(null).map(() => ({
         domain: options.domain,
         proxy,
-        headless: options.localHeadless ? true : (options.localHeaded ? false : true), // default to headless
+        headless: options.localHeaded ? false : true, // default to headless
         timeout: options.sessionTimeout
       }));
       

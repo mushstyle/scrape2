@@ -534,11 +534,9 @@ export class PaginateEngine {
         const proxy = options.noProxy ? null : await this.siteManager.getProxyForDomain(domain);
         const request: any = { domain, proxy };
         
-        // Add browser type if local browser requested
-        if (options.localHeadless || options.localHeaded) {
-          request.browserType = 'local';
-          request.headless = options.localHeadless ? true : (options.localHeaded ? false : true); // default to headless
-        }
+        // Default to local browser, headless unless localHeaded is specified
+        request.browserType = 'local';
+        request.headless = options.localHeaded ? false : true; // default to headless
         
         // Add timeout if specified
         if (options.sessionTimeout) {
