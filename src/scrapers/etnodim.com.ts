@@ -18,13 +18,13 @@ export const SELECTORS = {
     type: 'none' as const, // All products are on the page
   },
   product: {
-    title: 'h1, .product__title',
-    price: '.product__price .num, .goods-price__current .num',
-    images: '.product__gallery img, .product-gallery img',
-    description: '.product__description, .product-info__description',
-    productId: '[data-product-id]',
-    sizeWrapper: '.product__sizes, .goods-case__sizes',
-    colorWrapper: '.product__colors'
+    title: '.product-about__title, h1',
+    price: '.product-price .num, .product-about__price .num',
+    images: '.product__slider-case img.product_image, img.product_image',
+    description: '.product-tabs__content[data-tab-content="description"]',
+    productId: '[data-content-id], [data-product-id]',
+    sizeWrapper: '.product-size__options',
+    colorWrapper: '.product-variant__selected'
   }
 };
 
@@ -78,21 +78,63 @@ export async function scrapeItem(page: Page, options?: {
 }): Promise<Item[]> {
   const sourceUrl = page.url();
   try {
-    // Wait for product content to load
-    await page.waitForSelector(SELECTORS.product.title, { timeout: 10000 });
+    // Wait for content to load
+    await page.waitForLoadState('domcontentloaded');
     
-    // Extract title
-    const title = await page.$eval(SELECTORS.product.title, el => 
-      el.textContent?.trim() || ''
-    ).catch(() => '');
+    // Check if we're on a 404 page
+    const pageTitle = await page.title();
+    if (pageTitle.includes('404') || pageTitle.includes('not found')) {
+      throw new Error(`Page not found (404): ${sourceUrl}`);
+    }
+    
+    // Wait a bit for any dynamic content
+    await page.waitForTimeout(2000);
+    
+    // Extract title - try multiple selectors
+    let title = '';
+    const titleSelectors = [
+      '.product-about__title',
+      'h1.product-about__title', 
+      '.product__title',
+      'h1'
+    ];
+    
+    for (const selector of titleSelectors) {
+      try {
+        const titleEl = await page.$(selector);
+        if (titleEl) {
+          const text = await titleEl.textContent();
+          if (text && text.trim()) {
+            title = text.trim();
+            break;
+          }
+        }
+      } catch (e) {
+        // Continue to next selector
+      }
+    }
+    
+    if (!title) {
+      log.debug('Could not extract title from any selector');
+    }
 
     // Extract product ID
     let product_id = 'unknown';
     try {
-      const productIdEl = await page.$('[data-product-id]');
-      if (productIdEl) {
-        product_id = await productIdEl.getAttribute('data-product-id') || 'unknown';
+      // Try data-content-id first (seen in the HTML)
+      const contentIdEl = await page.$('[data-content-id]');
+      if (contentIdEl) {
+        product_id = await contentIdEl.getAttribute('data-content-id') || 'unknown';
       }
+      
+      if (product_id === 'unknown') {
+        // Try data-product-id
+        const productIdEl = await page.$('[data-product-id]');
+        if (productIdEl) {
+          product_id = await productIdEl.getAttribute('data-product-id') || 'unknown';
+        }
+      }
+      
       if (product_id === 'unknown') {
         // Try to extract from URL
         const urlMatch = sourceUrl.match(/\/([^\/]+)$/);
@@ -107,20 +149,54 @@ export async function scrapeItem(page: Page, options?: {
       }
     }
 
-    // Extract price
+    // Extract price and sale_price
     let price = 0;
+    let sale_price: number | undefined;
     let currency = 'USD'; // Default currency
     try {
-      const priceText = await page.$eval(SELECTORS.product.price, el => 
-        el.textContent?.trim() || '0'
-      ).catch(() => '0');
+      // Check for both old and new prices (sale scenario)
+      const oldPriceEl = await page.$('.product-price .num.old');
+      const newPriceEl = await page.$('.product-price .num.new');
       
-      // Remove non-numeric characters except decimal point
-      const numericPrice = priceText.replace(/[^\d.,]/g, '').replace(',', '.');
-      price = parseFloat(numericPrice) || 0;
+      if (oldPriceEl && newPriceEl) {
+        // Check if old price actually has content (not empty)
+        const oldPriceText = await oldPriceEl.textContent();
+        const newPriceText = await newPriceEl.textContent();
+        
+        if (oldPriceText && oldPriceText.trim()) {
+          // Sale scenario: old price is the regular price, new price is the sale price
+          price = parseFloat((oldPriceText || '0').replace(/[^\d.,]/g, '').replace(',', '.')) || 0;
+          sale_price = parseFloat((newPriceText || '0').replace(/[^\d.,]/g, '').replace(',', '.')) || 0;
+        } else {
+          // New price only - it's the regular price
+          price = parseFloat((newPriceText || '0').replace(/[^\d.,]/g, '').replace(',', '.')) || 0;
+        }
+      } else {
+        // No sale - try data attributes first
+        const productAbout = await page.$('.product-about[data-value]');
+        if (productAbout) {
+          const dataValue = await productAbout.getAttribute('data-value');
+          const dataCurrency = await productAbout.getAttribute('data-currency');
+          if (dataValue) {
+            price = parseFloat(dataValue) || 0;
+          }
+          if (dataCurrency) {
+            currency = dataCurrency;
+          }
+        }
+        
+        // Fallback to any price element
+        if (price === 0) {
+          const priceEl = await page.$('.product-price .num');
+          if (priceEl) {
+            const priceText = await priceEl.textContent();
+            price = parseFloat((priceText || '0').replace(/[^\d.,]/g, '').replace(',', '.')) || 0;
+          }
+        }
+      }
       
-      // Try to detect currency
-      const currencyEl = await page.$('.currency, .goods-price__currency');
+      // Detect currency from symbol
+      const currencyEl = await page.$('.product-price .currency');
       if (currencyEl) {
         const currencyText = await currencyEl.textContent();
         if (currencyText?.includes('$')) currency = 'USD';
@@ -132,12 +208,19 @@ export async function scrapeItem(page: Page, options?: {
     }
 
     // Extract description
-    const description = await page.$eval(SELECTORS.product.description, el => 
-      el.textContent?.trim() || ''
-    ).catch(() => '');
+    let description = '';
+    try {
+      const descEl = await page.$('.product-tabs__content[data-tab-content="description"], .product-about__description');
+      if (descEl) {
+        description = await descEl.textContent() || '';
+        description = description.trim();
+      }
+    } catch (e) {
+      log.debug(`Could not extract description: ${e}`);
+    }
 
-    // Extract images
-    const imagesData = await page.$$eval(SELECTORS.product.images, imgs =>
+    // Extract images - look for product images in the slider
+    const imagesData = await page.$$eval('.product__slider-case img.product_image, img.product_image', imgs =>
       imgs.map(img => {
         let sourceUrl = img.getAttribute('src') || img.getAttribute('data-src') || '';
         
@@ -166,15 +249,15 @@ export async function scrapeItem(page: Page, options?: {
           alt_text: img.getAttribute('alt') || ''
         };
       })
-      .filter(img => img.sourceUrl && !img.sourceUrl.includes('_60_80')) // Filter out thumbnails
+      .filter(img => img.sourceUrl && !img.sourceUrl.includes('_60_80') && !img.sourceUrl.includes('_65_87')) // Filter out thumbnails
     ).catch(() => []);
 
-    // Extract sizes
-    const sizes = await page.$$eval('.goods-case__sizes-item, .product__sizes-item', sizeEls =>
+    // Extract sizes - look for the product size buttons (only from static container to avoid duplicates)
+    const sizes = await page.$$eval('.product-about-static .product-size__button', sizeEls =>
       sizeEls.map(el => {
         const sizeText = el.textContent?.trim() || '';
-        const isAvailable = el.classList.contains('available') || 
-                           !el.classList.contains('unavailable');
+        // Check if button has __unavailable class
+        const isAvailable = !el.classList.contains('__unavailable');
         return {
           size: sizeText,
           is_available: isAvailable
@@ -207,6 +290,7 @@ export async function scrapeItem(page: Page, options?: {
       title,
       images: imagesWithMushUrl,
       price,
+      sale_price,
       currency,
       description,
       sizes: sizes.length > 0 ? sizes : undefined,

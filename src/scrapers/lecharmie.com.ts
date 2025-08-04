@@ -54,57 +54,84 @@ export async function getItemUrls(page: Page): Promise<Set<string>> {
 }
 
 /**
- * Paginates by incrementing the page number in the URL path (/page/{n}/).
+ * Paginates by clicking the "Load More" button and waiting for new products to load.
  * @param page Playwright page object
  * @returns `true` if pagination likely succeeded, `false` otherwise.
  */
 export async function paginate(page: Page): Promise<boolean> {
-  const currentUrl = page.url();
-  // Robust check for /page/NUMBER/ pattern anywhere in the URL
-  const pageMatch = currentUrl.match(/\/page\/(\d+)\/?/);
-  const currentPage = pageMatch ? parseInt(pageMatch[1], 10) : 1;
-  const nextPage = currentPage + 1;
-
-  let nextUrl: string;
-  if (pageMatch) {
-    // Replace the existing /page/NUMBER/ segment
-    nextUrl = currentUrl.replace(/\/page\/\d+\/?/, `/page/${nextPage}/`);
-  } else {
-    // Append /page/NUMBER/ before query string or hash, ensuring trailing slash before it
-    const urlObject = new URL(currentUrl);
-    const basePath = urlObject.pathname.endsWith('/') ? urlObject.pathname : `${urlObject.pathname}/`;
-    nextUrl = `${urlObject.origin}${basePath}page/${nextPage}/${urlObject.search}${urlObject.hash}`;
-  }
-
-  log.debug(`   Navigating to next page: ${nextUrl}`);
-
   try {
-    const response = await page.goto(nextUrl, {
-      waitUntil: 'domcontentloaded',
-      timeout: 10000
-    });
-
-    if (!response || !response.ok() || response.status() === 404) {
-      log.debug(`   Pagination failed or ended: Bad response for ${nextUrl} (Status: ${response?.status()})`);
+    // Wait a bit for any lazy-loaded elements
+    await page.waitForTimeout(1000);
+    
+    // Define all possible Load More button selectors
+    const loadMoreSelector = '.ajax-loadmore a, #razzi-catalog-previous-ajax a, .woocommerce-navigation.ajax-loadmore a, .nav-previous-ajax a';
+    
+    // Check if the Load More button exists
+    const loadMoreExists = await page.$(loadMoreSelector);
+    if (!loadMoreExists) {
+      log.debug('   No Load More button found, pagination ended');
       return false;
     }
 
-    // Check for the presence of the product grid as a sign of a valid page
-    await page.waitForSelector(SELECTORS.productGrid, { timeout: 5000 });
-    log.debug(`   Pagination successful to page ${nextPage}`);
-    return true;
+    // Get current product count before clicking
+    const currentProductCount = await page.evaluate((selector) => {
+      return document.querySelectorAll(selector.productLinks).length;
+    }, SELECTORS);
+
+    log.debug(`   Current product count: ${currentProductCount}`);
+
+    // Use locator to handle dynamic elements better
+    const loadMoreLocator = page.locator(loadMoreSelector).first();
+    
+    // Check if button is visible
+    const isVisible = await loadMoreLocator.isVisible();
+    if (!isVisible) {
+      log.debug('   Load More button not visible, pagination ended');
+      return false;
+    }
+
+    log.debug(`   Clicking Load More button`);
+
+    // Scroll to button and click using locator (more reliable for dynamic elements)
+    await loadMoreLocator.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(500);
+    
+    // Click and handle potential navigation or dynamic updates
+    await Promise.all([
+      loadMoreLocator.click(),
+      // Wait for either network activity or DOM changes
+      page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {}),
+    ]);
+
+    // Wait for new products to load
+    try {
+      // Wait a bit for AJAX to complete
+      await page.waitForTimeout(2000);
+      
+      // Check if new products were loaded
+      const newProductCount = await page.evaluate((selector) => {
+        return document.querySelectorAll(selector.productLinks).length;
+      }, SELECTORS);
+
+      if (newProductCount > currentProductCount) {
+        log.debug(`   Pagination successful, new product count: ${newProductCount}`);
+        // Wait a bit for DOM to stabilize
+        await page.waitForTimeout(1000);
+        return true;
+      } else {
+        log.debug(`   No new products loaded (still ${newProductCount}), pagination likely ended`);
+        return false;
+      }
+
+    } catch (waitError) {
+      log.debug(`   Error waiting for new products: ${waitError}`);
+      return false;
+    }
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    // Specific checks for common pagination end conditions
-    if (errorMessage.includes('404') || errorMessage.includes('net::ERR_ABORTED') || errorMessage.includes('Timeout') || errorMessage.includes('selector') || errorMessage.includes('navigation failed')) {
-      log.debug(`   Pagination likely ended or failed for ${nextUrl}: ${errorMessage}`);
-      return false;
-    } else {
-      // Log unexpected errors but still treat as end of pagination for safety
-      log.debug(`   Unexpected error during pagination to ${nextUrl}: ${errorMessage}`);
-      return false;
-    }
+    log.debug(`   Pagination error: ${errorMessage}`);
+    return false;
   }
 }
 
