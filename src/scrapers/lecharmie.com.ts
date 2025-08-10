@@ -10,7 +10,7 @@ const log = logger.createContext('lecharmie.com');
 
 export const SELECTORS = {
   productGrid: '.products',
-  productLinks: '.woocommerce-loop-product__link',
+  productLinks: '.product-thumbnail .woocommerce-loop-product__link',
   product: {
     title: 'h1.product_title',
     price: 'p.price .woocommerce-Price-amount', // General price selector
@@ -63,68 +63,185 @@ export async function paginate(page: Page): Promise<boolean> {
     // Wait a bit for any lazy-loaded elements
     await page.waitForTimeout(1000);
     
-    // Define all possible Load More button selectors
-    const loadMoreSelector = '.ajax-loadmore a, #razzi-catalog-previous-ajax a, .woocommerce-navigation.ajax-loadmore a, .nav-previous-ajax a';
+    // Define all possible Load More button selectors - prioritize the specific ID
+    const loadMoreSelectors = [
+      '#razzi-catalog-previous-ajax a',
+      '.nav-previous-ajax a',
+      '.ajax-loadmore a',
+      '.woocommerce-navigation.ajax-loadmore a'
+    ];
     
-    // Check if the Load More button exists
-    const loadMoreExists = await page.$(loadMoreSelector);
-    if (!loadMoreExists) {
+    // Try each selector until we find one that exists
+    let loadMoreElement = null;
+    let usedSelector = '';
+    for (const selector of loadMoreSelectors) {
+      const element = await page.$(selector);
+      if (element) {
+        loadMoreElement = element;
+        usedSelector = selector;
+        break;
+      }
+    }
+    
+    if (!loadMoreElement) {
       log.debug('   No Load More button found, pagination ended');
       return false;
     }
 
-    // Get current product count before clicking
-    const currentProductCount = await page.evaluate((selector) => {
-      return document.querySelectorAll(selector.productLinks).length;
+    // Get current unique product count before clicking
+    const currentProductInfo = await page.evaluate((selector) => {
+      const productElements = document.querySelectorAll(selector.productLinks);
+      const urls = new Set();
+      productElements.forEach(el => {
+        const href = (el as HTMLAnchorElement).href;
+        if (href && href.includes('/product/')) {
+          urls.add(href);
+        }
+      });
+      return {
+        count: productElements.length,
+        uniqueUrls: urls.size
+      };
     }, SELECTORS);
 
-    log.debug(`   Current product count: ${currentProductCount}`);
+    log.debug(`   Current products: count=${currentProductInfo.count}, unique=${currentProductInfo.uniqueUrls}`);
+    log.debug(`   Found Load More button with selector: ${usedSelector}`);
 
-    // Use locator to handle dynamic elements better
-    const loadMoreLocator = page.locator(loadMoreSelector).first();
-    
-    // Check if button is visible
-    const isVisible = await loadMoreLocator.isVisible();
-    if (!isVisible) {
+    // Check if button is visible and get its text
+    const buttonInfo = await page.evaluate((selector) => {
+      const element = document.querySelector(selector);
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      return {
+        isVisible: rect.width > 0 && rect.height > 0,
+        text: element.textContent?.trim(),
+        href: (element as HTMLAnchorElement).href
+      };
+    }, usedSelector);
+
+    if (!buttonInfo || !buttonInfo.isVisible) {
       log.debug('   Load More button not visible, pagination ended');
       return false;
     }
 
-    log.debug(`   Clicking Load More button`);
+    log.debug(`   Clicking Load More button: "${buttonInfo.text}" (${buttonInfo.href})`);
 
-    // Scroll to button and click using locator (more reliable for dynamic elements)
-    await loadMoreLocator.scrollIntoViewIfNeeded();
+    // Store the current URL to check if navigation happens
+    const urlBefore = page.url();
+
+    // Scroll the page down first to ensure button is in viewport
+    await page.evaluate(() => {
+      window.scrollBy(0, 300);
+    });
     await page.waitForTimeout(500);
+
+    // Click and wait for the response/DOM change
+    const responsePromise = page.waitForResponse(
+      response => response.url().includes('/katalog/page/') && response.status() === 200,
+      { timeout: 10000 }
+    ).catch(() => null);
     
-    // Click and handle potential navigation or dynamic updates
-    await Promise.all([
-      loadMoreLocator.click(),
-      // Wait for either network activity or DOM changes
-      page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {}),
-    ]);
-
-    // Wait for new products to load
+    // Click using direct element click with force option
+    await page.click(usedSelector, { force: true });
+    
+    // Wait for the AJAX response
+    const response = await responsePromise;
+    if (response) {
+      log.debug(`   Got AJAX response from: ${response.url()}`);
+    }
+    
+    // Check if URL changed (indicating navigation vs AJAX)
+    const urlAfter = page.url();
+    if (urlBefore !== urlAfter) {
+      log.debug(`   URL changed from ${urlBefore} to ${urlAfter} - appears to be navigation`);
+      // Wait for navigation to complete
+      await page.waitForLoadState('domcontentloaded');
+    }
+    
+    // Wait for DOM to update after AJAX completes
+    await page.waitForTimeout(3000);
+    
+    // Alternative: Wait for DOM mutation or new elements
     try {
-      // Wait a bit for AJAX to complete
-      await page.waitForTimeout(2000);
+      await page.waitForFunction(
+        (oldCount, selector) => {
+          const productElements = document.querySelectorAll(selector.productLinks);
+          const urls = new Set();
+          productElements.forEach(el => {
+            const href = (el as HTMLAnchorElement).href;
+            if (href && href.includes('/product/')) {
+              urls.add(href);
+            }
+          });
+          return urls.size > oldCount;
+        },
+        { timeout: 5000 },
+        currentProductInfo.uniqueUrls,
+        SELECTORS
+      );
+      log.debug('   Detected new products via DOM mutation');
+    } catch {
+      log.debug('   No DOM mutation detected for new products');
+    }
+
+    // Check if new products were loaded with detailed debugging
+    const productInfo = await page.evaluate((selector) => {
+      const productElements = document.querySelectorAll(selector.productLinks);
+      const productContainer = document.querySelector(selector.productGrid);
       
-      // Check if new products were loaded
-      const newProductCount = await page.evaluate((selector) => {
-        return document.querySelectorAll(selector.productLinks).length;
-      }, SELECTORS);
+      // Get unique product URLs
+      const urls = new Set();
+      productElements.forEach(el => {
+        const href = (el as HTMLAnchorElement).href;
+        if (href && href.includes('/product/')) {
+          urls.add(href);
+        }
+      });
+      
+      return {
+        count: productElements.length,
+        uniqueUrls: urls.size,
+        containerFound: !!productContainer,
+        containerChildren: productContainer ? productContainer.children.length : 0,
+        sampleUrls: Array.from(urls).slice(0, 3)
+      };
+    }, SELECTORS);
 
-      if (newProductCount > currentProductCount) {
-        log.debug(`   Pagination successful, new product count: ${newProductCount}`);
-        // Wait a bit for DOM to stabilize
-        await page.waitForTimeout(1000);
-        return true;
-      } else {
-        log.debug(`   No new products loaded (still ${newProductCount}), pagination likely ended`);
-        return false;
+    log.debug(`   Product info after click: count=${productInfo.count}, unique=${productInfo.uniqueUrls}, container=${productInfo.containerFound}, children=${productInfo.containerChildren}`);
+    if (productInfo.sampleUrls.length > 0) {
+      log.debug(`   Sample URLs: ${productInfo.sampleUrls.join(', ')}`);
+    }
+
+    // Check if we have products and they're different (either more products or different URLs)
+    if (productInfo.uniqueUrls > currentProductInfo.uniqueUrls) {
+      log.debug(`   Pagination successful, new unique product count: ${productInfo.uniqueUrls}`);
+      // Wait a bit for DOM to stabilize
+      await page.waitForTimeout(1000);
+      return true;
+    } else if (productInfo.uniqueUrls > 0 && response) {
+      // If we got a successful response and still have products, check if button still exists
+      // This handles cases where content is replaced rather than appended
+      const buttonStillExists = await page.$(usedSelector);
+      if (buttonStillExists) {
+        // Check if button text or href changed (indicating next page)
+        const newButtonInfo = await page.evaluate((selector) => {
+          const element = document.querySelector(selector);
+          if (!element) return null;
+          return {
+            text: element.textContent?.trim(),
+            href: (element as HTMLAnchorElement).href
+          };
+        }, usedSelector);
+        
+        if (newButtonInfo && newButtonInfo.href !== buttonInfo.href) {
+          log.debug(`   Products replaced, button now points to: ${newButtonInfo.href}`);
+          return true;
+        }
       }
-
-    } catch (waitError) {
-      log.debug(`   Error waiting for new products: ${waitError}`);
+      log.debug(`   No new products and button unchanged, pagination likely ended`);
+      return false;
+    } else {
+      log.debug(`   No new products loaded (still ${productInfo.uniqueUrls} unique), pagination likely ended`);
       return false;
     }
 
