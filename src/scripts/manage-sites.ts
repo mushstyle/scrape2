@@ -146,7 +146,7 @@ async function listSitesWithNoStartPages() {
   }
 }
 
-async function listSitesWithOutstandingRuns(since?: Date) {
+async function listSitesWithOutstandingRuns(since?: Date, sortBy: 'domain' | 'total' = 'domain') {
   try {
     // Initialize SiteManager
     const siteManager = new SiteManager();
@@ -240,8 +240,12 @@ async function listSitesWithOutstandingRuns(since?: Date) {
       });
     });
     
-    // Sort alphabetically by domain name for consistent display
-    tableData.sort((a, b) => a.Domain.localeCompare(b.Domain));
+    // Sort based on user preference
+    if (sortBy === 'total') {
+      tableData.sort((a, b) => b['Total Items'] - a['Total Items']);
+    } else {
+      tableData.sort((a, b) => a.Domain.localeCompare(b.Domain));
+    }
     
     const filterText = since ? ` (since ${since.toLocaleString()})` : '';
     console.log(`\nSites with outstanding scrape runs${filterText} (${tableData.length} sites):\n`);
@@ -480,7 +484,11 @@ async function main() {
           }
         }
         
-        await listSitesWithOutstandingRuns(filterSince);
+        // Ask for sorting preference
+        const sortChoice = await rl.question('\nSort by: (1) Domain name [default] (2) Total items: ');
+        const sortBy = sortChoice.trim() === '2' ? 'total' : 'domain';
+        
+        await listSitesWithOutstandingRuns(filterSince, sortBy);
         break;
       }
       
