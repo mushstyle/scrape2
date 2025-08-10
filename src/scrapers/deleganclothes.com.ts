@@ -7,16 +7,12 @@ import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js';
 import { logger } from '../utils/logger.js';
 
 /**
- * Scraper for deleganclothes.com – refactored to follow the Phase 3
- * interface described in plans/impl_scrape_refactor.md.
+ * Scraper for deleganclothes.com – uses page number pagination.
  *
  *  • getItemUrls(page) – extract ONLY the product URLs from the current DOM.
- *  • paginate(page)   – attempt to advance to the *next* page and return
- *    `true` if the navigation succeeded *and* the new page appears to
- *    contain at least one product URL; otherwise, returns `false`.
- *
- * NOTE: The previous implementation relied on module‑level `seenUrls`
- * and threw an `End of pagination` error; that pattern is no longer used.
+ *  • paginate(page)   – navigates to the next page by appending ?page=N to the URL.
+ *    Returns `true` if products are found on the new page, `false` if the
+ *    "No products found" message appears or no products are present.
  */
 
 export const SELECTORS = {
@@ -33,8 +29,7 @@ export const SELECTORS = {
     variantData: 'script[type="application/json"]'
   },
   pagination: {
-    type: 'scroll' as const,
-    nextButton: '.next.page-numbers'
+    emptyMessage: '.main-collection-grid__empty'
   }
 };
 
@@ -56,72 +51,62 @@ export async function getItemUrls(page: Page): Promise<Set<string>> {
   return new Set(links.map(link => new URL(link, page.url()).href)); // Ensure absolute URLs
 }
 
+// Store the last visited page number to track pagination state
+let lastPageNumber = 1;
+
 /**
- * Attempts to load more products using infinite scroll.
- * Returns `true` if more products were loaded, `false` if no more products to load.
+ * Navigate to the next page by appending ?page=N to the URL.
+ * Returns `true` if navigation succeeded and products were found, `false` if no more pages.
  */
 export async function paginate(page: Page): Promise<boolean> {
   const log = logger.createContext('deleganclothes.paginate');
   
   try {
-    // Get initial product count
-    const initialCount = await page.evaluate((selector) => {
-      return document.querySelectorAll(selector).length;
-    }, SELECTORS.productLinks);
-
-    log.debug(`Current product count: ${initialCount}`);
-
-    // Multiple scroll attempts with different strategies
-    let newCount = initialCount;
-
-    // Strategy 1: Scroll to bottom
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await page.waitForTimeout(3000); // Wait for AJAX to load
-
-    newCount = await page.evaluate((selector) => {
-      return document.querySelectorAll(selector).length;
-    }, SELECTORS.productLinks);
-
-    // Strategy 2: If no new products, try scrolling up slightly then down again
-    if (newCount === initialCount) {
-      await page.evaluate(() => {
-        window.scrollTo(0, document.body.scrollHeight - 100);
-      });
-      await page.waitForTimeout(500);
-      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await page.waitForTimeout(2000);
-
-      newCount = await page.evaluate((selector) => {
-        return document.querySelectorAll(selector).length;
-      }, SELECTORS.productLinks);
+    // Increment to next page
+    const nextPageNum = lastPageNumber + 1;
+    
+    // Build the URL with the next page number
+    const currentUrl = new URL(page.url());
+    currentUrl.searchParams.set('page', nextPageNum.toString());
+    const nextUrl = currentUrl.toString();
+    
+    log.debug(`Navigating to page ${nextPageNum}`);
+    log.debug(`URL: ${nextUrl}`);
+    
+    // Navigate to the next page
+    await page.goto(nextUrl, { waitUntil: 'networkidle' });
+    
+    // Check if we hit the "No products found" message
+    const hasEmptyMessage = await page.$(SELECTORS.pagination.emptyMessage);
+    if (hasEmptyMessage) {
+      log.debug(`Reached end of pagination at page ${nextPageNum} - found "No products found" message`);
+      lastPageNumber = 1; // Reset for next scraping session
+      return false;
     }
-
-    // Strategy 3: Check for loading indicators and wait if present
-    if (newCount === initialCount) {
-      const hasLoader = await page.evaluate(() => {
-        // Common loading indicator selectors
-        const loaders = document.querySelectorAll('.loading, .loader, [class*="load"], .spinner, .infinite-scroll-loader');
-        return loaders.length > 0;
-      });
-
-      if (hasLoader) {
-        log.debug('Found loading indicator, waiting...');
-        await page.waitForTimeout(3000);
-        newCount = await page.evaluate((selector) => {
-          return document.querySelectorAll(selector).length;
-        }, SELECTORS.productLinks);
+    
+    // Check if there are any products on this page
+    try {
+      await page.waitForSelector(SELECTORS.productLinks, { timeout: 5000 });
+      const productCount = await page.$$eval(SELECTORS.productLinks, elements => elements.length);
+      
+      if (productCount > 0) {
+        log.debug(`Page ${nextPageNum} loaded with ${productCount} products (including any accumulated from previous pages)`);
+        lastPageNumber = nextPageNum; // Update the last visited page
+        return true;
+      } else {
+        log.debug(`Page ${nextPageNum} has no products`);
+        lastPageNumber = 1; // Reset for next scraping session
+        return false;
       }
-    }
-
-    if (newCount > initialCount) {
-      log.debug(`Loaded ${newCount - initialCount} more products via infinite scroll`);
-      return true; // More products were loaded
-    } else {
-      log.debug(`No more products to load via infinite scroll (stuck at ${initialCount} products)`);
-      return false; // No more products
+    } catch (error) {
+      // No products found on this page
+      log.debug(`No products found on page ${nextPageNum}`);
+      lastPageNumber = 1; // Reset for next scraping session
+      return false;
     }
   } catch (error) {
     log.error('Error during pagination:', error);
+    lastPageNumber = 1; // Reset for next scraping session
     return false;
   }
 }
