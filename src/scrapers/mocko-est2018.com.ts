@@ -29,48 +29,48 @@ export async function getItemUrls(page: Page): Promise<Set<string>> {
   return itemUrls;
 }
 
+// Track current page number at module level
+let currentPageNumber = 1;
+
 export async function paginate(page: Page): Promise<boolean> {
   try {
-    // Get current product count before scrolling
-    const currentProductCount = await page.locator('a.woocommerce-LoopProduct-link').count();
-    log.debug(`Current product count before scroll: ${currentProductCount}`);
+    // Increment page number
+    const nextPage = currentPageNumber + 1;
     
-    // Check if we've reached the end by looking for "No more products" or similar indicators
-    const noMoreProducts = await page.locator('.no-more-products, .end-of-products').count();
-    if (noMoreProducts > 0) {
-      log.debug('Found end of products indicator');
+    // Build next page URL
+    const baseUrl = page.url().replace(/\/page\/\d+\/?/, '').replace(/\/$/, '');
+    const nextUrl = `${baseUrl}/page/${nextPage}/`;
+    
+    log.debug(`Navigating to page ${nextPage}: ${nextUrl}`);
+    
+    // Navigate to next page
+    await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    
+    // Check for 404 error page
+    const has404Error = await page.locator('.error404-content').count();
+    if (has404Error > 0) {
+      log.debug(`Reached end at page ${nextPage} - found 404 error page`);
+      currentPageNumber = 1; // Reset for next run
       return false;
     }
     
-    // Scroll to bottom to trigger infinite scroll
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    log.debug('Scrolled to bottom of page');
+    // Check if we have products on this page
+    await page.waitForSelector('a.woocommerce-LoopProduct-link', { timeout: 5000 }).catch(() => null);
+    const productCount = await page.locator('a.woocommerce-LoopProduct-link').count();
     
-    // Wait for DOM content to be loaded/updated
-    await page.waitForLoadState('domcontentloaded');
-    
-    // Also wait for network idle to ensure AJAX requests complete
-    await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {
-      log.debug('Network idle timeout - continuing anyway');
-    });
-    
-    // Additional wait to ensure DOM updates
-    await page.waitForTimeout(2000);
-    
-    // Check if new products were loaded
-    const newProductCount = await page.locator('a.woocommerce-LoopProduct-link').count();
-    log.debug(`Product count after scroll: ${newProductCount}`);
-    
-    if (newProductCount > currentProductCount) {
-      log.debug(`Loaded ${newProductCount - currentProductCount} new products via infinite scroll`);
+    if (productCount > 0) {
+      log.debug(`Page ${nextPage} loaded with ${productCount} products`);
+      currentPageNumber = nextPage; // Update current page
       return true;
     } else {
-      log.debug('No new products loaded, reached end of catalog');
+      log.debug(`No products found on page ${nextPage}`);
+      currentPageNumber = 1; // Reset for next run
       return false;
     }
     
   } catch (error) {
     log.debug(`Pagination error: ${error}`);
+    currentPageNumber = 1; // Reset for next run
     return false;
   }
 }
