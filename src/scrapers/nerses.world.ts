@@ -33,6 +33,22 @@ export const SELECTORS = {
 
 export async function getItemUrls(page: Page): Promise<Set<string>> {
   await page.waitForSelector(SELECTORS.productGrid, { timeout: 10000 });
+  
+  // Wait for the product links with data-preorder-handle to appear
+  // These are added dynamically after page load
+  try {
+    await page.waitForSelector(SELECTORS.productLinks, { 
+      timeout: 10000,
+      state: 'attached' 
+    });
+    
+    // Additional wait to ensure all links are loaded
+    await page.waitForLoadState('networkidle');
+  } catch (e) {
+    log.debug('No product links found with data-preorder-handle selector');
+    return new Set();
+  }
+  
   const urls = await page.evaluate((s) => {
     const links = document.querySelectorAll(s.productLinks);
     // Ensure href is absolute
