@@ -9,11 +9,11 @@ import { logger } from '../utils/logger.js';
 const log = logger.createContext('serenity-wear.com');
 
 export const SELECTORS = {
-  productGrid: '.products', // The grid containing the products
-  productLinks: '.product .product-link', // Links to individual product pages
+  productGrid: '.et-shop-products', // The main container for products
+  productLinks: '.product-inner a[href*="/product/"]', // Links to individual product pages
   pagination: {
-    type: 'scroll' as const,
-    loadMoreIndicator: '.et-infload-btn.et-shop-infload-btn' // "Load More" button selector
+    type: 'numbered' as const,
+    pattern: 'page/{n}/' // Page number pattern
   },
   product: {
     title: '.product_title.entry-title', // Product title selector
@@ -36,112 +36,123 @@ export const SELECTORS = {
  */
 export async function getItemUrls(page: Page): Promise<Set<string>> {
   try {
-    // Wait for the product grid to be present
-    await page.waitForSelector(SELECTORS.productGrid, { timeout: 10000 });
+    // Wait longer for slow-loading sites
+    await page.waitForTimeout(3000);
     
-    // Wait a bit for any dynamic content to load
-    await page.waitForTimeout(1000);
+    // Try to wait for any product-related element with very flexible selectors
+    const productSelectors = [
+      'a[href*="/product/"]',
+      '[class*="product"]',
+      'article.product',
+      '.type-product'
+    ];
     
-    // Try to wait for network idle to ensure page is stable
-    try {
-      await page.waitForLoadState('networkidle', { timeout: 5000 });
-    } catch (e) {
-      // Continue even if network doesn't become idle
-      log.debug('Network did not become idle, continuing anyway');
+    let foundProducts = false;
+    for (const selector of productSelectors) {
+      const count = await page.locator(selector).count();
+      if (count > 0) {
+        log.debug(`Found ${count} elements with selector: ${selector}`);
+        foundProducts = true;
+        break;
+      }
     }
     
-    // Extract links using locator to be more resilient to navigation
-    const links = await page.locator(SELECTORS.productLinks).evaluateAll((els) => 
-      els.map((el) => (el as HTMLAnchorElement).href)
-    );
+    if (!foundProducts) {
+      log.debug('No product elements found on page');
+      return new Set<string>();
+    }
     
-    return new Set(links);
+    // Extract ALL product links, with multiple strategies
+    let links: string[] = [];
+    
+    // Strategy 1: Direct product links
+    const directLinks = await page.$$eval('a[href*="/product/"]', (elements) =>
+      elements
+        .filter(el => !(el as HTMLAnchorElement).href.includes('cookieyes'))
+        .map(el => (el as HTMLAnchorElement).href)
+    );
+    links.push(...directLinks);
+    
+    // Strategy 2: Links within product containers (if we missed any)
+    const containerLinks = await page.$$eval('[class*="product"] a[href*="/product/"]', (elements) =>
+      elements
+        .filter(el => !(el as HTMLAnchorElement).href.includes('cookieyes'))
+        .map(el => (el as HTMLAnchorElement).href)
+    );
+    links.push(...containerLinks);
+    
+    // Remove duplicates and filter valid product URLs
+    const uniqueLinks = [...new Set(links)]
+      .filter(link => link && link.includes('/product/') && !link.includes('cookieyes'));
+    
+    log.debug(`Found ${uniqueLinks.length} unique product URLs on current page`);
+    return new Set(uniqueLinks);
   } catch (error) {
     log.error('Error in getItemUrls:', error);
-    // Return empty set on error rather than throwing
     return new Set<string>();
   }
 }
 
+// Track current page number at module level
+let currentPageNumber = 1;
+
 /**
- * Scrolls to load more products and returns status
+ * Navigate to the next page using page number pagination
  * @param page Playwright page object
  * @returns boolean indicating if more content could be loaded
  */
 export async function paginate(page: Page): Promise<boolean> {
-  const loadMoreButtonSelector = SELECTORS.pagination.loadMoreIndicator;
-  const allLoadedSelector = '.et-infload-to-top'; // Selector for the "All products loaded" indicator
-  const productSelector = SELECTORS.productLinks;
-
   try {
-    // 1. Check if the "All products loaded" indicator is visible
-    const allLoadedIndicator = page.locator(allLoadedSelector);
-    if (await allLoadedIndicator.isVisible({ timeout: 1000 })) {
-      log.debug(`   Pagination ended: "${await allLoadedIndicator.textContent()}" indicator is visible.`);
-      return false; // Explicit end indicator found
-    }
-
-    // 2. Check if the "Load More" button exists and is visible/clickable
-    const loadMoreButton = page.locator(loadMoreButtonSelector);
-    try {
-      await loadMoreButton.waitFor({ state: 'visible', timeout: 7000 });
-    } catch (error) {
-      log.debug(`   Pagination likely ended: Load more button (${loadMoreButtonSelector}) did not become visible.`);
-      return false;
-    }
-
-    // Check for explicit hidden state (e.g., parent with 'hide-btn' class)
-    const isHiddenExplicitly = await loadMoreButton.evaluate(el => el.closest('.hide-btn') !== null).catch(() => false);
-    if (isHiddenExplicitly) {
-      log.debug(`   Pagination ended: Load more button (${loadMoreButtonSelector}) found but explicitly hidden.`);
-      return false;
-    }
-
-    // 3. Click the button
-    await loadMoreButton.scrollIntoViewIfNeeded();
+    // Increment page number
+    const nextPage = currentPageNumber + 1;
     
-    // Store the current number of products before clicking
-    const productCountBefore = await page.locator(SELECTORS.productLinks).count();
+    // Build next page URL
+    const currentUrl = page.url();
+    let nextUrl: string;
     
-    await loadMoreButton.click({ timeout: 5000 });
-
-    // 4. Wait for new products to load
-    try {
-      // Wait for either new products to appear or network to settle
-      await Promise.race([
-        // Wait for more products than before
-        page.waitForFunction(
-          (selector, countBefore) => document.querySelectorAll(selector).length > countBefore,
-          { selector: SELECTORS.productLinks, countBefore: productCountBefore },
-          { timeout: 10000 }
-        ),
-        // Or wait for network idle
-        page.waitForLoadState('networkidle', { timeout: 10000 })
-      ]);
-      
-      // Additional small wait to ensure DOM is stable
-      await page.waitForTimeout(500);
-    } catch (e) {
-      log.debug("   Timeout waiting for new products or network idle after click, proceeding anyway.");
-    }
-
-    // 5. Indicate pagination attempt was made
-    return true;
-
-  } catch (error) {
-    // Handle unexpected errors
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    if (errorMessage.includes('Execution context was destroyed')) {
-      log.debug(`   Pagination click likely caused navigation/context destruction for ${loadMoreButtonSelector}. Attempting to continue.`);
-      return true; // Let the main loop handle potential navigation
-    } else if (error instanceof Error && (errorMessage.includes('timeout') || errorMessage.includes('waitFor failed'))) {
-      // Log specific timeout/wait errors related to the button
-      log.debug(`   Pagination ended: Load more button check timed out or failed.`);
+    // Check if we're already on a paginated URL
+    if (currentUrl.includes('/page/')) {
+      // Replace existing page number
+      nextUrl = currentUrl.replace(/\/page\/\d+\/?/, `/page/${nextPage}/`);
     } else {
-      // Log other generic errors
-      log.error(`   Unexpected error during pagination: ${errorMessage}`);
+      // Add page number to URL
+      // Remove trailing slash if present
+      const baseUrl = currentUrl.replace(/\/$/, '');
+      nextUrl = `${baseUrl}/page/${nextPage}/`;
     }
-    return false; // Error occurred
+    
+    log.debug(`Navigating to page ${nextPage}: ${nextUrl}`);
+    
+    // Navigate to next page
+    await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    
+    // Check for 404 or no products indicators
+    const has404 = await page.locator('.content404, .empty-circle').count() > 0;
+    const hasNoProductsMessage = await page.locator('.et-infload-to-top:visible').count() > 0;
+    
+    if (has404 || hasNoProductsMessage) {
+      log.debug(`Reached end at page ${nextPage} - ${has404 ? '404 page' : 'no products message'} found`);
+      currentPageNumber = 1; // Reset for next run
+      return false;
+    }
+    
+    // Check if we have products on this page
+    const productCount = await page.locator('.product-inner').count();
+    
+    if (productCount > 0) {
+      log.debug(`Page ${nextPage} loaded with ${productCount} products`);
+      currentPageNumber = nextPage; // Update current page
+      return true;
+    } else {
+      log.debug(`No products found on page ${nextPage}`);
+      currentPageNumber = 1; // Reset for next run
+      return false;
+    }
+    
+  } catch (error) {
+    log.debug(`Pagination error: ${error}`);
+    currentPageNumber = 1; // Reset for next run
+    return false;
   }
 }
 
