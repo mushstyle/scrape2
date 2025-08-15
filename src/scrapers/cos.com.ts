@@ -266,12 +266,15 @@ async function handleCountrySelector(page: Page, originalUrl?: string): Promise<
 
 export async function getItemUrls(page: Page): Promise<Set<string>> {
   const itemUrls = new Set<string>();
-  // Updated selector based on actual HTML structure
-  let workingSelector = 'a[href*="/product/"]';
+  // Updated selector to match new HTML structure - product links have "group" class and contain product path
+  let workingSelector = 'a.group[href*="/product/"]';
   const originalUrl = page.url();
   
   // Check for overlays at the start
   await handleOverlays(page);
+
+  // Wait for page to fully load products
+  await page.waitForTimeout(3000);  // Give time for products to render
 
   // Main loop to handle products and country selector
   let productsFound = false;
@@ -284,11 +287,47 @@ export async function getItemUrls(page: Page): Promise<Set<string>> {
     // Try to find product links
     try {
       await page.waitForSelector(workingSelector, { timeout: 5000 });
-      log.debug(`Found products using primary selector (attempt ${attempts})`);
-      productsFound = true;
-      break;
+      
+      // Double-check we actually have product links
+      const productCount = await page.locator(workingSelector).count();
+      log.debug(`Found ${productCount} products using selector "${workingSelector}" (attempt ${attempts})`);
+      
+      if (productCount > 0) {
+        productsFound = true;
+        break;
+      } else {
+        log.debug(`Selector found but no products (attempt ${attempts})`);
+      }
     } catch (error) {
       log.debug(`Primary selector not found (attempt ${attempts})`);
+      
+      // Try alternative selectors
+      const alternativeSelectors = [
+        'a[href*="/product/"]',  // Generic product link
+        'article a[href*="/product/"]',  // Product link within article
+        '[data-testid*="product"] a',  // Any test-id containing "product"
+      ];
+      
+      for (const altSelector of alternativeSelectors) {
+        const count = await page.locator(altSelector).count();
+        if (count > 0) {
+          log.debug(`Found ${count} products with alternative selector: ${altSelector}`);
+          workingSelector = altSelector;
+          productsFound = true;
+          break;
+        }
+      }
+      
+      if (!productsFound && attempts === maxAttempts) {
+        // Debug: log what links we DO see on the page
+        const allLinks = await page.locator('a').count();
+        const linkHrefs = await page.locator('a').evaluateAll(links => 
+          links.slice(0, 10).map(l => l.href)
+        );
+        log.debug(`Found ${allLinks} total links on page. Sample hrefs: ${linkHrefs.join(', ')}`);
+      }
+      
+      if (productsFound) break;
     }
     
     // If no products found, check for country selector
@@ -489,7 +528,7 @@ export async function getItemUrls(page: Page): Promise<Set<string>> {
     log.debug(`Reached maximum Load More attempts (${maxLoadMoreAttempts}), continuing with current products`);
   }
 
-  // Now extract all product URLs
+  // Now extract all product URLs using the same selector
   const links = await page.locator(workingSelector).evaluateAll(elements =>
     elements.map(el => (el as HTMLAnchorElement).href)
   );
