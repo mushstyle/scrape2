@@ -21,21 +21,37 @@ src/scrapers-json/
 
 ### 2. Scraper Structure
 ```typescript
-import type { JsonScraper } from './types.js';
+import type { JsonScraper } from '../types/json-scraper.js';
 import type { Item, Image, Size } from '../types/item.js';
+import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js';
+import { logger } from '../utils/logger.js';
+
+const log = logger.createContext('example.com-json');
 
 const scraper: JsonScraper = {
   domain: 'example.com',
   
-  scrapeItem(json: unknown, uploadToS3: boolean = true): Item {
+  async scrapeItem(json: unknown, options?: { uploadToS3?: boolean }): Promise<Item> {
+    const uploadToS3 = options?.uploadToS3 ?? true;
     const data = json as any;
     
-    // Extract and transform data...
+    // Extract images
+    const images: Image[] = extractImages(data);
+    
+    // CRITICAL: Always include S3 upload logic
+    let finalImages = images;
+    const productUrl = data.url || '';
+    if (uploadToS3 && images.length > 0) {
+      log.debug(`Uploading ${images.length} images to S3...`);
+      finalImages = await uploadImagesToS3AndAddUrls(images, productUrl);
+      log.debug(`S3 upload complete`);
+    }
     
     return {
       id: // required
       name: // required
       url: // required
+      images: finalImages, // Use finalImages, not raw images
       // ... other Item fields
     };
   }
@@ -123,20 +139,38 @@ const inStock = product.available !== false
   && product.inStock !== false;
 ```
 
-### S3 Upload Parameter
-All JSON scrapers must accept an optional `uploadToS3` parameter (defaults to `true`):
+### S3 Upload Logic (MANDATORY)
+**CRITICAL**: All JSON scrapers MUST implement S3 upload logic. This is not optional.
+
 ```typescript
-scrapeItem(json: unknown, uploadToS3: boolean = true): Item {
-  // Process the item...
+async scrapeItem(json: unknown, options?: { uploadToS3?: boolean }): Promise<Item> {
+  const uploadToS3 = options?.uploadToS3 ?? true; // Default to true
   
-  if (uploadToS3) {
-    // Upload logic will be handled by the caller
-    // Just ensure the Item has all required fields
+  // Extract images from JSON
+  const images: Image[] = /* your extraction logic */;
+  
+  // REQUIRED: Handle S3 upload
+  let finalImages = images;
+  const productUrl = data.url || ''; // Product URL for S3 path
+  if (uploadToS3 && images.length > 0) {
+    log.debug(`Uploading ${images.length} images to S3...`);
+    finalImages = await uploadImagesToS3AndAddUrls(images, productUrl);
+    log.debug(`S3 upload complete`);
   }
   
-  return item;
+  return {
+    // ... other fields
+    images: finalImages, // ALWAYS use finalImages, not raw images
+  };
 }
 ```
+
+**Important Notes:**
+1. The function MUST be `async` and return `Promise<Item>`
+2. Always import `uploadImagesToS3AndAddUrls` from `'../utils/image-utils.js'`
+3. Always use `finalImages` in the returned Item, not the raw `images`
+4. The `uploadToS3` parameter defaults to `true`
+5. Pass the product URL as the second parameter to `uploadImagesToS3AndAddUrls`
 
 ## Testing Your Scraper
 

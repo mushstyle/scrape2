@@ -1,4 +1,4 @@
-import type { JsonScraper } from './types.js';
+import type { JsonScraper } from '../types/json-scraper.js';
 import example from './example.js';
 import diesel from './diesel.com.js';
 
@@ -15,4 +15,4 @@ export function getAllJsonScrapers(): Record<string, JsonScraper> {
   return scrapers;
 }
 
-export { type JsonScraper } from './types.js';
+export { type JsonScraper } from '../types/json-scraper.js';

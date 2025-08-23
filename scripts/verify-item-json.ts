@@ -10,9 +10,10 @@ async function main() {
   const args = process.argv.slice(2);
   
   if (args.length === 0) {
-    console.error('Usage: npm run verify:item:json <JSONL_FILE> -- --limit=<N> --domain=<DOMAIN>');
+    console.error('Usage: npm run verify:item:json <JSONL_FILE> -- --limit=<N> --domain=<DOMAIN> --s3');
     console.error('  --limit=<N>      Process N items (default: 1, 0 = all items)');
     console.error('  --domain=<NAME>  Override domain detection (e.g., --domain=diesel.com)');
+    console.error('  --s3             Enable S3 upload for images (default: false)');
     console.error('\nIMPORTANT: Use -- before options when using npm run');
     process.exit(1);
   }
@@ -20,11 +21,12 @@ async function main() {
   const jsonlFile = args[0];
   let limit = 1; // Default: process only first item
   let overrideDomain: string | undefined;
+  let uploadToS3 = false; // Default: don't upload to S3
 
   // Debug: log all arguments
   log.debug(`All arguments: ${JSON.stringify(args)}`);
 
-  // Parse parameters - ONLY handle --param=value format
+  // Parse parameters - ONLY handle --param=value format (except --s3 which is a flag)
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     
@@ -40,6 +42,11 @@ async function main() {
     if (arg.startsWith('--domain=')) {
       overrideDomain = arg.split('=')[1];
       log.normal(`Using override domain: ${overrideDomain}`);
+    }
+    
+    if (arg === '--s3') {
+      uploadToS3 = true;
+      log.normal('S3 upload enabled');
     }
   }
 
@@ -119,7 +126,7 @@ async function main() {
         continue;
       }
 
-      const item = scraper.scrapeItem(json, { uploadToS3: false });
+      const item = await scraper.scrapeItem(json, { uploadToS3 });
       results.push(item);
       itemsProcessed++;
       

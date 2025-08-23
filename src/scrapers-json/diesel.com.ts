@@ -1,10 +1,14 @@
-import type { JsonScraper } from './types.js';
+import type { JsonScraper } from '../types/json-scraper.js';
 import type { Item, Image, Size } from '../types/item.js';
+import { uploadImagesToS3AndAddUrls } from '../utils/image-utils.js';
+import { logger } from '../utils/logger.js';
+
+const log = logger.createContext('diesel.com-json');
 
 const scraper: JsonScraper = {
   domain: 'diesel.com',
   
-  scrapeItem(json: unknown, options?: { uploadToS3?: boolean }): Item {
+  async scrapeItem(json: unknown, options?: { uploadToS3?: boolean }): Promise<Item> {
     const uploadToS3 = options?.uploadToS3 ?? true;
     const data = json as any;
     const product = data?.data?.product;
@@ -13,14 +17,14 @@ const scraper: JsonScraper = {
       throw new Error('Invalid Diesel JSON structure - missing product data');
     }
     
-    // Extract images
+    // Extract images with correct field names for Image type
     const images: Image[] = [];
     if (product.images?.large) {
       product.images.large.forEach((img: any) => {
         if (img.absURL) {
           images.push({
-            url: img.absURL,
-            alt: img.alt || product.productName
+            sourceUrl: img.absURL,
+            alt_text: img.alt || product.productName
           });
         }
       });
@@ -35,9 +39,8 @@ const scraper: JsonScraper = {
     if (sizeAttribute?.values) {
       sizeAttribute.values.forEach((size: any) => {
         sizes.push({
-          name: size.displayValue || size.value,
-          inStock: size.selectable !== false,
-          price: product.price?.sales?.value
+          size: size.displayValue || size.value,
+          is_available: size.selectable !== false
         });
       });
     }
@@ -53,27 +56,33 @@ const scraper: JsonScraper = {
       ? baseUrl + product.selectedProductUrl
       : data.url || '';
     
+    // Handle S3 upload if enabled
+    let finalImages = images;
+    if (uploadToS3 && images.length > 0) {
+      log.debug(`Uploading ${images.length} images to S3...`);
+      finalImages = await uploadImagesToS3AndAddUrls(images, productUrl);
+      log.debug(`S3 upload complete, images have mushUrl property`);
+    }
+    
     return {
-      id: product.id || product.uuid || 'unknown',
-      name: product.productName || product.productNameForTile || 'Unknown Product',
-      url: productUrl,
+      sourceUrl: productUrl,
+      product_id: product.id || product.uuid || 'unknown',
+      title: product.productName || product.productNameForTile || 'Unknown Product',
+      description: product.longDescription || product.shortDescription || undefined,
+      vendor: product.brand || 'Diesel',
+      type: product.category?.name || undefined,
+      tags: product.tags || undefined,
+      images: finalImages,
+      rating: product.rating || undefined,
+      num_ratings: undefined,
+      color: product.selectedColor?.displayValue || undefined,
+      sizes: sizes.length > 0 ? sizes : undefined,
+      variants: undefined,
+      price: originalPrice,
+      sale_price: currentPrice < originalPrice ? currentPrice : undefined,
       currency: currency,
-      currentPrice: currentPrice,
-      originalPrice: originalPrice,
-      images: images,
-      sizes: sizes,
-      inStock: product.available !== false && product.availability?.isStock !== false,
-      description: product.longDescription || product.shortDescription || '',
-      brand: product.brand || 'Diesel',
-      category: product.category?.name || '',
-      metadata: {
-        productType: product.productType,
-        masterID: product.masterID,
-        gender: product.gender,
-        genderCode: product.genderCode,
-        editorialComposition: product.editorialComposition,
-        rating: product.rating
-      }
+      similar_item_urls: undefined,
+      status: 'ACTIVE'
     };
   }
 };
