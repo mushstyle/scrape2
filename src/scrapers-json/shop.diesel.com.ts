@@ -6,7 +6,7 @@ import { logger } from '../utils/logger.js';
 const log = logger.createContext('diesel.com-json');
 
 const scraper: JsonScraper = {
-  domain: 'diesel.com',
+  domain: 'shop.diesel.com',
   
   async scrapeItem(json: unknown, options?: { uploadToS3?: boolean }): Promise<Item> {
     const uploadToS3 = options?.uploadToS3 ?? true;

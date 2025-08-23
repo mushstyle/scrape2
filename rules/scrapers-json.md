@@ -16,8 +16,9 @@ src/scrapers-json/
 
 ### 1. File Location
 - Create a new file in `/src/scrapers-json/` named after the domain
-- Use the exact domain name: `diesel.com.ts`, not `diesel.ts`
-- Remove `www.` or `shop.` prefixes from the filename
+- Use the EXACT domain name including subdomains: `shop.diesel.com.ts`, not `diesel.com.ts`
+- Only remove `www.` prefix (use extractDomain utility for consistency)
+- Keep other subdomains like `shop.`, `us.`, etc.
 
 ### 2. Scraper Structure
 ```typescript
@@ -63,10 +64,10 @@ export default scraper;
 ### 3. Register the Scraper
 Add your scraper to `/src/scrapers-json/index.ts`:
 ```typescript
-import diesel from './diesel.com.js';
+import shopDiesel from './shop.diesel.com.js';
 
 const scrapers: Record<string, JsonScraper> = {
-  'diesel.com': diesel,
+  'shop.diesel.com': shopDiesel,
   // ... other scrapers
 };
 ```
@@ -199,7 +200,8 @@ npm run verify:item:json test-file.jsonl -- --domain=example.com
 ### 3. Domain Auto-Detection
 The verify command automatically detects domains from URLs in the JSON:
 - Looks for URL fields: `url`, `productUrl`, `data.originalUri`, etc.
-- Strips `www.` and `shop.` prefixes
+- Uses `extractDomain` utility which only strips `www.` prefix
+- Keeps subdomains like `shop.`, `us.`, etc.
 - Falls back to `--domain` parameter if detection fails
 
 ## Common Patterns

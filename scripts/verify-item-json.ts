@@ -3,6 +3,7 @@ import fs from 'fs';
 import readline from 'readline';
 import { getJsonScraper } from '../src/scrapers-json/index.js';
 import { logger } from '../src/utils/logger.js';
+import { extractDomain } from '../src/utils/url-utils.js';
 
 const log = logger.createContext('verify-item-json');
 
@@ -98,13 +99,10 @@ async function main() {
         
         for (const urlField of urlFields) {
           if (urlField && typeof urlField === 'string') {
-            try {
-              const url = new URL(urlField.startsWith('http') ? urlField : `https://${urlField}`);
-              domain = url.hostname.replace('www.', '').replace('shop.', '');
+            domain = extractDomain(urlField);
+            if (domain) {
               log.debug(`Detected domain from URL: ${domain}`);
               break;
-            } catch (e) {
-              // Invalid URL, try next
             }
           }
         }

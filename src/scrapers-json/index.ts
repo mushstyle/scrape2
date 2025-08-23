@@ -1,10 +1,10 @@
 import type { JsonScraper } from '../types/json-scraper.js';
 import example from './example.js';
-import diesel from './diesel.com.js';
+import shopDiesel from './shop.diesel.com.js';
 
 const scrapers: Record<string, JsonScraper> = {
   'example.com': example,
-  'diesel.com': diesel,
+  'shop.diesel.com': shopDiesel,
 };
 
 export function getJsonScraper(domain: string): JsonScraper | undefined {
