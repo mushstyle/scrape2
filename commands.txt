@@ -1,0 +1,1 @@
+head -n 1 ~/Desktop/dev.diesel-dump.us-catalog.jsonl
