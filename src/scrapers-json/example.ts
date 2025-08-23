@@ -4,7 +4,8 @@ import type { Item } from '../types/item.js';
 const scraper: JsonScraper = {
   domain: 'example.com',
   
-  scrapeItem(json: unknown): Item {
+  scrapeItem(json: unknown, options?: { uploadToS3?: boolean }): Item {
+    const uploadToS3 = options?.uploadToS3 ?? true;
     const data = json as any;
     
     return {

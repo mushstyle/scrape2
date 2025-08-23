@@ -119,7 +119,7 @@ async function main() {
         continue;
       }
 
-      const item = scraper.scrapeItem(json);
+      const item = scraper.scrapeItem(json, { uploadToS3: false });
       results.push(item);
       itemsProcessed++;
       
