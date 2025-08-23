@@ -28,9 +28,10 @@
 ## Rules to Follow
 - `rules/sites-and-sessions.md`: how to use SiteManager, SessionManager, and distributor
 - `rules/testing.md`: how to test
-- `rules/types.md`: how to use and create types
+- `rules/types.md`: where types belong (/src/types/) and how to organize type files
 - `rules/plans.md`: how to create plans
-- `rules/scrapers.md`: how to create scrapers
+- `rules/scrapers.md`: how to create HTML scrapers (for websites)
+- `rules/scrapers-json.md`: how to create JSON scrapers (for processing API responses or JSON data)
 - `rules/providers.md`: how to create or access providers and external services/APIs
 - `rules/examples.md`: how to create examples
 
