@@ -10,6 +10,7 @@ export interface BrowserConfig {
 }
 
 export interface ScrapeConfig {
+  type?: 'file' | 'json' | null;  // Scraper type: 'file' for HTML scrapers, 'json' for JSON scrapers
   browser?: BrowserConfig | null;
   scraperFile?: string | null;
   startPages?: string[] | null;

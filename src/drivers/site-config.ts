@@ -33,6 +33,7 @@ export async function getSiteConfig(domainOrUrl: string): Promise<SiteConfig> {
         const siteConfig: SiteConfig = {
             domain: apiData._id,
             scraper: apiData.scrapeConfig.scraperFile || `${apiData._id}.ts`,
+            scraperType: apiData.scrapeConfig.type || 'file',  // Default to 'file' for backwards compatibility
             startPages: apiData.scrapeConfig.startPages || [],
             scraping: {
                 browser: {

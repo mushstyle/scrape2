@@ -7,6 +7,7 @@ export interface PaginationConfig {
 export interface SiteConfig {
     domain: string;
     scraper: string;
+    scraperType?: 'file' | 'json';  // Type of scraper: 'file' for HTML, 'json' for JSON data
     startPages: string[];
     scraping: {
         browser: {

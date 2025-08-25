@@ -4,6 +4,7 @@ import readline from 'readline';
 import { getJsonScraper } from '../src/scrapers-json/index.js';
 import { logger } from '../src/utils/logger.js';
 import { extractDomain } from '../src/utils/url-utils.js';
+import { getSiteConfig } from '../src/drivers/site-config.js';
 
 const log = logger.createContext('verify-item-json');
 
@@ -118,9 +119,32 @@ async function main() {
         continue;
       }
 
-      const scraper = getJsonScraper(domain);
+      // First, try to get the site configuration from API
+      let scraperName: string | undefined;
+      try {
+        const siteConfig = await getSiteConfig(domain);
+        log.debug(`Site config for ${domain}: scraperType=${siteConfig.scraperType}, scraper=${siteConfig.scraper}`);
+        
+        if (siteConfig.scraperType === 'json') {
+          scraperName = siteConfig.scraper;
+          log.normal(`Using JSON scraper from API: ${scraperName} for domain: ${domain}`);
+        } else if (!siteConfig.scraperType || siteConfig.scraperType === 'file') {
+          // For backwards compatibility, if type is not set or is 'file', still try to process
+          log.debug(`Site ${domain} has scraperType '${siteConfig.scraperType}', attempting JSON scraper anyway`);
+          scraperName = undefined;
+        } else {
+          log.error(`Line ${lineNumber}: Site ${domain} has unknown scraper type: ${siteConfig.scraperType}`);
+          continue;
+        }
+      } catch (apiError) {
+        log.debug(`Could not fetch site config from API for ${domain}, falling back to default: ${apiError}`);
+        // Fall back to default naming convention
+        scraperName = undefined;
+      }
+
+      const scraper = getJsonScraper(domain, scraperName);
       if (!scraper) {
-        log.error(`Line ${lineNumber}: No scraper found for domain: ${domain}`);
+        log.error(`Line ${lineNumber}: No scraper found for domain: ${domain}${scraperName ? ` (tried: ${scraperName})` : ''}`);
         continue;
       }
 
@@ -128,7 +152,7 @@ async function main() {
       results.push(item);
       itemsProcessed++;
       
-      log.normal(`Processed item ${itemsProcessed} from line ${lineNumber}: ${item.name}`);
+      log.normal(`Processed item ${itemsProcessed} from line ${lineNumber}: ${item.title}`);
       
     } catch (error) {
       log.error(`Line ${lineNumber}: Failed to parse or process - ${error}`);
