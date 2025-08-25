@@ -1,5 +1,6 @@
 import { logger } from '../utils/logger.js';
 import type { Scraper } from '../scrapers/types.js';
+import { getSiteConfig } from './site-config.js';
 
 const log = logger.createContext('scraper-loader');
 
@@ -12,9 +13,21 @@ const log = logger.createContext('scraper-loader');
  * Load a scraper module for a given domain
  * @param domain The domain to load the scraper for (e.g., 'amgbrand.com')
  * @returns The scraper module
+ * @throws Error if the domain has a JSON scraper (not supported for browser automation)
  */
 export async function loadScraper(domain: string): Promise<Scraper> {
   try {
+    // Check if this domain has a JSON scraper instead of HTML scraper
+    try {
+      const siteConfig = await getSiteConfig(domain);
+      if (siteConfig.scraperType === 'json') {
+        throw new Error(`Domain ${domain} uses a JSON scraper, which is not supported for browser-based scraping. Use 'npm run verify:item:json' for JSON data processing.`);
+      }
+    } catch (configError) {
+      // If we can't get config, continue with trying to load the scraper
+      log.debug(`Could not fetch site config for ${domain}, attempting to load HTML scraper anyway`);
+    }
+    
     // Dynamically import the scraper module
     const scraperPath = `../scrapers/${domain}.js`;
     const scraperModule = await import(scraperPath);
