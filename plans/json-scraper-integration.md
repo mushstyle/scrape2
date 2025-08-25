@@ -46,7 +46,7 @@ loadScraper(domain: string, type: 'html' | 'json'): Scraper | JsonScraper
 ## Usage Example
 ```bash
 # Site configured with scraperType: 'json' in db/sites.json
-npm run scrape items --sites shop.diesel.com
+npm run scrape items --sites=shop.diesel.com
 
 # Engine detects JSON type, loads JSON scraper, fetches JSON data
 ```
@@ -59,6 +59,6 @@ npm run scrape items --sites shop.diesel.com
 
 ## Testing
 1. Add `scraperType: 'json'` to shop.diesel.com config
-2. Run `npm run scrape items --sites shop.diesel.com`
+2. Run `npm run scrape items --sites=shop.diesel.com`
 3. Verify it uses JSON scraper instead of HTML scraper
 4. Confirm items are scraped correctly with S3 uploads
