@@ -14,11 +14,67 @@ import type { Item } from '../src/types/item.js';
 
 const log = logger.createContext('scrape-items-json');
 
+async function processLineBatch(
+    lineBatch: { lineNumber: number; line: string }[],
+    scraper: any,
+    domain: string,
+    parallelLimit?: number
+): Promise<{ items: Item[]; processed: number; errors: number }> {
+    const items: Item[] = [];
+    let processed = 0;
+    let errors = 0;
+    
+    // Process lines with optional parallel limit
+    const processLine = async ({ lineNumber, line }: { lineNumber: number; line: string }) => {
+        try {
+            const jsonData = JSON.parse(line);
+            const item = await scraper.scrapeItem(jsonData, { uploadToS3: false });
+            
+            if (item) {
+                log.debug(`Processed item from line ${lineNumber}: ${item.title}`);
+                return { item, success: true };
+            }
+            return { success: false };
+        } catch (error) {
+            log.error(`Error processing line ${lineNumber}:`, { error });
+            return { success: false, error: true };
+        }
+    };
+    
+    let results: any[] = [];
+    
+    if (parallelLimit && parallelLimit < lineBatch.length) {
+        // Process with limited parallelism
+        for (let i = 0; i < lineBatch.length; i += parallelLimit) {
+            const chunk = lineBatch.slice(i, i + parallelLimit);
+            const chunkResults = await Promise.all(chunk.map(processLine));
+            results.push(...chunkResults);
+        }
+    } else {
+        // Process all in parallel
+        results = await Promise.all(lineBatch.map(processLine));
+    }
+    
+    for (const result of results) {
+        if (result.success && result.item) {
+            items.push(result.item);
+            processed++;
+        } else if (result.error) {
+            errors++;
+        }
+    }
+    
+    log.debug(`Batch processed: ${processed} items, ${errors} errors`);
+    
+    return { items, processed, errors };
+}
+
 async function processJsonFile(filePath: string, options: {
     sites?: string[];
     batchSize: number;
     noS3: boolean;
     startLine?: number;
+    parallelLimit?: number;
 }): Promise<{ processed: number; errors: number }> {
     const fileName = path.basename(filePath);
     
@@ -62,7 +118,7 @@ async function processJsonFile(filePath: string, options: {
     const isJsonl = filePath.endsWith('.jsonl');
     
     if (isJsonl) {
-        // Process JSONL line by line
+        // Process JSONL in batches for parallel processing
         const fileStream = fs.createReadStream(filePath);
         const rl = readline.createInterface({
             input: fileStream,
@@ -70,6 +126,8 @@ async function processJsonFile(filePath: string, options: {
         });
         
         let lineNumber = 0;
+        let lineBatch: { lineNumber: number; line: string }[] = [];
+        
         for await (const line of rl) {
             lineNumber++;
             
@@ -80,35 +138,35 @@ async function processJsonFile(filePath: string, options: {
             
             if (!line.trim()) continue;
             
-            try {
-                const jsonData = JSON.parse(line);
-                const item = await scraper.scrapeItem(jsonData, { uploadToS3: false });
+            // Collect lines in batch
+            lineBatch.push({ lineNumber, line });
+            
+            // Process batch when it reaches batchSize
+            if (lineBatch.length >= options.batchSize) {
+                const batchResults = await processLineBatch(lineBatch, scraper, domain, options.parallelLimit);
+                items.push(...batchResults.items);
+                processed += batchResults.processed;
+                errors += batchResults.errors;
                 
-                if (item) {
-                    // Debug: Log the item structure
-                    log.debug(`Item structure:`, {
-                        sourceUrl: item.sourceUrl,
-                        product_id: item.product_id,
-                        title: item.title,
-                        hasImages: !!item.images?.length
-                    });
-                    items.push(item);
-                    processed++;
-                    log.debug(`Processed item from line ${lineNumber}: ${item.title}`);
-                    
-                    // Batch save
-                    if (items.length >= options.batchSize) {
-                        await saveItems(domain, items, options.noS3);
-                        items.length = 0;
-                    }
+                // Save items
+                if (items.length > 0) {
+                    await saveItems(domain, items, options.noS3);
+                    items.length = 0;
                 }
-            } catch (error) {
-                log.error(`Error processing line ${lineNumber}:`, { error });
-                errors++;
+                
+                lineBatch = [];
             }
         }
+        
+        // Process remaining lines in final batch
+        if (lineBatch.length > 0) {
+            const batchResults = await processLineBatch(lineBatch, scraper, domain, options.parallelLimit);
+            items.push(...batchResults.items);
+            processed += batchResults.processed;
+            errors += batchResults.errors;
+        }
     } else {
-        // Process regular JSON file
+        // Process regular JSON file with parallel processing
         try {
             const fileContent = await fsPromises.readFile(filePath, 'utf-8');
             const jsonData = JSON.parse(fileContent);
@@ -116,24 +174,40 @@ async function processJsonFile(filePath: string, options: {
             // Handle both single object and array
             const dataArray = Array.isArray(jsonData) ? jsonData : [jsonData];
             
-            for (const data of dataArray) {
-                try {
-                    const item = await scraper.scrapeItem(data, { uploadToS3: false });
-                    
-                    if (item) {
-                        items.push(item);
-                        processed++;
-                        log.debug(`Processed item: ${item.title}`);
-                        
-                        // Batch save
-                        if (items.length >= options.batchSize) {
-                            await saveItems(domain, items, options.noS3);
-                            items.length = 0;
+            // Process in batches
+            for (let i = 0; i < dataArray.length; i += options.batchSize) {
+                const batch = dataArray.slice(i, i + options.batchSize);
+                
+                // Process batch in parallel
+                const promises = batch.map(async (data, index) => {
+                    try {
+                        const item = await scraper.scrapeItem(data, { uploadToS3: false });
+                        if (item) {
+                            log.debug(`Processed item: ${item.title}`);
+                            return { item, success: true };
                         }
+                        return { success: false };
+                    } catch (error) {
+                        log.error(`Error processing item at index ${i + index}:`, { error });
+                        return { success: false, error: true };
                     }
-                } catch (error) {
-                    log.error(`Error processing item:`, { error });
-                    errors++;
+                });
+                
+                const results = await Promise.all(promises);
+                
+                for (const result of results) {
+                    if (result.success && result.item) {
+                        items.push(result.item);
+                        processed++;
+                    } else if (result.error) {
+                        errors++;
+                    }
+                }
+                
+                // Save batch
+                if (items.length > 0) {
+                    await saveItems(domain, items, options.noS3);
+                    items.length = 0;
                 }
             }
         } catch (error) {
@@ -206,7 +280,8 @@ async function main() {
             sites: { type: 'string' },
             'batch-size': { type: 'string' },
             'no-s3': { type: 'boolean' },
-            'start-line': { type: 'string' }
+            'start-line': { type: 'string' },
+            'parallel-limit': { type: 'string' }
         }
     });
     
@@ -221,6 +296,7 @@ async function main() {
     const batchSize = parseInt(values['batch-size'] || '100', 10);
     const noS3 = values['no-s3'] || false;
     const startLine = values['start-line'] ? parseInt(values['start-line'], 10) : undefined;
+    const parallelLimit = values['parallel-limit'] ? parseInt(values['parallel-limit'], 10) : undefined;
     
     // Verify directory exists
     try {
@@ -242,6 +318,11 @@ async function main() {
     if (startLine !== undefined) {
         log.normal(`Starting from line: ${startLine + 1} (0-indexed: ${startLine})`);
     }
+    if (parallelLimit !== undefined) {
+        log.normal(`Parallel limit: ${parallelLimit} items per batch`);
+    } else {
+        log.normal(`Parallel processing: unlimited (full batch)`);
+    }
     
     // Find all JSON/JSONL files
     const files = await fsPromises.readdir(dir);
@@ -260,7 +341,7 @@ async function main() {
     
     for (const file of jsonFiles) {
         const filePath = path.join(dir, file);
-        const result = await processJsonFile(filePath, { sites, batchSize, noS3, startLine });
+        const result = await processJsonFile(filePath, { sites, batchSize, noS3, startLine, parallelLimit });
         
         if (result.processed > 0 || result.errors > 0) {
             filesProcessed++;
