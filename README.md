@@ -69,6 +69,27 @@ npm run scrape paginate -- --cache-size-mb=200 --cache-ttl-seconds=600
 npm run scrape paginate -- --disable-cache
 ```
 
+### JSON Processing Commands
+
+```bash
+# Process JSON/JSONL files containing pre-fetched product data
+npm run scrape:items:json -- --dir=/path/to/json/files
+
+# Process specific sites only
+npm run scrape:items:json -- --dir=/path/to/json/files --sites=shop.diesel.com,other.com
+
+# Custom batch size (default: 100)
+npm run scrape:items:json -- --dir=/path/to/json/files --batch-size=50
+
+# Skip S3 image upload
+npm run scrape:items:json -- --dir=/path/to/json/files --no-s3
+
+# Start processing from a specific line (0-indexed, useful for resuming large files)
+npm run scrape:items:json -- --dir=/path/to/json/files --start-line=1000
+```
+
+Note: JSON/JSONL files must be named with the domain they contain (e.g., `shop.diesel.com.jsonl`).
+
 ### Verification Commands
 
 ```bash

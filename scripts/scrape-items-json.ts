@@ -18,6 +18,7 @@ async function processJsonFile(filePath: string, options: {
     sites?: string[];
     batchSize: number;
     noS3: boolean;
+    startLine?: number;
 }): Promise<{ processed: number; errors: number }> {
     const fileName = path.basename(filePath);
     
@@ -71,6 +72,11 @@ async function processJsonFile(filePath: string, options: {
         let lineNumber = 0;
         for await (const line of rl) {
             lineNumber++;
+            
+            // Skip lines before startLine
+            if (options.startLine && lineNumber <= options.startLine) {
+                continue;
+            }
             
             if (!line.trim()) continue;
             
@@ -199,7 +205,8 @@ async function main() {
             dir: { type: 'string' },
             sites: { type: 'string' },
             'batch-size': { type: 'string' },
-            'no-s3': { type: 'boolean' }
+            'no-s3': { type: 'boolean' },
+            'start-line': { type: 'string' }
         }
     });
     
@@ -213,6 +220,7 @@ async function main() {
     const sites = values.sites?.split(',').map(s => s.trim()).filter(Boolean);
     const batchSize = parseInt(values['batch-size'] || '100', 10);
     const noS3 = values['no-s3'] || false;
+    const startLine = values['start-line'] ? parseInt(values['start-line'], 10) : undefined;
     
     // Verify directory exists
     try {
@@ -231,6 +239,9 @@ async function main() {
         log.normal(`Filtering for sites: ${sites.join(', ')}`);
     }
     log.normal(`Batch size: ${batchSize}, S3 upload: ${!noS3}`);
+    if (startLine !== undefined) {
+        log.normal(`Starting from line: ${startLine + 1} (0-indexed: ${startLine})`);
+    }
     
     // Find all JSON/JSONL files
     const files = await fsPromises.readdir(dir);
@@ -249,7 +260,7 @@ async function main() {
     
     for (const file of jsonFiles) {
         const filePath = path.join(dir, file);
-        const result = await processJsonFile(filePath, { sites, batchSize, noS3 });
+        const result = await processJsonFile(filePath, { sites, batchSize, noS3, startLine });
         
         if (result.processed > 0 || result.errors > 0) {
             filesProcessed++;
