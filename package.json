@@ -20,6 +20,7 @@
     "verify:paginate": "tsx --no-warnings --env-file=.env scripts/verify-paginate.ts",
     "verify:item": "tsx --no-warnings --env-file=.env scripts/verify-item.ts",
     "verify:item:json": "tsx --no-warnings --env-file=.env scripts/verify-item-json.ts",
+    "scrape:items:json": "tsx --no-warnings --env-file=.env scripts/scrape-items-json.ts",
     "sites:manage": "tsx --no-warnings --env-file=.env src/scripts/manage-sites.ts",
     "sites:config:get": "tsx --no-warnings --env-file=.env src/scripts/get-site-config.ts",
     "sites:config:set": "tsx --no-warnings --env-file=.env src/scripts/set-site-config.ts"
