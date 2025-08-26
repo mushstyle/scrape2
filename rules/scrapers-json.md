@@ -20,7 +20,13 @@ src/scrapers-json/
 - Only remove `www.` prefix (use extractDomain utility for consistency)
 - Keep other subdomains like `shop.`, `us.`, etc.
 
-### 2. Scraper Structure
+### 2. Important Type Safety
+**CRITICAL**: The returned Item object must match the `Item` type EXACTLY. Pay special attention to:
+- `tags` must be `string[]` not an array of objects
+- All fields must match the types defined in `/src/types/item.ts`
+- Use the Item type to ensure type safety
+
+### 3. Scraper Structure
 ```typescript
 import type { JsonScraper } from '../types/json-scraper.js';
 import type { Item, Image, Size } from '../types/item.js';
@@ -61,7 +67,7 @@ const scraper: JsonScraper = {
 export default scraper;
 ```
 
-### 3. Register the Scraper
+### 4. Register the Scraper
 Add your scraper to `/src/scrapers-json/index.ts`:
 ```typescript
 import shopDiesel from './shop.diesel.com.js';

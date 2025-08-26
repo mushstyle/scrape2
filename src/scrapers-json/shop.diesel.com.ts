@@ -71,7 +71,7 @@ const scraper: JsonScraper = {
       description: product.longDescription || product.shortDescription || undefined,
       vendor: product.brand || 'Diesel',
       type: product.category?.name || undefined,
-      tags: product.tags || undefined,
+      tags: product.tags?.map((tag: any) => typeof tag === 'string' ? tag : tag.name).filter(Boolean) || undefined,
       images: finalImages,
       rating: product.rating || undefined,
       num_ratings: undefined,
