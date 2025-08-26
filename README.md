@@ -86,9 +86,15 @@ npm run scrape:items:json -- --dir=/path/to/json/files --no-s3
 
 # Start processing from a specific line (0-indexed, useful for resuming large files)
 npm run scrape:items:json -- --dir=/path/to/json/files --start-line=1000
+
+# Control parallel processing (limit concurrent items, useful for rate limiting)
+npm run scrape:items:json -- --dir=/path/to/json/files --parallel-limit=10
 ```
 
-Note: JSON/JSONL files must be named with the domain they contain (e.g., `shop.diesel.com.jsonl`).
+Note: 
+- JSON/JSONL files must be named with the domain they contain (e.g., `shop.diesel.com.jsonl`)
+- Items are processed in batches (default: 100). Within each batch, items are processed in parallel for better performance
+- Use `--parallel-limit` to control concurrency if you experience rate limiting or memory issues
 
 ### Verification Commands
 
